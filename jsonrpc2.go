@@ -43,22 +43,13 @@ type Conn struct {
 type Handler func(context.Context, *Conn, *Request)
 
 // Canceler is an option you can pass to NewConn which is invoked for
-// cancelled outgoing requests.
+// canceled outgoing requests.
 // The request will have the ID filled in, which can be used to propagate the
 // cancel to the other process if needed.
 // It is okay to use the connection to send notifications, but the context will
-// be in the cancelled state, so you must do it with the background context
+// be in the canceled state, so you must do it with the background context
 // instead.
 type Canceler func(context.Context, *Conn, *Request)
-
-// NewErrorf builds a Error struct for the suppied message and code.
-// If args is not empty, message and args will be passed to Sprintf.
-func NewErrorf(code ErrorCode, format string, args ...interface{}) *Error {
-	return &Error{
-		Code:    code,
-		Message: fmt.Sprintf(format, args...),
-	}
-}
 
 // NewConn creates a new connection object that reads and writes messages from
 // the supplied stream and dispatches incoming messages to the supplied handler.
