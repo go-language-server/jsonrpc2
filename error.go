@@ -4,7 +4,7 @@
 
 package jsonrpc2
 
-type ErrorCode int
+type ErrorCode int64
 
 const (
 	ParseError           ErrorCode = -32700
