@@ -22,6 +22,8 @@ type Interface interface {
 	Wait(ctx context.Context) error
 }
 
+var _ Interface = (*Conn)(nil)
+
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
