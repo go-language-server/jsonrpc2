@@ -6,7 +6,6 @@ package jsonrpc2
 
 import (
 	"context"
-	"fmt"
 	"sync"
 )
 
@@ -53,30 +52,32 @@ type Conn struct {
 
 var _ Interface = (*Conn)(nil)
 
+type Options func(*Conn)
+
+func WithHandler(h Handler) Options {
+	return func(c *Conn) {
+		c.handle = h
+	}
+}
+
+func WithCanceler(cancel Canceler) Options {
+	return func(c *Conn) {
+		c.cancel = cancel
+	}
+}
+
 // NewConn creates a new connection object that reads and writes messages from
 // the supplied stream and dispatches incoming messages to the supplied handler.
-func NewConn(ctx context.Context, s Stream, options ...interface{}) *Conn {
+func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 	conn := &Conn{
 		stream:  s,
 		done:    make(chan struct{}),
 		pending: make(map[ID]chan *Response),
 	}
 	for _, opt := range options {
-		switch opt := opt.(type) {
-		case Handler:
-			if conn.handle != nil {
-				panic("Duplicate Handler function in options list")
-			}
-			conn.handle = opt
-		case Canceler:
-			if conn.cancel != nil {
-				panic("Duplicate Canceler function in options list")
-			}
-			conn.cancel = opt
-		default:
-			panic(fmt.Errorf("Unknown option type %T in options list", opt))
-		}
+		opt(conn)
 	}
+
 	if conn.handle == nil {
 		// the default handler reports a method error
 		conn.handle = func(ctx context.Context, c *Conn, r *Request) {
@@ -89,10 +90,12 @@ func NewConn(ctx context.Context, s Stream, options ...interface{}) *Conn {
 		// the default canceller does nothing
 		conn.cancel = func(context.Context, *Conn, *Request) {}
 	}
+
 	go func() {
 		conn.err = conn.run(ctx)
 		close(conn.done)
 	}()
+
 	return conn
 }
 
