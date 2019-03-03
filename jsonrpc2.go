@@ -5,75 +5,114 @@
 package jsonrpc2
 
 import (
-	"encoding/json"
+	"context"
+	"fmt"
+	"sync"
 )
 
-// ID is a Request identifier.
-// Only one of either the Name or Number members will be set, using the
-// number form if the Name is the empty string.
-type ID struct {
-	Name   string
-	Number int64
+type Interface interface {
+	Call(ctx context.Context, method string, params, result interface{}) error
+
+	Reply(ctx context.Context, req *Request, result interface{}, err error) error
+
+	Notify(ctx context.Context, method string, params interface{}) error
+
+	Cancel(id ID)
+
+	Wait(ctx context.Context) error
 }
 
-// Message is a general message as defined by JSON-RPC. The language server protocol always uses "2.0" as the jsonrpc version.
-type Message struct {
-	JSONRPC string `json:"jsonrpc"`
+// Conn is a JSON RPC 2 client server connection.
+// Conn is bidirectional; it does not have a designated server or client end.
+type Conn struct {
+	handle    Handler
+	cancel    Canceler
+	stream    Stream
+	done      chan struct{}
+	err       error
+	seq       int64      // must only be accessed using atomic operations
+	pendingMu sync.Mutex // protects the pending map
+	pending   map[ID]chan *Response
 }
 
-// Request is a request message to describe a request between the client and the server.
-// Every processed request must send a response back to the sender of the request.
-type Request struct {
-	Message
+// Handler is an option you can pass to NewConn to handle incoming requests.
+// If the request returns false from IsNotify then the Handler must eventually
+// call Reply on the Conn with the supplied request.
+// Handlers are called synchronously, they should pass the work off to a go
+// routine if they are going to take a long time.
+type Handler func(context.Context, *Conn, *Request)
 
-	// The request id.
-	ID *ID `json:"id"`
+// Canceler is an option you can pass to NewConn which is invoked for
+// cancelled outgoing requests.
+// The request will have the ID filled in, which can be used to propagate the
+// cancel to the other process if needed.
+// It is okay to use the connection to send notifications, but the context will
+// be in the cancelled state, so you must do it with the background context
+// instead.
+type Canceler func(context.Context, *Conn, *Request)
 
-	// The method to be invoked.
-	Method string `json:"method"`
-
-	// The method's params.
-	Params *json.RawMessage `json:"params,omitempty"`
+// NewErrorf builds a Error struct for the suppied message and code.
+// If args is not empty, message and args will be passed to Sprintf.
+func NewErrorf(code ErrorCode, format string, args ...interface{}) *Error {
+	return &Error{
+		Code:    code,
+		Message: fmt.Sprintf(format, args...),
+	}
 }
 
-// Response is a response ressage sent as a result of a request.
-// If a request doesn't provide a result value the receiver of a request still needs to return a response message to
-// conform to the JSON RPC specification.
-// The result property of the ResponseMessage should be set to null in this case to signal a successful request.
-type Response struct {
-	Message
-
-	// The error object in case a request fails.
-	Error *ResponseError `json:"error,omitempty"`
-
-	// The request id.
-	ID *ID `json:"id"`
-
-	// The result of a request. This member is REQUIRED on success.
-	// This member MUST NOT exist if there was an error invoking the method.
-	Result *json.RawMessage `json:"result,omitempty"`
+// NewConn creates a new connection object that reads and writes messages from
+// the supplied stream and dispatches incoming messages to the supplied handler.
+func NewConn(ctx context.Context, s Stream, options ...interface{}) *Conn {
+	conn := &Conn{
+		stream:  s,
+		done:    make(chan struct{}),
+		pending: make(map[ID]chan *Response),
+	}
+	for _, opt := range options {
+		switch opt := opt.(type) {
+		case Handler:
+			if conn.handle != nil {
+				panic("Duplicate Handler function in options list")
+			}
+			conn.handle = opt
+		case Canceler:
+			if conn.cancel != nil {
+				panic("Duplicate Canceler function in options list")
+			}
+			conn.cancel = opt
+		default:
+			panic(fmt.Errorf("Unknown option type %T in options list", opt))
+		}
+	}
+	if conn.handle == nil {
+		// the default handler reports a method error
+		conn.handle = func(ctx context.Context, c *Conn, r *Request) {
+			if r.IsNotify() {
+				c.Reply(ctx, r, nil, NewErrorf(MethodNotFound, "method %q not found", r.Method))
+			}
+		}
+	}
+	if conn.cancel == nil {
+		// the default canceller does nothing
+		conn.cancel = func(context.Context, *Conn, *Request) {}
+	}
+	go func() {
+		conn.err = conn.run(ctx)
+		close(conn.done)
+	}()
+	return conn
 }
 
-// ResponseError ...
-type ResponseError struct {
+func (c *Conn) run(ctx context.Context) error { return nil }
 
-	// Code a number indicating the error type that occurred.
-	Code ErrorCode `json:"code"`
+func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error { return nil }
 
-	// Data a Primitive or Structured value that contains additional
-	// information about the error. Can be omitted.
-	Data *json.RawMessage `json:"data"`
-
-	// Message a string providing a short description of the error.
-	Message string `json:"message"`
+func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
+	return nil
 }
 
-type NotificationMessage struct {
-	Message
+func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error { return nil }
 
-	// Method is the method to be invoked.
-	Method string `json:"method"`
+func (c *Conn) Cancel(id ID) {}
 
-	// Params is the notification's params.
-	Params interface{} `json:"params,omitempty"`
-}
+func (c *Conn) Wait(ctx context.Context) error { return nil }
