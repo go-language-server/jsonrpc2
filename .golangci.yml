@@ -1,0 +1,98 @@
+run:
+  concurrency: 4
+  deadline: 5m
+  issues-exit-code: 1
+  tests: true
+  skip-files:
+    - ".*\\.pb\\.go"
+    - ".*\\.gen\\.go"
+
+linters-settings:
+  depguard:
+    list-type: blacklist
+    include-go-root: false
+    packages:
+      - github.com/davecgh/go-spew/spew
+  dupl:
+    threshold: 100
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    # exclude: .errcheckignore
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gocyclo:
+    min-complexity: 10
+  gofmt:
+    simplify: true
+  goimports:
+    # local-prefixes: github.com/
+  golint:
+    min-confidence: 0.3
+  govet:
+    check-shadowing: false
+  maligned:
+    suggest-new: true
+  misspell:
+    locale: US
+  nakedret:
+    max-func-lines: 30
+  prealloc:
+    simple: true
+    range-loops: true  # Report preallocation suggestions on range loops, true by default
+    for-loops: false  # Report preallocation suggestions on for loops, false by default
+  unparam:
+    algo: cha
+    check-exported: false
+  unused:
+    check-exported: false
+
+linters:
+  enable:
+    - deadcode
+    - depguard
+    - errcheck
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - golint
+    - gosimple
+    - govet
+    - ineffassign
+    - interfacer
+    - maligned
+    - misspell
+    - nakedret
+    - prealloc
+    - scopelint
+    - staticcheck
+    - structcheck
+    - unconvert
+    - unparam
+    - unused
+    - varcheck
+  enable-all: false
+  disable:
+    - dupl
+    - gochecknoglobals
+    - gochecknoinits
+    - gocyclo
+    - gosec
+    - lll
+    - megacheck
+    - typecheck
+  disable-all: false
+  presets:
+    - bugs
+    - unused
+  fast: false
+
+issues:
+  exclude-use-default: false
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
