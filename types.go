@@ -55,27 +55,6 @@ type Response struct {
 	Result []byte `json:"result,omitempty"`
 }
 
-// Error ...
-type Error struct {
-
-	// Code a number indicating the error type that occurred.
-	Code ErrorCode `json:"code"`
-
-	// Data a Primitive or Structured value that contains additional
-	// information about the error. Can be omitted.
-	Data []byte `json:"data"`
-
-	// Message a string providing a short description of the error.
-	Message string `json:"message"`
-}
-
-func (err *Error) Error() string {
-	if err == nil {
-		return ""
-	}
-	return err.Message
-}
-
 type NotificationMessage struct {
 	Message
 
