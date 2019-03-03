@@ -22,21 +22,6 @@ type Interface interface {
 	Wait(ctx context.Context) error
 }
 
-var _ Interface = (*Conn)(nil)
-
-// Conn is a JSON RPC 2 client server connection.
-// Conn is bidirectional; it does not have a designated server or client end.
-type Conn struct {
-	handle    Handler
-	cancel    Canceler
-	stream    Stream
-	done      chan struct{}
-	err       error
-	seq       int64      // must only be accessed using atomic operations
-	pendingMu sync.Mutex // protects the pending map
-	pending   map[ID]chan *Response
-}
-
 // Handler is an option you can pass to NewConn to handle incoming requests.
 // If the request returns false from IsNotify then the Handler must eventually
 // call Reply on the Conn with the supplied request.
@@ -52,6 +37,21 @@ type Handler func(context.Context, *Conn, *Request)
 // be in the canceled state, so you must do it with the background context
 // instead.
 type Canceler func(context.Context, *Conn, *Request)
+
+// Conn is a JSON RPC 2 client server connection.
+// Conn is bidirectional; it does not have a designated server or client end.
+type Conn struct {
+	handle    Handler
+	cancel    Canceler
+	stream    Stream
+	done      chan struct{}
+	err       error
+	seq       int64      // must only be accessed using atomic operations
+	pendingMu sync.Mutex // protects the pending map
+	pending   map[ID]chan *Response
+}
+
+var _ Interface = (*Conn)(nil)
 
 // NewConn creates a new connection object that reads and writes messages from
 // the supplied stream and dispatches incoming messages to the supplied handler.
