@@ -21,7 +21,8 @@ type Message struct {
 	JSONRPC string `json:"jsonrpc"`
 }
 
-// Request is a request message to describe a request between the client and the server. Every processed request must send a response back to the sender of the request.
+// Request is a request message to describe a request between the client and the server.
+// Every processed request must send a response back to the sender of the request.
 type Request struct {
 	Message
 
@@ -35,7 +36,10 @@ type Request struct {
 	Params *json.RawMessage `json:"params,omitempty"`
 }
 
-// Response is a response ressage sent as a result of a request. If a request doesn't provide a result value the receiver of a request still needs to return a response message to conform to the JSON RPC specification. The result property of the ResponseMessage should be set to null in this case to signal a successful request.
+// Response is a response ressage sent as a result of a request.
+// If a request doesn't provide a result value the receiver of a request still needs to return a response message to
+// conform to the JSON RPC specification.
+// The result property of the ResponseMessage should be set to null in this case to signal a successful request.
 type Response struct {
 	Message
 
@@ -73,22 +77,3 @@ type NotificationMessage struct {
 	// Params is the notification's params.
 	Params interface{} `json:"params,omitempty"`
 }
-
-type ErrorCode int
-
-const (
-	// Defined by JSON RPC
-	ParseError           ErrorCode = -32700
-	InvalidRequest       ErrorCode = -32600
-	MethodNotFound       ErrorCode = -32601
-	InvalidParams        ErrorCode = -32602
-	InternalError        ErrorCode = -32603
-	ServerErrorStart     ErrorCode = -32099
-	ServerErrorEnd       ErrorCode = -32000
-	ServerNotInitialized ErrorCode = -32002
-	UnknownErrorCode     ErrorCode = -32001
-
-	// Defined by the protocol.
-	RequestCancelled ErrorCode = -32800
-	ContentModified  ErrorCode = -32801
-)
