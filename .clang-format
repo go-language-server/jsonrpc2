@@ -1,0 +1,7 @@
+Language: Proto
+DisableFormat: false
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: false
+AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+ColumnLimit: 160
