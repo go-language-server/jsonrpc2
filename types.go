@@ -44,11 +44,11 @@ func (r *Request) IsNotify() bool {
 type Response struct {
 	Message
 
-	// The error object in case a request fails.
-	Error *Error `json:"error,omitempty"`
-
 	// The request id.
 	ID *ID `json:"id"`
+
+	// The error object in case a request fails.
+	Error *Error `json:"error,omitempty"`
 
 	// The result of a request. This member is REQUIRED on success.
 	// This member MUST NOT exist if there was an error invoking the method.
