@@ -22,7 +22,7 @@ const (
 	ContentModified  ErrorCode = -32801
 )
 
-// Error ...
+// Error
 type Error struct {
 
 	// Code a number indicating the error type that occurred.
@@ -36,9 +36,9 @@ type Error struct {
 	Message string `json:"message"`
 }
 
-func (err *Error) Error() string {
-	if err == nil {
+func (e *Error) Error() string {
+	if e == nil {
 		return ""
 	}
-	return err.Message
+	return e.Message
 }
