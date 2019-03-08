@@ -47,9 +47,9 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
-// NewErrorf builds a Error struct for the suppied message and code.
+// Errorf builds a Error struct for the suppied message and code.
 // If args is not empty, message and args will be passed to Sprintf.
-func NewErrorf(code ErrorCode, format string, args ...interface{}) *Error {
+func Errorf(code ErrorCode, format string, args ...interface{}) *Error {
 	return &Error{
 		Code:    code,
 		Message: fmt.Sprintf(format, args...),

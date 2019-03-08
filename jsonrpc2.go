@@ -82,7 +82,7 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 		// the default handler reports a method error
 		conn.handle = func(ctx context.Context, c *Conn, r *Request) {
 			if r.IsNotify() {
-				c.Reply(ctx, r, nil, NewErrorf(MethodNotFound, "method %q not found", r.Method))
+				c.Reply(ctx, r, nil, Errorf(MethodNotFound, "method %q not found", r.Method))
 			}
 		}
 	}
