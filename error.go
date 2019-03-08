@@ -11,19 +11,19 @@ import (
 type ErrorCode int64
 
 const (
-	ParseError           ErrorCode = -32700
-	InvalidRequest       ErrorCode = -32600
-	MethodNotFound       ErrorCode = -32601
-	InvalidParams        ErrorCode = -32602
-	InternalError        ErrorCode = -32603
-	ServerErrorStart     ErrorCode = -32099
-	ServerErrorEnd       ErrorCode = -32000
-	ServerNotInitialized ErrorCode = -32002
-	UnknownErrorCode     ErrorCode = -32001
+	CodeParseError           ErrorCode = -32700
+	CodeInvalidRequest       ErrorCode = -32600
+	CodeMethodNotFound       ErrorCode = -32601
+	CodeInvalidParams        ErrorCode = -32602
+	CodeInternalError        ErrorCode = -32603
+	CodeServerErrorStart     ErrorCode = -32099
+	CodeServerErrorEnd       ErrorCode = -32000
+	CodeServerNotInitialized ErrorCode = -32002
+	CodeUnknownErrorCode     ErrorCode = -32001
 
 	// Defined by the protocol.
-	RequestCancelled ErrorCode = -32800
-	ContentModified  ErrorCode = -32801
+	CodeRequestCancelled ErrorCode = -32800
+	CodeContentModified  ErrorCode = -32801
 )
 
 // Error
