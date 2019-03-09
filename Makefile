@@ -10,7 +10,6 @@
 # include
 
 include hack/make/go.mk
-include hack/make/proto.mk
 
 # ----------------------------------------------------------------------------
 # overlays
