@@ -9,6 +9,7 @@ import (
 	"sync"
 )
 
+// Interface represents an interface for issuing requests that speak the JSON-RPC 2 protocol.
 type Interface interface {
 	Call(ctx context.Context, method string, params, result interface{}) error
 
@@ -40,26 +41,31 @@ type Canceler func(context.Context, *Conn, *Request)
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
-	handle    Handler
-	cancel    Canceler
-	stream    Stream
-	done      chan struct{}
-	err       error
-	seq       int64      // must only be accessed using atomic operations
-	pendingMu sync.Mutex // protects the pending map
-	pending   map[ID]chan *Response
+	handle Handler
+	cancel Canceler
+	stream Stream
+	done   chan struct{}
+	err    error
+	//nolint:structcheck
+	seq int64 // must only be accessed using atomic operations
+	//nolint:structcheck
+	pendingMu sync.Mutex            // protects the pending map
+	pending   map[ID]chan *Response //nolint:structcheck
 }
 
 var _ Interface = (*Conn)(nil)
 
+// Options represents a functional options.
 type Options func(*Conn)
 
+// WithHandler apply custom hander to Conn.
 func WithHandler(h Handler) Options {
 	return func(c *Conn) {
 		c.handle = h
 	}
 }
 
+// WithCanceler apply custom canceler to Conn.
 func WithCanceler(cancel Canceler) Options {
 	return func(c *Conn) {
 		c.cancel = cancel
@@ -101,14 +107,19 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 
 func (c *Conn) run(ctx context.Context) error { return nil }
 
+// Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error { return nil }
 
+// Reply sends a reply to the given request.
 func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
 	return nil
 }
 
+// Notify is called to send a notification request over the connection.
 func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error { return nil }
 
+// Cancel cancels a pending Call on the server side.
 func (c *Conn) Cancel(id ID) {}
 
+// Wait blocks until the connection is terminated, and returns any error that cause the termination.
 func (c *Conn) Wait(ctx context.Context) error { return nil }

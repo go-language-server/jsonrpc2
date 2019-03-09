@@ -30,6 +30,7 @@ type stream struct {
 	sync.Mutex
 }
 
+// NewStream returns the new Stream.
 func NewStream(in io.Reader, out io.Writer) Stream {
 	return &stream{
 		in:  bufio.NewReader(in),

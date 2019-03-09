@@ -34,8 +34,8 @@ const (
 	// CodeContentModified is the state change that invalidates the result of a request in execution.
 	CodeContentModified Code = -32801
 
-	codeServerErrorStart Code = -32099
-	codeServerErrorEnd   Code = -32000
+	codeServerErrorStart Code = -32099 //nolint:deadcode,varcheck
+	codeServerErrorEnd   Code = -32000 //nolint:deadcode,varcheck
 )
 
 // Error represents a jsonrpc2 error.
