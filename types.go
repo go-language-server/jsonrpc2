@@ -43,7 +43,7 @@ func (id *ID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(id.Number)
 }
 
-// MarshalJSON implements json.UnmarshalJSON.
+// UnmarshalJSON implements json.UnmarshalJSON.
 func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID{}
 	if err := json.Unmarshal(data, &id.Number); err == nil {
