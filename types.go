@@ -4,6 +4,10 @@
 
 package jsonrpc2
 
+import (
+	"strconv"
+)
+
 // ID is a Request identifier.
 // Only one of either the Name or Number members will be set, using the
 // number form if the Name is the empty string.
@@ -11,6 +15,36 @@ type ID struct {
 	Name   string
 	Number int64
 }
+
+// String returns a string representation of the ID.
+// The representation is non ambiguous, string forms are quoted, number forms
+// are preceded by a #.
+func (id *ID) String() string {
+	if id == nil {
+		return ""
+	}
+	if id.Name != "" {
+		return strconv.Quote(id.Name)
+	}
+	return "#" + strconv.FormatInt(id.Number, 10)
+}
+
+// // MarshalJSON implements json.MarshalJSON.
+// func (id *ID) MarshalJSON() ([]byte, error) {
+// 	if id.Name != "" {
+// 		return json.Marshal(id.Name)
+// 	}
+// 	return json.Marshal(id.Number)
+// }
+//
+// // MarshalJSON implements json.UnmarshalJSON.
+// func (id *ID) UnmarshalJSON(data []byte) error {
+// 	*id = ID{}
+// 	if err := json.Unmarshal(data, &id.Number); err == nil {
+// 		return nil
+// 	}
+// 	return json.Unmarshal(data, &id.Name)
+// }
 
 // Message is a general message as defined by JSON-RPC. The language server protocol always uses "2.0" as the jsonrpc version.
 type Message struct {

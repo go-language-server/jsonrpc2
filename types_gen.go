@@ -12,46 +12,29 @@ import (
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *ID) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-	switch k {
-	case "name":
-		return dec.String(&v.Name)
-	case "number":
+	if k == "" {
+		if v.Name != "" {
+			return dec.String(&v.Name)
+		}
 		return dec.Int64(&v.Number)
 	}
 	return nil
 }
 
 // NKeys returns the number of keys to unmarshal
-func (v *ID) NKeys() int { return 2 }
+func (v *ID) NKeys() int { return 1 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *ID) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey("name", v.Name)
-	enc.Int64Key("number", v.Number)
-}
-
-// IsNil returns wether the structure is nil value or not
-func (v *ID) IsNil() bool { return v == nil }
-
-// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
-func (v *Message) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-	switch k {
-	case "jsonrpc":
-		return dec.String(&v.JSONRPC)
+	if v.Name != "" {
+		enc.StringKey("id", v.Name)
+		return
 	}
-	return nil
-}
-
-// NKeys returns the number of keys to unmarshal
-func (v *Message) NKeys() int { return 1 }
-
-// MarshalJSONObject implements gojay's MarshalerJSONObject
-func (v *Message) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey("jsonrpc", v.JSONRPC)
+	enc.Int64Key("id", v.Number)
 }
 
 // IsNil returns wether the structure is nil value or not
-func (v *Message) IsNil() bool { return v == nil }
+func (id *ID) IsNil() bool { return id == nil }
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
@@ -62,7 +45,7 @@ func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 		if v.ID == nil {
 			v.ID = &ID{}
 		}
-		return dec.Object(v.ID)
+		return dec.Decode(v.ID)
 	case "method":
 		return dec.String(&v.Method)
 	}
@@ -75,7 +58,7 @@ func (v *Request) NKeys() int { return 3 }
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Request) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey("jsonrpc", v.JSONRPC)
-	enc.ObjectKey("id", v.ID)
+	enc.Encode(v.ID)
 	enc.StringKey("method", v.Method)
 }
 
@@ -96,7 +79,7 @@ func (v *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 		if v.ID == nil {
 			v.ID = &ID{}
 		}
-		return dec.Object(v.ID)
+		return dec.Decode(v.ID)
 	}
 	return nil
 }
@@ -108,7 +91,7 @@ func (v *Response) NKeys() int { return 3 }
 func (v *Response) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey("jsonrpc", v.JSONRPC)
 	enc.ObjectKey("error", v.Error)
-	enc.ObjectKey("id", v.ID)
+	enc.Encode(v.ID)
 }
 
 // IsNil returns wether the structure is nil value or not
