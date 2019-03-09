@@ -1,11 +1,13 @@
 run:
-  concurrency: 4
+  concurrency: 12
   deadline: 5m
   issues-exit-code: 1
   tests: true
+  # skip-dirs:
   skip-files:
     - ".*\\.pb\\.go"
-    - ".*\\.gen\\.go"
+    - ".*(.|_)gen\\.go"
+  modules-download-mode: vendor
 
 linters-settings:
   depguard:
@@ -13,8 +15,6 @@ linters-settings:
     include-go-root: false
     packages:
       - github.com/davecgh/go-spew/spew
-  dupl:
-    threshold: 100
   errcheck:
     check-type-assertions: true
     check-blank: true
@@ -22,58 +22,42 @@ linters-settings:
   goconst:
     min-len: 3
     min-occurrences: 3
-  gocyclo:
-    min-complexity: 10
   gofmt:
     simplify: true
   goimports:
-    # local-prefixes: github.com/
+    local-prefixes: github.com/go-language-server/jsonrpc2/
   golint:
     min-confidence: 0.3
   govet:
     check-shadowing: false
-  maligned:
-    suggest-new: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+    settings:
+      captLocal:
+        paramsOnly: true
+      rangeValCopy:
+        sizeThreshold: 32
   misspell:
     locale: US
   nakedret:
     max-func-lines: 30
   prealloc:
     simple: true
-    range-loops: true  # Report preallocation suggestions on range loops, true by default
-    for-loops: false  # Report preallocation suggestions on for loops, false by default
+    range-loops: true
+    for-loops: false
   unparam:
     algo: cha
-    check-exported: false
+    check-exported: true
   unused:
-    check-exported: false
+    check-exported: true
 
 linters:
   enable:
-    - deadcode
-    - depguard
-    - errcheck
-    - goconst
-    - gocritic
-    - gofmt
-    - goimports
-    - golint
-    - gosimple
-    - govet
-    - ineffassign
-    - interfacer
-    - maligned
-    - misspell
-    - nakedret
-    - prealloc
-    - scopelint
-    - staticcheck
-    - structcheck
-    - unconvert
-    - unparam
-    - unused
-    - varcheck
-  enable-all: false
+  enable-all: true
   disable:
     - dupl
     - gochecknoglobals
@@ -81,13 +65,10 @@ linters:
     - gocyclo
     - gosec
     - lll
+    - maligned
     - megacheck
     - typecheck
-  disable-all: false
-  presets:
-    - bugs
-    - unused
-  fast: false
+  fast: true
 
 issues:
   exclude-use-default: false
