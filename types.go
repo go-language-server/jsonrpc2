@@ -6,6 +6,12 @@ package jsonrpc2
 
 import (
 	"strconv"
+
+	jsoniter "github.com/json-iterator/go"
+)
+
+var (
+	json = jsoniter.ConfigFastest
 )
 
 // ID is a Request identifier.
@@ -29,22 +35,22 @@ func (id *ID) String() string {
 	return "#" + strconv.FormatInt(id.Number, 10)
 }
 
-// // MarshalJSON implements json.MarshalJSON.
-// func (id *ID) MarshalJSON() ([]byte, error) {
-// 	if id.Name != "" {
-// 		return json.Marshal(id.Name)
-// 	}
-// 	return json.Marshal(id.Number)
-// }
-//
-// // MarshalJSON implements json.UnmarshalJSON.
-// func (id *ID) UnmarshalJSON(data []byte) error {
-// 	*id = ID{}
-// 	if err := json.Unmarshal(data, &id.Number); err == nil {
-// 		return nil
-// 	}
-// 	return json.Unmarshal(data, &id.Name)
-// }
+// MarshalJSON implements json.MarshalJSON.
+func (id *ID) MarshalJSON() ([]byte, error) {
+	if id.Name != "" {
+		return json.Marshal(id.Name)
+	}
+	return json.Marshal(id.Number)
+}
+
+// MarshalJSON implements json.UnmarshalJSON.
+func (id *ID) UnmarshalJSON(data []byte) error {
+	*id = ID{}
+	if err := json.Unmarshal(data, &id.Number); err == nil {
+		return nil
+	}
+	return json.Unmarshal(data, &id.Name)
+}
 
 // Message is a general message as defined by JSON-RPC. The language server protocol always uses "2.0" as the jsonrpc version.
 type Message struct {
@@ -52,6 +58,7 @@ type Message struct {
 }
 
 // Request is a request message to describe a request between the client and the server.
+//
 // Every processed request must send a response back to the sender of the request.
 type Request struct {
 	Message
@@ -72,6 +79,7 @@ func (r *Request) IsNotify() bool {
 }
 
 // Response is a response ressage sent as a result of a request.
+//
 // If a request doesn't provide a result value the receiver of a request still needs to return a response message to
 // conform to the JSON RPC specification.
 // The result property of the ResponseMessage should be set to null in this case to signal a successful request.
@@ -89,6 +97,9 @@ type Response struct {
 	Result []byte `json:"result,omitempty"`
 }
 
+// NotificationMessage is a notification message.
+//
+// A processed notification message must not send a response back. They work like events.
 type NotificationMessage struct {
 	Message
 
