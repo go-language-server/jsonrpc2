@@ -168,3 +168,25 @@ func (c *Conn) Run(ctx context.Context) error { return nil }
 
 // Wait blocks until the connection is terminated, and returns any error that cause the termination.
 func (c *Conn) Wait(ctx context.Context) error { return nil }
+
+// Direction is used to indicate to a logger whether the logged message was being
+// sent or received.
+type Direction bool
+
+const (
+	// Send indicates the message is outgoing.
+	Send = Direction(true)
+	// Receive indicates the message is incoming.
+	Receive = Direction(false)
+)
+
+func (d Direction) String() string {
+	switch d {
+	case Send:
+		return "send"
+	case Receive:
+		return "receive"
+	default:
+		panic("unreachable")
+	}
+}
