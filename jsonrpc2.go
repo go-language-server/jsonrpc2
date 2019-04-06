@@ -6,7 +6,10 @@ package jsonrpc2
 
 import (
 	"context"
-	"sync"
+	"time"
+
+	"go.uber.org/atomic"
+	"go.uber.org/zap"
 )
 
 // Interface represents an interface for issuing requests that speak the JSON-RPC 2 protocol.
@@ -18,6 +21,8 @@ type Interface interface {
 	Notify(ctx context.Context, method string, params interface{}) error
 
 	Cancel(id ID)
+
+	Run(ctx context.Context) error
 
 	Wait(ctx context.Context) error
 }
@@ -41,16 +46,17 @@ type Canceler func(context.Context, *Conn, *Request)
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
-	handle Handler
-	cancel Canceler
-	stream Stream
-	done   chan struct{}
-	err    error
-	//nolint:structcheck
-	seq int64 // must only be accessed using atomic operations
-	//nolint:structcheck
-	pendingMu sync.Mutex            // protects the pending map
-	pending   map[ID]chan *Response //nolint:structcheck
+	handle   Handler
+	canceler Canceler
+	logger   *zap.Logger
+	capacity int
+	reject   bool
+	stream   Stream
+	done     chan struct{}
+	err      error
+	seq      atomic.Int64 // must only be accessed using atomic operations
+	pending  atomic.Value // map[ID]chan *Response
+	handling atomic.Value // map[ID]handling
 }
 
 var _ Interface = (*Conn)(nil)
@@ -66,35 +72,73 @@ func WithHandler(h Handler) Options {
 }
 
 // WithCanceler apply custom canceler to Conn.
-func WithCanceler(cancel Canceler) Options {
+func WithCanceler(canceler Canceler) Options {
 	return func(c *Conn) {
-		c.cancel = cancel
+		c.canceler = canceler
 	}
 }
+
+// WithLogger apply custom logger to Conn.
+func WithLogger(logger *zap.Logger) Options {
+	return func(c *Conn) {
+		c.logger = logger
+	}
+}
+
+// WithCapacity apply custom capacity to Conn.
+func WithCapacity(capacity int) Options {
+	return func(c *Conn) {
+		c.capacity = capacity
+	}
+}
+
+// WithReject apply reject boolean to Conn.
+func WithReject(reject bool) Options {
+	return func(c *Conn) {
+		c.reject = reject
+	}
+}
+
+var (
+	defaultHandler = func(ctx context.Context, c *Conn, r *Request) {
+		if r.IsNotify() {
+			c.Reply(ctx, r, nil, Errorf(CodeMethodNotFound, "method %q not found", r.Method))
+		}
+	}
+
+	defaultCanceler = func(context.Context, *Conn, *Request) {}
+)
+
+type handling struct {
+	request *Request
+	cancel  context.CancelFunc
+	start   time.Time
+}
+
+type pendingMap map[ID]chan *Response
+type handlingMap map[ID]handling
 
 // NewConn creates a new connection object that reads and writes messages from
 // the supplied stream and dispatches incoming messages to the supplied handler.
 func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 	conn := &Conn{
-		stream:  s,
-		done:    make(chan struct{}),
-		pending: make(map[ID]chan *Response),
+		stream: s,
+		done:   make(chan struct{}),
 	}
+	conn.pending.Store(make(pendingMap))
+	conn.handling.Store(make(handlingMap))
+
 	for _, opt := range options {
 		opt(conn)
 	}
 
 	if conn.handle == nil {
 		// the default handler reports a method error
-		conn.handle = func(ctx context.Context, c *Conn, r *Request) {
-			if r.IsNotify() {
-				c.Reply(ctx, r, nil, Errorf(CodeMethodNotFound, "method %q not found", r.Method))
-			}
-		}
+		conn.handle = defaultHandler
 	}
-	if conn.cancel == nil {
+	if conn.canceler == nil {
 		// the default canceller does nothing
-		conn.cancel = func(context.Context, *Conn, *Request) {}
+		conn.canceler = defaultCanceler
 	}
 
 	go func() {
@@ -104,9 +148,6 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 
 	return conn
 }
-
-// Run run the jsonrpc2 server.
-func (c *Conn) Run(ctx context.Context) error { return nil }
 
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error { return nil }
@@ -121,6 +162,9 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 
 // Cancel cancels a pending Call on the server side.
 func (c *Conn) Cancel(id ID) {}
+
+// Run run the jsonrpc2 server.
+func (c *Conn) Run(ctx context.Context) error { return nil }
 
 // Wait blocks until the connection is terminated, and returns any error that cause the termination.
 func (c *Conn) Wait(ctx context.Context) error { return nil }
