@@ -220,6 +220,51 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 
 // Reply sends a reply to the given request.
 func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
+	if req.IsNotify() {
+		return xerrors.New("reply not invoked with a valid call")
+	}
+
+	m := c.handling.Load().(handlingMap)
+	handling, found := m[*req.ID]
+	if !found {
+		return xerrors.Errorf("not a call in progress: %v", req.ID)
+	}
+
+	elapsed := time.Since(handling.start)
+	var jsonParams gojay.EmbeddedJSON
+	if err == nil {
+		rawdata, err := gojay.Marshal(result)
+		if err != nil {
+			return xerrors.Errorf("failed to marshalling call parameters: %v", err)
+		}
+		jsonParams = gojay.EmbeddedJSON(rawdata)
+	}
+
+	resp := &Response{
+		ID:     req.ID,
+		Result: &jsonParams,
+	}
+
+	if err != nil {
+		resp.Error = Errorf(0, "%s", err)
+	}
+
+	data, err := gojay.Marshal(resp)
+	if err != nil {
+		return err
+	}
+
+	c.logger.Info(Send.String(),
+		zap.String("resp.ID", resp.ID.String()),
+		zap.Duration("elapsed", elapsed),
+		zap.String("req.Method", req.Method),
+		zap.Any("resp.Result", resp.Result),
+		zap.Error(resp.Error),
+	)
+	if err = c.stream.Write(ctx, data); err != nil {
+		return err
+	}
+
 	return nil
 }
 
