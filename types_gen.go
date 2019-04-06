@@ -48,18 +48,24 @@ func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 		return dec.Decode(v.ID)
 	case "method":
 		return dec.String(&v.Method)
+	case "params":
+		if v.Params == nil {
+			v.Params = &gojay.EmbeddedJSON{}
+		}
+		return dec.EmbeddedJSON(v.Params)
 	}
 	return nil
 }
 
 // NKeys returns the number of keys to unmarshal
-func (v *Request) NKeys() int { return 3 }
+func (v *Request) NKeys() int { return 4 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Request) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey("jsonrpc", v.JSONRPC)
 	enc.Encode(v.ID)
 	enc.StringKey("method", v.Method)
+	enc.AddEmbeddedJSONKeyOmitEmpty("params", v.Params)
 }
 
 // IsNil returns wether the structure is nil value or not
@@ -70,28 +76,34 @@ func (v *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case "jsonrpc":
 		return dec.String(&v.JSONRPC)
-	case "error":
-		if v.Error == nil {
-			v.Error = &Error{}
-		}
-		return dec.Object(v.Error)
 	case "id":
 		if v.ID == nil {
 			v.ID = &ID{}
 		}
 		return dec.Decode(v.ID)
+	case "error":
+		if v.Error == nil {
+			v.Error = &Error{}
+		}
+		return dec.Object(v.Error)
+	case "result":
+		if v.Result == nil {
+			v.Result = &gojay.EmbeddedJSON{}
+		}
+		return dec.EmbeddedJSON(v.Result)
 	}
 	return nil
 }
 
 // NKeys returns the number of keys to unmarshal
-func (v *Response) NKeys() int { return 3 }
+func (v *Response) NKeys() int { return 4 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Response) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey("jsonrpc", v.JSONRPC)
-	enc.ObjectKey("error", v.Error)
 	enc.Encode(v.ID)
+	enc.ObjectKey("error", v.Error)
+	enc.AddEmbeddedJSONKeyOmitEmpty("result", v.Result)
 }
 
 // IsNil returns wether the structure is nil value or not
@@ -104,12 +116,14 @@ func (v *NotificationMessage) UnmarshalJSONObject(dec *gojay.Decoder, k string) 
 		return dec.String(&v.JSONRPC)
 	case "method":
 		return dec.String(&v.Method)
+	case "params":
+		return dec.AddInterface(&v.Params)
 	}
 	return nil
 }
 
 // NKeys returns the number of keys to unmarshal
-func (v *NotificationMessage) NKeys() int { return 2 }
+func (v *NotificationMessage) NKeys() int { return 3 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *NotificationMessage) MarshalJSONObject(enc *gojay.Encoder) {

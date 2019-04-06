@@ -7,6 +7,7 @@ package jsonrpc2
 import (
 	"strconv"
 
+	"github.com/francoispqt/gojay"
 	jsoniter "github.com/json-iterator/go"
 )
 
@@ -70,7 +71,7 @@ type Request struct {
 	Method string `json:"method"`
 
 	// The method's params.
-	Params []byte `json:"params,omitempty"`
+	Params *gojay.EmbeddedJSON `json:"params,omitempty"`
 }
 
 // IsNotify returns true if this request is a notification.
@@ -94,7 +95,7 @@ type Response struct {
 
 	// The result of a request. This member is REQUIRED on success.
 	// This member MUST NOT exist if there was an error invoking the method.
-	Result []byte `json:"result,omitempty"`
+	Result *gojay.EmbeddedJSON `json:"result,omitempty"`
 }
 
 // NotificationMessage is a notification message.
