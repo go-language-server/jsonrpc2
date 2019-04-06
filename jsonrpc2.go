@@ -98,14 +98,15 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 	}
 
 	go func() {
-		conn.err = conn.run(ctx)
+		conn.err = conn.Run(ctx)
 		close(conn.done)
 	}()
 
 	return conn
 }
 
-func (c *Conn) run(ctx context.Context) error { return nil }
+// Run run the jsonrpc2 server.
+func (c *Conn) Run(ctx context.Context) error { return nil }
 
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error { return nil }
