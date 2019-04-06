@@ -8,8 +8,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/francoispqt/gojay"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 )
 
 // Interface represents an interface for issuing requests that speak the JSON-RPC 2 protocol.
@@ -150,7 +152,71 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 }
 
 // Call sends a request over the connection and then waits for a response.
-func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error { return nil }
+func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
+	rawdata, err := gojay.Marshal(params)
+	if err != nil {
+		return xerrors.Errorf("failed to marshalling call parameters: %v", err)
+	}
+	jsonParams := gojay.EmbeddedJSON(rawdata)
+	id := ID{Number: c.seq.Add(1)}
+
+	req := &Request{
+		ID:     &id,
+		Method: method,
+		Params: &jsonParams,
+	}
+
+	// marshal the request now it is complete
+	data, err := gojay.Marshal(req)
+	if err != nil {
+		return xerrors.Errorf("failed to marshalling call request: %v", err)
+	}
+
+	rchan := make(chan *Response)
+	m := c.pending.Load().(pendingMap)
+	m[id] = rchan
+	c.pending.Store(m)
+	defer func() {
+		m := c.pending.Load().(pendingMap)
+		delete(m, id)
+		c.pending.Store(m)
+	}()
+
+	start := time.Now()
+	c.logger.Info(Send.String(),
+		zap.String("id", id.String()),
+		zap.String("req.method", req.Method),
+		zap.Any("req.params", req.Params),
+	)
+	if err := c.stream.Write(ctx, data); err != nil {
+		return err
+	}
+
+	select {
+	case resp := <-rchan:
+		c.logger.Info(Receive.String(),
+			zap.String("id", id.String()),
+			zap.Duration("elapsed", time.Since(start)),
+			zap.String("req.method", req.Method),
+			zap.Any("resp.Result", resp.Result),
+			zap.Error(resp.Error),
+		)
+
+		if resp.Error != nil {
+			return resp.Error
+		}
+		if result == nil || resp.Result == nil {
+			return nil
+		}
+		if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
+			return xerrors.Errorf("failed to unmarshalling result: %v", err)
+		}
+		return nil
+	case <-ctx.Done():
+		c.canceler(ctx, c, req)
+		return ctx.Err()
+	}
+}
 
 // Reply sends a reply to the given request.
 func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
