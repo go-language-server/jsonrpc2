@@ -11,10 +11,6 @@ import (
 	jsoniter "github.com/json-iterator/go"
 )
 
-var (
-	json = jsoniter.ConfigFastest
-)
-
 // ID is a Request identifier.
 // Only one of either the Name or Number members will be set, using the
 // number form if the Name is the empty string.
@@ -39,18 +35,18 @@ func (id *ID) String() string {
 // MarshalJSON implements json.MarshalJSON.
 func (id *ID) MarshalJSON() ([]byte, error) {
 	if id.Name != "" {
-		return json.Marshal(id.Name)
+		return jsoniter.ConfigFastest.Marshal(id.Name)
 	}
-	return json.Marshal(id.Number)
+	return jsoniter.ConfigFastest.Marshal(id.Number)
 }
 
 // UnmarshalJSON implements json.UnmarshalJSON.
 func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID{}
-	if err := json.Unmarshal(data, &id.Number); err == nil {
+	if err := jsoniter.ConfigFastest.Unmarshal(data, &id.Number); err == nil {
 		return nil
 	}
-	return json.Unmarshal(data, &id.Name)
+	return jsoniter.ConfigFastest.Unmarshal(data, &id.Name)
 }
 
 // Message is a general message as defined by JSON-RPC. The language server protocol always uses "2.0" as the jsonrpc version.
