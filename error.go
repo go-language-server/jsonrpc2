@@ -35,8 +35,8 @@ const (
 	// CodeContentModified is the state change that invalidates the result of a request in execution.
 	CodeContentModified Code = -32801
 
-	//CodeServerOverloaded is returned when a message was refused due to a
-	//server being temporarily unable to accept any new messages.
+	// CodeServerOverloaded is returned when a message was refused due to a
+	// server being temporarily unable to accept any new messages.
 	CodeServerOverloaded = -32000
 
 	codeServerErrorStart Code = -32099 //nolint:deadcode,varcheck

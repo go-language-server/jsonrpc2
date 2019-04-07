@@ -118,6 +118,11 @@ type handling struct {
 type pendingMap map[ID]chan *Response
 type handlingMap map[ID]handling
 
+var (
+	errLoadPendingMap  = xerrors.New("failed to Load pendingMap")
+	errLoadhandlingMap = xerrors.New("failed to Load handlingMap")
+)
+
 // NewConn creates a new connection object that reads and writes messages from
 // the supplied stream and dispatches incoming messages to the supplied handler.
 func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
@@ -170,11 +175,17 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	}
 
 	rchan := make(chan *Response)
-	m := c.pending.Load().(pendingMap)
+	m, ok := c.pending.Load().(pendingMap)
+	if !ok {
+		return errLoadPendingMap
+	}
 	m[id] = rchan
 	c.pending.Store(m)
 	defer func() {
-		m := c.pending.Load().(pendingMap)
+		m, ok := c.pending.Load().(pendingMap)
+		if !ok {
+			panic(errLoadPendingMap)
+		}
 		delete(m, id)
 		c.pending.Store(m)
 	}()
@@ -221,7 +232,10 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 		return xerrors.New("reply not invoked with a valid call")
 	}
 
-	m := c.handling.Load().(handlingMap)
+	m, ok := c.handling.Load().(handlingMap)
+	if !ok {
+		return errLoadhandlingMap
+	}
 	handling, found := m[*req.ID]
 	if !found {
 		return xerrors.Errorf("not a call in progress: %v", req.ID)
@@ -254,7 +268,8 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 		zap.Any("resp.Result", resp.Result),
 		zap.Error(resp.Error),
 	)
-	if err = c.stream.Write(ctx, data); err != nil {
+
+	if err := c.stream.Write(ctx, data); err != nil {
 		return err
 	}
 
@@ -287,7 +302,10 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 
 // Cancel cancels a pending Call on the server side.
 func (c *Conn) Cancel(id ID) {
-	m := c.handling.Load().(handlingMap)
+	m, ok := c.handling.Load().(handlingMap)
+	if !ok {
+		panic(errLoadhandlingMap)
+	}
 	handling, found := m[id]
 	if found {
 		handling.cancel()
@@ -374,7 +392,11 @@ func (c *Conn) Run(ctx context.Context) error {
 			} else {
 				// we have a Call, add to the processor queue
 				reqCtx, reqCancel := context.WithCancel(ctx)
-				m := c.handling.Load().(handlingMap)
+				defer reqCancel()
+				m, ok := c.handling.Load().(handlingMap)
+				if !ok {
+					return errLoadhandlingMap
+				}
 				m[*req.ID] = handling{
 					request: req,
 					cancel:  reqCancel,
@@ -390,7 +412,10 @@ func (c *Conn) Run(ctx context.Context) error {
 
 		case msg.ID != nil:
 			// we have a response, get the pending entry from the map
-			m := c.pending.Load().(pendingMap)
+			m, ok := c.handling.Load().(pendingMap)
+			if !ok {
+				return errLoadPendingMap
+			}
 			rchan := m[*msg.ID]
 			if rchan != nil {
 				delete(m, *msg.ID)
