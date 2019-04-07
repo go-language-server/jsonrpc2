@@ -264,7 +264,28 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 }
 
 // Notify is called to send a notification request over the connection.
-func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error { return nil }
+func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error {
+	jsonParams, err := marshalToEmbedded(params)
+	if err != nil {
+		return xerrors.Errorf("failed to marshalling notify parameters: %v", err)
+	}
+
+	req := &NotificationMessage{
+		Method: method,
+		Params: jsonParams,
+	}
+	data, err := gojay.MarshalJSONObject(req)
+	if err != nil {
+		return xerrors.Errorf("failed to marshalling notify request: %v", err)
+	}
+
+	c.logger.Info(Send.String(),
+		zap.String("req.Method", req.Method),
+		zap.Any("req.Params", req.Params),
+	)
+
+	return c.stream.Write(ctx, data)
+}
 
 // Cancel cancels a pending Call on the server side.
 func (c *Conn) Cancel(id ID) {}
