@@ -92,7 +92,7 @@ func Errorf(c Code, format string, args ...interface{}) *Error {
 	e := &Error{
 		Code:    c,
 		Message: fmt.Sprintf(format, args...),
-		frame:   xerrors.Caller(0),
+		frame:   xerrors.Caller(1),
 	}
 	e.err = xerrors.New(e.Message)
 
