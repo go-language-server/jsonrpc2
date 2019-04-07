@@ -288,7 +288,13 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 }
 
 // Cancel cancels a pending Call on the server side.
-func (c *Conn) Cancel(id ID) {}
+func (c *Conn) Cancel(id ID) {
+	m := c.handling.Load().(handlingMap)
+	handling, found := m[id]
+	if found {
+		handling.cancel()
+	}
+}
 
 // Run run the jsonrpc2 server.
 func (c *Conn) Run(ctx context.Context) error { return nil }
