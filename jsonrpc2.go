@@ -153,17 +153,16 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
-	rawdata, err := gojay.Marshal(params)
+	jsonParams, err := marshalToEmbedded(params)
 	if err != nil {
 		return xerrors.Errorf("failed to marshalling call parameters: %v", err)
 	}
-	jsonParams := gojay.EmbeddedJSON(rawdata)
 	id := ID{Number: c.seq.Add(1)}
 
 	req := &Request{
 		ID:     &id,
 		Method: method,
-		Params: &jsonParams,
+		Params: jsonParams,
 	}
 
 	// marshal the request now it is complete
@@ -231,18 +230,14 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	}
 
 	elapsed := time.Since(handling.start)
-	var jsonParams gojay.EmbeddedJSON
+	var jsonParams *gojay.EmbeddedJSON
 	if err == nil {
-		rawdata, err := gojay.Marshal(result)
-		if err != nil {
-			return xerrors.Errorf("failed to marshalling call parameters: %v", err)
-		}
-		jsonParams = gojay.EmbeddedJSON(rawdata)
+		jsonParams, err = marshalToEmbedded(result)
 	}
 
 	resp := &Response{
 		ID:     req.ID,
-		Result: &jsonParams,
+		Result: jsonParams,
 	}
 
 	if err != nil {
@@ -300,4 +295,14 @@ func (d Direction) String() string {
 	default:
 		panic("unreachable")
 	}
+}
+
+func marshalToEmbedded(obj interface{}) (*gojay.EmbeddedJSON, error) {
+	data, err := gojay.Marshal(obj)
+	if err != nil {
+		return nil, err
+	}
+	raw := gojay.EmbeddedJSON(data)
+
+	return &raw, nil
 }
