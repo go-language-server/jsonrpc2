@@ -48,17 +48,17 @@ type Canceler func(context.Context, *Conn, *Request)
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
-	handle   Handler
-	canceler Canceler
-	logger   *zap.Logger
-	capacity int
-	reject   bool
-	stream   Stream
-	done     chan struct{}
-	err      error
-	seq      atomic.Int64 // must only be accessed using atomic operations
-	pending  atomic.Value // map[ID]chan *Response
-	handling atomic.Value // map[ID]handling
+	handler    Handler
+	canceler   Canceler
+	logger     *zap.Logger
+	capacity   int
+	overloaded bool
+	stream     Stream
+	done       chan struct{}
+	err        error
+	seq        atomic.Int64 // must only be accessed using atomic operations
+	pending    atomic.Value // map[ID]chan *Response
+	handling   atomic.Value // map[ID]handling
 }
 
 var _ Interface = (*Conn)(nil)
@@ -69,7 +69,7 @@ type Options func(*Conn)
 // WithHandler apply custom hander to Conn.
 func WithHandler(h Handler) Options {
 	return func(c *Conn) {
-		c.handle = h
+		c.handler = h
 	}
 }
 
@@ -94,10 +94,10 @@ func WithCapacity(capacity int) Options {
 	}
 }
 
-// WithReject apply reject boolean to Conn.
-func WithReject(reject bool) Options {
+// WithOverloaded apply overloaded boolean to Conn.
+func WithOverloaded(overloaded bool) Options {
 	return func(c *Conn) {
-		c.reject = reject
+		c.overloaded = overloaded
 	}
 }
 
@@ -134,9 +134,9 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 		opt(conn)
 	}
 
-	if conn.handle == nil {
+	if conn.handler == nil {
 		// the default handler reports a method error
-		conn.handle = defaultHandler
+		conn.handler = defaultHandler
 	}
 	if conn.canceler == nil {
 		// the default canceller does nothing
@@ -296,8 +296,122 @@ func (c *Conn) Cancel(id ID) {
 	}
 }
 
+type queue struct {
+	ctx context.Context
+	c   *Conn
+	r   *Request
+}
+
+func (c *Conn) deliver(ctx context.Context, q chan queue, request *Request) bool {
+	e := queue{ctx: ctx, c: c, r: request}
+	if !c.overloaded {
+		q <- e
+		return true
+	}
+	select {
+	case q <- e:
+		return true
+	default:
+		return false
+	}
+}
+
+// combined has all the fields of both Request and Response.
+// We can decode this and then work out which it is.
+type combined struct {
+	VersionTag Message             `json:"jsonrpc"`
+	ID         *ID                 `json:"id,omitempty"`
+	Method     string              `json:"method"`
+	Params     *gojay.EmbeddedJSON `json:"params,omitempty"`
+	Result     *gojay.EmbeddedJSON `json:"result,omitempty"`
+	Error      *Error              `json:"error,omitempty"`
+}
+
 // Run run the jsonrpc2 server.
-func (c *Conn) Run(ctx context.Context) error { return nil }
+func (c *Conn) Run(ctx context.Context) error {
+	q := make(chan queue, c.capacity)
+	defer close(q)
+
+	// start the queue processor
+	go func() {
+		for e := range q {
+			if e.ctx.Err() != nil {
+				continue
+			}
+			c.handler(e.ctx, e.c, e.r)
+		}
+	}()
+
+	for {
+		// get the data for a message
+		data, err := c.stream.Read(ctx)
+		if err != nil {
+			// the stream failed, we cannot continue
+			return err
+		}
+
+		// read a combined message
+		msg := &combined{}
+		if err := gojay.Unsafe.Unmarshal(data, msg); err != nil {
+			// a badly formed message arrived, log it and continue
+			// we trust the stream to have isolated the error to just this message
+			c.logger.Info(Receive.String(),
+				zap.Error(Errorf(0, "unmarshal failed: %v", err)),
+			)
+			continue
+		}
+
+		// work out which kind of message we have
+		switch {
+		case msg.Method != "":
+			// if method is set it must be a request
+			req := &Request{
+				Method: msg.Method,
+				Params: msg.Params,
+				ID:     msg.ID,
+			}
+			if req.IsNotify() {
+				c.logger.Info(Receive.String(), zap.String("req.ID", req.ID.String()), zap.String("req.Method", req.Method), zap.Any("req.Params", req.Params))
+				c.deliver(ctx, q, req)
+			} else {
+				// we have a Call, add to the processor queue
+				reqCtx, reqCancel := context.WithCancel(ctx)
+				m := c.handling.Load().(handlingMap)
+				m[*req.ID] = handling{
+					request: req,
+					cancel:  reqCancel,
+					start:   time.Now(),
+				}
+				c.handling.Store(m)
+				c.logger.Info(Receive.String(), zap.String("req.ID", req.ID.String()), zap.String("req.Method", req.Method), zap.Any("req.Params", req.Params))
+				if !c.deliver(reqCtx, q, req) {
+					// queue is full, reject the message by directly replying
+					c.Reply(ctx, req, nil, Errorf(CodeServerOverloaded, "no room in queue"))
+				}
+			}
+
+		case msg.ID != nil:
+			// we have a response, get the pending entry from the map
+			m := c.pending.Load().(pendingMap)
+			rchan := m[*msg.ID]
+			if rchan != nil {
+				delete(m, *msg.ID)
+			}
+			c.pending.Store(m)
+			// and send the reply to the channel
+			resp := &Response{
+				Result: msg.Result,
+				Error:  msg.Error,
+				ID:     msg.ID,
+			}
+			rchan <- resp
+			close(rchan)
+
+		default:
+			c.logger.Info(Receive.String(), zap.Error(Errorf(0, "message not a call, notify or response, ignoring")))
+		}
+	}
+}
 
 // Wait blocks until the connection is terminated, and returns any error that cause the termination.
 func (c *Conn) Wait(ctx context.Context) error { return nil }
