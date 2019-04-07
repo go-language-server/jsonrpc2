@@ -25,8 +25,6 @@ type Interface interface {
 	Cancel(id ID)
 
 	Run(ctx context.Context) error
-
-	Wait(ctx context.Context) error
 }
 
 // Handler is an option you can pass to NewConn to handle incoming requests.
@@ -412,9 +410,6 @@ func (c *Conn) Run(ctx context.Context) error {
 		}
 	}
 }
-
-// Wait blocks until the connection is terminated, and returns any error that cause the termination.
-func (c *Conn) Wait(ctx context.Context) error { return nil }
 
 // Direction is used to indicate to a logger whether the logged message was being
 // sent or received.
