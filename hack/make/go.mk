@@ -23,7 +23,7 @@ GO_TEST_FLAGS ?=
 GO_BENCH_FUNC ?= .
 GO_BENCH_FLAGS ?= -benchmem
 
-CGO_ENABLED ?= 0
+CGO_ENABLED ?= 1
 GO_LDFLAGS=-s -w
 GO_LDFLAGS_STATIC=-s -w '-extldflags=-static'
 
@@ -33,7 +33,7 @@ ifeq ($(GO111MODULE),off)
 endif
 endif
 
-GO_BUILDTAGS=osusergo netgo
+GO_BUILDTAGS=osusergo
 GO_BUILDTAGS_STATIC=static static_build
 GO_FLAGS ?= -tags='$(GO_BUILDTAGS)' -ldflags="${GO_LDFLAGS}"
 GO_INSTALLSUFFIX_STATIC=netgo
