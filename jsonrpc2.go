@@ -6,6 +6,7 @@ package jsonrpc2
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/francoispqt/gojay"
@@ -16,15 +17,17 @@ import (
 
 // Interface represents an interface for issuing requests that speak the JSON-RPC 2 protocol.
 type Interface interface {
-	Call(ctx context.Context, method string, params, result interface{}) error
+	io.ReadWriter
+
+	Call(ctx context.Context, method string, params, result interface{}) (err error)
 
 	Reply(ctx context.Context, req *Request, result interface{}, err error) error
 
-	Notify(ctx context.Context, method string, params interface{}) error
+	Notify(ctx context.Context, method string, params interface{}) (err error)
 
 	Cancel(id ID)
 
-	Run(ctx context.Context) error
+	Run(ctx context.Context) (err error)
 }
 
 // Handler is an option you can pass to NewConn to handle incoming requests.
@@ -54,9 +57,10 @@ type Conn struct {
 	stream     Stream
 	done       chan struct{}
 	err        error
-	seq        atomic.Int64 // must only be accessed using atomic operations
-	pending    atomic.Value // map[ID]chan *Response
-	handling   atomic.Value // map[ID]handling
+	ctx        context.Context // for Read and Write only
+	seq        atomic.Int64    // must only be accessed using atomic operations
+	pending    atomic.Value    // map[ID]chan *Response
+	handling   atomic.Value    // map[ID]handling
 }
 
 var _ Interface = (*Conn)(nil)
@@ -99,15 +103,13 @@ func WithOverloaded(overloaded bool) Options {
 	}
 }
 
-var (
-	defaultHandler = func(ctx context.Context, c *Conn, r *Request) {
-		if r.IsNotify() {
-			c.Reply(ctx, r, nil, Errorf(CodeMethodNotFound, "method %q not found", r.Method))
-		}
+var defaultHandler = func(ctx context.Context, c *Conn, r *Request) {
+	if r.IsNotify() {
+		c.Reply(ctx, r, nil, Errorf(CodeMethodNotFound, "method %q not found", r.Method))
 	}
+}
 
-	defaultCanceler = func(context.Context, *Conn, *Request) {}
-)
+var defaultCanceler = func(context.Context, *Conn, *Request) {}
 
 type handling struct {
 	request *Request
@@ -154,6 +156,16 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 	return conn
 }
 
+// Read implements io.Reader.
+func (c *Conn) Read(p []byte) (n int, err error) {
+	return c.stream.Read(c.ctx, p)
+}
+
+// Write implements io.Write.
+func (c *Conn) Write(p []byte) (n int, err error) {
+	return c.stream.Write(c.ctx, p)
+}
+
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
 	jsonParams, err := marshalToEmbedded(params)
@@ -196,7 +208,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		zap.String("req.method", req.Method),
 		zap.Any("req.params", req.Params),
 	)
-	if err := c.stream.Write(ctx, data); err != nil {
+	if _, err := c.stream.Write(ctx, data); err != nil {
 		return err
 	}
 
@@ -216,10 +228,11 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		if result == nil || resp.Result == nil {
 			return nil
 		}
-		if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
+		if err := gojay.Unsafe.Unmarshal(*resp.Result.EmbeddedJSON, result); err != nil {
 			return xerrors.Errorf("failed to unmarshalling result: %v", err)
 		}
 		return nil
+
 	case <-ctx.Done():
 		c.canceler(ctx, c, req)
 		return ctx.Err()
@@ -242,14 +255,14 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	}
 
 	elapsed := time.Since(handling.start)
-	var jsonParams *gojay.EmbeddedJSON
+	var raw *RawMessage
 	if err == nil {
-		jsonParams, err = marshalToEmbedded(result)
+		raw, err = marshalToEmbedded(result)
 	}
 
 	resp := &Response{
 		ID:     req.ID,
-		Result: jsonParams,
+		Result: raw,
 	}
 
 	if err != nil {
@@ -269,7 +282,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 		zap.Error(resp.Error),
 	)
 
-	if err := c.stream.Write(ctx, data); err != nil {
+	if _, err := c.stream.Write(ctx, data); err != nil {
 		return err
 	}
 
@@ -297,7 +310,9 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 		zap.Any("req.Params", req.Params),
 	)
 
-	return c.stream.Write(ctx, data)
+	_, err = c.stream.Write(ctx, data)
+
+	return err
 }
 
 // Cancel cancels a pending Call on the server side.
@@ -335,16 +350,16 @@ func (c *Conn) deliver(ctx context.Context, q chan queue, request *Request) bool
 // combined has all the fields of both Request and Response.
 // We can decode this and then work out which it is.
 type combined struct {
-	VersionTag Message             `json:"jsonrpc"`
-	ID         *ID                 `json:"id,omitempty"`
-	Method     string              `json:"method"`
-	Params     *gojay.EmbeddedJSON `json:"params,omitempty"`
-	Result     *gojay.EmbeddedJSON `json:"result,omitempty"`
-	Error      *Error              `json:"error,omitempty"`
+	VersionTag Message     `json:"jsonrpc"`
+	ID         *ID         `json:"id,omitempty"`
+	Method     string      `json:"method"`
+	Params     *RawMessage `json:"params,omitempty"`
+	Result     *RawMessage `json:"result,omitempty"`
+	Error      *Error      `json:"error,omitempty"`
 }
 
 // Run run the jsonrpc2 server.
-func (c *Conn) Run(ctx context.Context) error {
+func (c *Conn) Run(ctx context.Context) (err error) {
 	q := make(chan queue, c.capacity)
 	defer close(q)
 
@@ -359,8 +374,9 @@ func (c *Conn) Run(ctx context.Context) error {
 	}()
 
 	for {
+		var data []byte
 		// get the data for a message
-		data, err := c.stream.Read(ctx)
+		_, err = c.stream.Read(ctx, data)
 		if err != nil {
 			// the stream failed, we cannot continue
 			return err
@@ -458,12 +474,12 @@ func (d Direction) String() string {
 	}
 }
 
-func marshalToEmbedded(obj interface{}) (*gojay.EmbeddedJSON, error) {
+func marshalToEmbedded(obj interface{}) (*RawMessage, error) {
 	data, err := gojay.Marshal(obj)
 	if err != nil {
 		return nil, err
 	}
 	raw := gojay.EmbeddedJSON(data)
 
-	return &raw, nil
+	return &RawMessage{EmbeddedJSON: &raw}, nil
 }
