@@ -49,6 +49,9 @@ func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	case "method":
 		return dec.String(&v.Method)
 	case "params":
+		if v.Params.EmbeddedJSON == nil {
+			v.Params.EmbeddedJSON = &gojay.EmbeddedJSON{}
+		}
 		return dec.EmbeddedJSON(v.Params.EmbeddedJSON)
 	}
 	return nil
@@ -84,6 +87,9 @@ func (v *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 		}
 		return dec.Object(v.Error)
 	case "result":
+		if v.Result.EmbeddedJSON == nil {
+			v.Result.EmbeddedJSON = &gojay.EmbeddedJSON{}
+		}
 		return dec.EmbeddedJSON(v.Result.EmbeddedJSON)
 	}
 	return nil
@@ -111,6 +117,9 @@ func (v *NotificationMessage) UnmarshalJSONObject(dec *gojay.Decoder, k string) 
 	case "method":
 		return dec.String(&v.Method)
 	case "params":
+		if v.Params.EmbeddedJSON == nil {
+			v.Params.EmbeddedJSON = &gojay.EmbeddedJSON{}
+		}
 		return dec.EmbeddedJSON(v.Params.EmbeddedJSON)
 	}
 	return nil
