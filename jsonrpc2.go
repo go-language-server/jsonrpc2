@@ -49,8 +49,8 @@ type Canceler func(context.Context, *Conn, *Request)
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
-	handler    Handler
-	canceler   Canceler
+	Handler    Handler
+	Canceler   Canceler
 	logger     *zap.Logger
 	capacity   int
 	overloaded bool
@@ -71,14 +71,14 @@ type Options func(*Conn)
 // WithHandler apply custom hander to Conn.
 func WithHandler(h Handler) Options {
 	return func(c *Conn) {
-		c.handler = h
+		c.Handler = h
 	}
 }
 
 // WithCanceler apply custom canceler to Conn.
 func WithCanceler(canceler Canceler) Options {
 	return func(c *Conn) {
-		c.canceler = canceler
+		c.Canceler = canceler
 	}
 }
 
@@ -139,13 +139,13 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 		opt(conn)
 	}
 
-	if conn.handler == nil {
+	if conn.Handler == nil {
 		// the default handler reports a method error
-		conn.handler = defaultHandler
+		conn.Handler = defaultHandler
 	}
-	if conn.canceler == nil {
+	if conn.Canceler == nil {
 		// the default canceller does nothing
-		conn.canceler = defaultCanceler
+		conn.Canceler = defaultCanceler
 	}
 
 	go func() {
@@ -234,7 +234,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		return nil
 
 	case <-ctx.Done():
-		c.canceler(ctx, c, req)
+		c.Canceler(ctx, c, req)
 		return ctx.Err()
 	}
 }
@@ -369,7 +369,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			if e.ctx.Err() != nil {
 				continue
 			}
-			c.handler(e.ctx, e.c, e.r)
+			c.Handler(e.ctx, e.c, e.r)
 		}
 	}()
 
