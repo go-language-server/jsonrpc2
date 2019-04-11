@@ -271,7 +271,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 		resp.Error = New(CodeParseError, err)
 	}
 
-	data, err := gojay.Marshal(resp)
+	data, err := gojay.MarshalJSONObject(resp)
 	if err != nil {
 		c.logger.Error(Send,
 			zap.Any("resp.ID", resp.ID.Number),
