@@ -91,6 +91,18 @@ func (e *Error) Unwrap() error {
 	return e.err
 }
 
+// New builds a Error struct for the suppied message and code.
+func New(c Code, args ...interface{}) *Error {
+	e := &Error{
+		Code:    c,
+		Message: fmt.Sprint(args...),
+		frame:   xerrors.Caller(1),
+	}
+	e.err = xerrors.New(e.Message)
+
+	return e
+}
+
 // Errorf builds a Error struct for the suppied message and code.
 func Errorf(c Code, format string, args ...interface{}) *Error {
 	e := &Error{
