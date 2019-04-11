@@ -19,8 +19,8 @@ const Version = "2.0"
 // Only one of either the Name or Number members will be set, using the
 // number form if the Name is the empty string.
 type ID struct {
-	Name   string `json:"name,omitempty"`
-	Number int64  `json:"number,omitempty"`
+	Name   string
+	Number int64
 }
 
 // String returns a string representation of the ID.
@@ -31,7 +31,7 @@ func (id *ID) String() string {
 		return ""
 	}
 	if id.Name != "" {
-		return strconv.Quote(id.Name)
+		return id.Name
 	}
 
 	return "#" + strconv.FormatInt(id.Number, 10)
