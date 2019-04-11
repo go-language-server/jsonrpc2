@@ -120,8 +120,8 @@ type pendingMap map[ID]chan *Response
 type handlingMap map[ID]handling
 
 var (
-	errLoadPendingMap  = New(CodeInternalError, "failed to Load pendingMap")
-	errLoadhandlingMap = New(CodeInternalError, "failed to Load handlingMap")
+	errLoadPendingMap  = NewError(CodeInternalError, "failed to Load pendingMap")
+	errLoadhandlingMap = NewError(CodeInternalError, "failed to Load handlingMap")
 )
 
 // NewConn creates a new connection object that reads and writes messages from
@@ -244,7 +244,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 // Reply sends a reply to the given request.
 func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
 	if req.IsNotify() {
-		return New(CodeInvalidRequest, "reply not invoked with a valid call")
+		return NewError(CodeInvalidRequest, "reply not invoked with a valid call")
 	}
 
 	m, ok := c.handling.Load().(handlingMap)
@@ -267,7 +267,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 			return err
 		}
 	} else {
-		resp.Error = New(CodeParseError, err)
+		resp.Error = NewError(CodeParseError, err)
 	}
 
 	data, err := gojay.MarshalJSONObject(resp)
@@ -462,7 +462,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			close(rchan)
 
 		default:
-			c.logger.Error(Receive, zap.Error(Errorf(CodeInvalidParams, "message not a call, notify or response, ignoring")))
+			c.logger.Error(Receive, zap.Error(NewError(CodeInvalidParams, "message not a call, notify or response, ignoring")))
 		}
 	}
 }

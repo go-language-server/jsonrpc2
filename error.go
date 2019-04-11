@@ -92,7 +92,7 @@ func (e *Error) Unwrap() error {
 }
 
 // New builds a Error struct for the suppied message and code.
-func New(c Code, args ...interface{}) *Error {
+func NewError(c Code, args ...interface{}) *Error {
 	e := &Error{
 		Code:    c,
 		Message: fmt.Sprint(args...),
