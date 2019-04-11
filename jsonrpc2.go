@@ -185,6 +185,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	if err != nil {
 		return xerrors.Errorf("failed to marshaling call request: %v", err)
 	}
+	c.logger.Debug("gojay.MarshalJSONObject(req)", zap.ByteString("data", data))
 
 	rchan := make(chan *Response)
 	m, ok := c.pending.Load().(pendingMap)
@@ -377,6 +378,9 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 		if err != nil {
 			return err // the stream failed, we cannot continue
 		}
+		if len(data) == 0 {
+			continue
+		}
 
 		// read a combined message
 		msg := new(Combined)
@@ -386,7 +390,6 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			c.logger.Debug(Receive,
 				zap.Error(Errorf(CodeParseError, "unmarshal failed: %v", err)),
 			)
-
 			continue
 		}
 
