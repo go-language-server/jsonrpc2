@@ -12,7 +12,6 @@ import (
 	"github.com/francoispqt/gojay"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
-	"golang.org/x/xerrors"
 )
 
 // Interface represents an interface for issuing requests that speak the JSON-RPC 2 protocol.
@@ -121,8 +120,8 @@ type pendingMap map[ID]chan *Response
 type handlingMap map[ID]handling
 
 var (
-	errLoadPendingMap  = xerrors.New("failed to Load pendingMap")
-	errLoadhandlingMap = xerrors.New("failed to Load handlingMap")
+	errLoadPendingMap  = New(CodeInternalError, "failed to Load pendingMap")
+	errLoadhandlingMap = New(CodeInternalError, "failed to Load handlingMap")
 )
 
 // NewConn creates a new connection object that reads and writes messages from
@@ -169,7 +168,7 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
 	jsonParams, err := marshalToEmbedded(params)
 	if err != nil {
-		return xerrors.Errorf("failed to marshaling call parameters: %v", err)
+		return Errorf(CodeParseError, "failed to marshaling call parameters: %w", err)
 	}
 
 	id := ID{Number: c.seq.Add(1)}
@@ -183,7 +182,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	// marshal the request now it is complete
 	data, err := gojay.MarshalJSONObject(req)
 	if err != nil {
-		return xerrors.Errorf("failed to marshaling call request: %v", err)
+		return Errorf(CodeParseError, "failed to marshaling call request: %w", err)
 	}
 	c.logger.Debug("gojay.MarshalJSONObject(req)", zap.ByteString("data", data))
 
@@ -211,7 +210,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		zap.Any("req.params", req.Params),
 	)
 	if _, err := c.stream.Write(ctx, data); err != nil {
-		return err
+		return Errorf(CodeInternalError, "failed to write call request data to steam: %w", err)
 	}
 
 	select {
@@ -232,7 +231,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 			return nil
 		}
 		if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
-			return xerrors.Errorf("failed to unmarshalling result: %v", err)
+			return Errorf(CodeParseError, "failed to unmarshalling result: %w", err)
 		}
 		return nil
 
@@ -245,7 +244,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 // Reply sends a reply to the given request.
 func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
 	if req.IsNotify() {
-		return xerrors.New("reply not invoked with a valid call")
+		return New(CodeInvalidRequest, "reply not invoked with a valid call")
 	}
 
 	m, ok := c.handling.Load().(handlingMap)
@@ -254,7 +253,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	}
 	handling, found := m[*req.ID]
 	if !found {
-		return xerrors.Errorf("not a call in progress: %v", req.ID)
+		return Errorf(CodeInternalError, "not a call in progress: %w", req.ID)
 	}
 
 	elapsed := time.Since(handling.start)
@@ -280,7 +279,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 			zap.Any("resp.Result", resp.Result),
 			zap.Error(err),
 		)
-		return err
+		return Errorf(CodeParseError, "failed to marshaling reply response: %w", err)
 	}
 
 	c.logger.Debug(Send,
@@ -292,7 +291,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	)
 
 	if _, err := c.stream.Write(ctx, data); err != nil {
-		return err
+		return Errorf(CodeInternalError, "failed to write response data to steam: %w", err)
 	}
 
 	return nil
@@ -302,7 +301,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error {
 	prms, err := marshalToEmbedded(params)
 	if err != nil {
-		return Errorf(CodeParseError, "failed to marshaling notify parameters: %v", err)
+		return Errorf(CodeParseError, "failed to marshaling notify parameters: %w", err)
 	}
 
 	req := &NotificationMessage{
@@ -312,7 +311,7 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 	}
 	data, err := gojay.MarshalJSONObject(req)
 	if err != nil {
-		return Errorf(CodeParseError, "failed to marshaling notify request: %v", err)
+		return Errorf(CodeParseError, "failed to marshaling notify request: %w", err)
 	}
 
 	c.logger.Debug(Send,
@@ -321,8 +320,11 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 	)
 
 	_, err = c.stream.Write(ctx, data)
+	if err != nil {
+		return Errorf(CodeInternalError, "failed to write notify request data to steam: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 // Cancel cancels a pending Call on the server side.
