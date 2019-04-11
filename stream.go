@@ -16,6 +16,42 @@ import (
 	"golang.org/x/xerrors"
 )
 
+const (
+	// "Header Content-Length" is the HTTP header name of the length of the content part in bytes. This header is required.
+	// This entity header indicates the size of the entity-body, in bytes, sent to the recipient.
+	//
+	// RFC 7230, section 3.3.2: Content-Length:
+	//  https://tools.ietf.org/html/rfc7230#section-3.3.2
+	HeaderContentLength = "Content-Length"
+
+	// "HeaderContentType" is the mime type of the content part. Defaults to "application/vscode-jsonrpc; charset=utf-8".
+	// This entity header is used to indicate the media type of the resource.
+	//
+	// RFC 7231, section 3.1.1.5: Content-Type:
+	//  https://tools.ietf.org/html/rfc7231#section-3.1.1.5
+	HeaderContentType = "Content-Type"
+
+	// HeaderContentSeparator is the header and content part separator.
+	HeaderContentSeparator = "\r\n"
+
+	headerSeparatorComma = ":"
+)
+
+const (
+	// ContentTypeJSONRPC is the custom mime type content for the Language Server Protocol.
+	ContentTypeJSONRPC = "application/jsonrpc; charset=utf-8"
+
+	// ContentTypeVSCodeJSONRPC is the default mime type content for the Language Server Protocol Specification.
+	ContentTypeVSCodeJSONRPC = "application/vscode-jsonrpc; charset=utf-8"
+)
+
+const (
+	// HeaderContentLengthFmt is the a format of "Content-Length" header for fmt function arg.
+	HeaderContentLengthFmt = HeaderContentLength + headerSeparatorComma + " %d" + HeaderContentSeparator
+	// HeaderContentTypeFmt is the a format of "Content-Type" header for fmt function arg.
+	HeaderContentTypeFmt = HeaderContentType + headerSeparatorComma + " %s" + HeaderContentSeparator
+)
+
 // Stream abstracts the transport mechanics from the JSON RPC protocol.
 type Stream interface {
 	// Read gets the next message from the stream.
@@ -97,7 +133,7 @@ func (s *stream) Write(ctx context.Context, p []byte) (n int, err error) {
 	}
 
 	s.Lock()
-	n, err = fmt.Fprintf(s.out, "Content-Length: %v\r\n\r\n", len(p))
+	n, err = fmt.Fprintf(s.out, HeaderContentLengthFmt+HeaderContentTypeFmt+HeaderContentSeparator, len(p), ContentTypeJSONRPC)
 	if err == nil {
 		n, err = s.out.Write(p)
 	}
