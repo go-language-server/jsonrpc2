@@ -147,11 +147,10 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 		// the default canceller does nothing
 		conn.Canceler = defaultCanceler
 	}
-
-	go func() {
-		conn.err = conn.Run(ctx)
-		close(conn.done)
-	}()
+	if conn.logger == nil {
+		// the default logger does nothing
+		conn.logger = zap.NewNop()
+	}
 
 	return conn
 }
@@ -170,20 +169,21 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
 	jsonParams, err := marshalToEmbedded(params)
 	if err != nil {
-		return xerrors.Errorf("failed to marshalling call parameters: %v", err)
+		return xerrors.Errorf("failed to marshaling call parameters: %v", err)
 	}
-	id := ID{Number: c.seq.Add(1)}
 
+	id := ID{Number: c.seq.Add(1)}
 	req := &Request{
-		ID:     &id,
-		Method: method,
-		Params: jsonParams,
+		JSONRPC: Version,
+		ID:      &id,
+		Method:  method,
+		Params:  jsonParams,
 	}
 
 	// marshal the request now it is complete
-	data, err := gojay.Marshal(req)
+	data, err := gojay.MarshalJSONObject(req)
 	if err != nil {
-		return xerrors.Errorf("failed to marshalling call request: %v", err)
+		return xerrors.Errorf("failed to marshaling call request: %v", err)
 	}
 
 	rchan := make(chan *Response)
@@ -203,8 +203,9 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	}()
 
 	start := time.Now()
-	c.logger.Info(Send.String(),
-		zap.String("id", id.String()),
+	c.logger.Debug(Send,
+		zap.String("req.JSONRPC", req.JSONRPC),
+		zap.Any("id", id),
 		zap.String("req.method", req.Method),
 		zap.Any("req.params", req.Params),
 	)
@@ -214,8 +215,9 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 
 	select {
 	case resp := <-rchan:
-		c.logger.Info(Receive.String(),
-			zap.String("id", id.String()),
+		c.logger.Debug(Receive,
+			zap.String("req.JSONRPC", req.JSONRPC),
+			zap.Any("id", id),
 			zap.Duration("elapsed", time.Since(start)),
 			zap.String("req.method", req.Method),
 			zap.Any("resp.Result", resp.Result),
@@ -228,7 +230,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		if result == nil || resp.Result == nil {
 			return nil
 		}
-		if err := gojay.Unsafe.Unmarshal(*resp.Result.EmbeddedJSON, result); err != nil {
+		if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
 			return xerrors.Errorf("failed to unmarshalling result: %v", err)
 		}
 		return nil
@@ -255,27 +257,33 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	}
 
 	elapsed := time.Since(handling.start)
-	var raw *RawMessage
-	if err == nil {
-		raw, err = marshalToEmbedded(result)
-	}
 
 	resp := &Response{
-		ID:     req.ID,
-		Result: raw,
+		JSONRPC: Version,
+		ID:      req.ID,
 	}
-
-	if err != nil {
-		resp.Error = Errorf(0, "%s", err)
+	if err == nil {
+		if resp.Result, err = marshalToEmbedded(result); err != nil {
+			return err
+		}
+	} else {
+		resp.Error = New(CodeParseError, err)
 	}
 
 	data, err := gojay.Marshal(resp)
 	if err != nil {
+		c.logger.Error(Send,
+			zap.Any("resp.ID", resp.ID.Number),
+			zap.Duration("elapsed", elapsed),
+			zap.String("req.Method", req.Method),
+			zap.Any("resp.Result", resp.Result),
+			zap.Error(err),
+		)
 		return err
 	}
 
-	c.logger.Info(Send.String(),
-		zap.String("resp.ID", resp.ID.String()),
+	c.logger.Debug(Send,
+		zap.Any("resp.ID", resp.ID),
 		zap.Duration("elapsed", elapsed),
 		zap.String("req.Method", req.Method),
 		zap.Any("resp.Result", resp.Result),
@@ -291,21 +299,22 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 
 // Notify is called to send a notification request over the connection.
 func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error {
-	jsonParams, err := marshalToEmbedded(params)
+	prms, err := marshalToEmbedded(params)
 	if err != nil {
-		return xerrors.Errorf("failed to marshalling notify parameters: %v", err)
+		return Errorf(CodeParseError, "failed to marshaling notify parameters: %v", err)
 	}
 
 	req := &NotificationMessage{
-		Method: method,
-		Params: jsonParams,
+		JSONRPC: Version,
+		Method:  method,
+		Params:  prms,
 	}
 	data, err := gojay.MarshalJSONObject(req)
 	if err != nil {
-		return xerrors.Errorf("failed to marshalling notify request: %v", err)
+		return Errorf(CodeParseError, "failed to marshaling notify request: %v", err)
 	}
 
-	c.logger.Info(Send.String(),
+	c.logger.Debug(Send,
 		zap.String("req.Method", req.Method),
 		zap.Any("req.Params", req.Params),
 	)
@@ -347,17 +356,6 @@ func (c *Conn) deliver(ctx context.Context, q chan queue, request *Request) bool
 	}
 }
 
-// combined has all the fields of both Request and Response.
-// We can decode this and then work out which it is.
-type combined struct {
-	VersionTag Message     `json:"jsonrpc"`
-	ID         *ID         `json:"id,omitempty"`
-	Method     string      `json:"method"`
-	Params     *RawMessage `json:"params,omitempty"`
-	Result     *RawMessage `json:"result,omitempty"`
-	Error      *Error      `json:"error,omitempty"`
-}
-
 // Run run the jsonrpc2 server.
 func (c *Conn) Run(ctx context.Context) (err error) {
 	q := make(chan queue, c.capacity)
@@ -374,22 +372,21 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 	}()
 
 	for {
-		var data []byte
-		// get the data for a message
-		_, err = c.stream.Read(ctx, data)
+		data := make([]byte, 0, 512)
+		_, err = c.stream.Read(ctx, data) // get the data for a message
 		if err != nil {
-			// the stream failed, we cannot continue
-			return err
+			return err // the stream failed, we cannot continue
 		}
 
 		// read a combined message
-		msg := &combined{}
-		if err := gojay.Unsafe.Unmarshal(data, msg); err != nil {
+		msg := new(Combined)
+		if err := gojay.Unsafe.UnmarshalJSONObject(data, msg); err != nil {
 			// a badly formed message arrived, log it and continue
 			// we trust the stream to have isolated the error to just this message
-			c.logger.Info(Receive.String(),
-				zap.Error(Errorf(0, "unmarshal failed: %v", err)),
+			c.logger.Debug(Receive,
+				zap.Error(Errorf(CodeParseError, "unmarshal failed: %v", err)),
 			)
+
 			continue
 		}
 
@@ -398,32 +395,43 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 		case msg.Method != "":
 			// if method is set it must be a request
 			req := &Request{
-				Method: msg.Method,
-				Params: msg.Params,
-				ID:     msg.ID,
+				JSONRPC: Version,
+				Method:  msg.Method,
+				Params:  msg.Params,
+				ID:      msg.ID,
 			}
 			if req.IsNotify() {
-				c.logger.Info(Receive.String(), zap.String("req.ID", req.ID.String()), zap.String("req.Method", req.Method), zap.Any("req.Params", req.Params))
+				c.logger.Debug(Receive,
+					zap.Any("req.ID", req.ID),
+					zap.String("req.Method", req.Method),
+					zap.Any("req.Params", req.Params),
+				)
 				c.deliver(ctx, q, req)
-			} else {
-				// we have a Call, add to the processor queue
-				reqCtx, reqCancel := context.WithCancel(ctx)
-				defer reqCancel()
-				m, ok := c.handling.Load().(handlingMap)
-				if !ok {
-					return errLoadhandlingMap
-				}
-				m[*req.ID] = handling{
-					request: req,
-					cancel:  reqCancel,
-					start:   time.Now(),
-				}
-				c.handling.Store(m)
-				c.logger.Info(Receive.String(), zap.String("req.ID", req.ID.String()), zap.String("req.Method", req.Method), zap.Any("req.Params", req.Params))
-				if !c.deliver(reqCtx, q, req) {
-					// queue is full, reject the message by directly replying
-					c.Reply(ctx, req, nil, Errorf(CodeServerOverloaded, "no room in queue"))
-				}
+
+				return
+			}
+
+			// we have a Call, add to the processor queue
+			reqCtx, reqCancel := context.WithCancel(ctx)
+			m, ok := c.handling.Load().(handlingMap)
+			if !ok {
+				return errLoadhandlingMap
+			}
+			m[*req.ID] = handling{
+				request: req,
+				cancel:  reqCancel,
+				start:   time.Now(),
+			}
+			c.handling.Store(m)
+
+			c.logger.Debug(Receive,
+				zap.Any("req.ID", req.ID),
+				zap.String("req.Method", req.Method),
+				zap.Any("req.Params", req.Params),
+			)
+			if !c.deliver(reqCtx, q, req) {
+				// queue is full, reject the message by directly replying
+				c.Reply(ctx, req, nil, Errorf(CodeServerOverloaded, "no room in queue"))
 			}
 
 		case msg.ID != nil:
@@ -437,49 +445,36 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 				delete(m, *msg.ID)
 			}
 			c.pending.Store(m)
+
 			// and send the reply to the channel
 			resp := &Response{
-				Result: msg.Result,
-				Error:  msg.Error,
-				ID:     msg.ID,
+				JSONRPC: Version,
+				Result:  msg.Result,
+				Error:   msg.Error,
+				ID:      msg.ID,
 			}
 			rchan <- resp
 			close(rchan)
 
 		default:
-			c.logger.Info(Receive.String(), zap.Error(Errorf(0, "message not a call, notify or response, ignoring")))
+			c.logger.Error(Receive, zap.Error(Errorf(CodeInvalidParams, "message not a call, notify or response, ignoring")))
 		}
 	}
 }
 
-// Direction is used to indicate to a logger whether the logged message was being
-// sent or received.
-type Direction bool
-
 const (
 	// Send indicates the message is outgoing.
-	Send = Direction(true)
+	Send = "send"
 	// Receive indicates the message is incoming.
-	Receive = Direction(false)
+	Receive = "receive"
 )
 
-func (d Direction) String() string {
-	switch d {
-	case Send:
-		return "send"
-	case Receive:
-		return "receive"
-	default:
-		panic("unreachable")
-	}
-}
-
 func marshalToEmbedded(obj interface{}) (*RawMessage, error) {
-	data, err := gojay.Marshal(obj)
+	data, err := gojay.MarshalAny(obj)
 	if err != nil {
 		return nil, err
 	}
-	raw := gojay.EmbeddedJSON(data)
+	raw := RawMessage(gojay.EmbeddedJSON(data))
 
-	return &RawMessage{EmbeddedJSON: &raw}, nil
+	return &raw, nil
 }
