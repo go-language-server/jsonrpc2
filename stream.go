@@ -55,10 +55,10 @@ const (
 // Stream abstracts the transport mechanics from the JSON RPC protocol.
 type Stream interface {
 	// Read gets the next message from the stream.
-	Read(ctx context.Context, p []byte) (n int, err error)
+	Read(ctx context.Context) (data []byte, err error)
 
 	// Write sends a message to the stream.
-	Write(ctx context.Context, p []byte) (n int, err error)
+	Write(ctx context.Context, data []byte) (err error)
 }
 
 type stream struct {
@@ -74,10 +74,10 @@ func NewStream(in io.Reader, out io.Writer) Stream {
 	}
 }
 
-func (s *stream) Read(ctx context.Context, p []byte) (n int, err error) {
+func (s *stream) Read(ctx context.Context) ([]byte, error) {
 	select {
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return nil, ctx.Err()
 	default:
 	}
 
@@ -85,7 +85,7 @@ func (s *stream) Read(ctx context.Context, p []byte) (n int, err error) {
 	for {
 		line, err := s.in.ReadString('\n')
 		if err != nil {
-			return 0, xerrors.Errorf("failed reading header line: %w", err)
+			return nil, xerrors.Errorf("failed reading header line: %w", err)
 		}
 
 		line = strings.TrimSpace(line)
@@ -95,7 +95,7 @@ func (s *stream) Read(ctx context.Context, p []byte) (n int, err error) {
 
 		colon := strings.IndexRune(line, ':')
 		if colon < 0 {
-			return 0, xerrors.Errorf("invalid header line: %q", line)
+			return nil, xerrors.Errorf("invalid header line: %q", line)
 		}
 
 		name, value := line[:colon], strings.TrimSpace(line[colon+1:])
@@ -104,40 +104,39 @@ func (s *stream) Read(ctx context.Context, p []byte) (n int, err error) {
 		}
 
 		if length, err = strconv.ParseInt(value, 10, 32); err != nil {
-			return 0, xerrors.Errorf("failed parsing Content-Length: %v", value)
+			return nil, xerrors.Errorf("failed parsing Content-Length: %v", value)
 		}
 
 		if length <= 0 {
-			return 0, xerrors.Errorf("invalid Content-Length: %v", length)
+			return nil, xerrors.Errorf("invalid Content-Length: %v", length)
 		}
 	}
 
 	if length == 0 {
-		return 0, xerrors.New("missing Content-Length header")
+		return nil, xerrors.New("missing Content-Length header")
 	}
 
-	p = make([]byte, length)
-	n, err = io.ReadFull(s.in, p)
-	if err != nil {
-		return 0, xerrors.Errorf("failed reading data: %w", err)
+	data := make([]byte, length)
+	if _, err := io.ReadFull(s.in, data); err != nil {
+		return nil, xerrors.Errorf("failed reading data: %w", err)
 	}
 
-	return n, nil
+	return data, nil
 }
 
-func (s *stream) Write(ctx context.Context, p []byte) (n int, err error) {
+func (s *stream) Write(ctx context.Context, data []byte) (err error) {
 	select {
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return ctx.Err()
 	default:
 	}
 
 	s.Lock()
-	n, err = fmt.Fprintf(s.out, HeaderContentLengthFmt+HeaderContentTypeFmt+HeaderContentSeparator, len(p), ContentTypeJSONRPC)
+	_, err = fmt.Fprintf(s.out, HeaderContentLengthFmt+HeaderContentTypeFmt+HeaderContentSeparator, len(data), ContentTypeJSONRPC)
 	if err == nil {
-		n, err = s.out.Write(p)
+		_, err = s.out.Write(data)
 	}
 	s.Unlock()
 
-	return n, err
+	return err
 }
