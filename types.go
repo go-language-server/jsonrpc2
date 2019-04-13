@@ -7,8 +7,8 @@ package jsonrpc2
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"strconv"
+	"unsafe"
 
 	"github.com/francoispqt/gojay"
 )
@@ -56,33 +56,40 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &id.Name)
 }
 
-// RawMessage is the same as json.RawMessage.
+// RawMessage mimic json.RawMessage
+// RawMessage is a raw encoded JSON value.
+// It implements Marshaler and Unmarshaler and can
+// be used to delay JSON decoding or precompute a JSON encoding.
 type RawMessage gojay.EmbeddedJSON
 
-var _ io.Reader = (*RawMessage)(nil)
-var _ json.Marshaler = (*RawMessage)(nil)
-var _ json.Unmarshaler = (*RawMessage)(nil)
+func (m RawMessage) String() string {
+	if m == nil {
+		return ""
+	}
+
+	return *(*string)(unsafe.Pointer(&m))
+}
 
 // Read implements io.Reader.
-func (m *RawMessage) Read(p []byte) (n int, err error) {
-	if len(p) == 0 || p == nil {
-		return 0, nil
-	}
-	if m == nil {
-		return 0, io.EOF
-	}
-
-	n = copy(p, *m)
-
-	return n, nil
-}
+// func (m *RawMessage) Read(p []byte) (n int, err error) {
+// 	if len(p) == 0 || p == nil {
+// 		return 0, nil
+// 	}
+// 	if m == nil {
+// 		return 0, io.EOF
+// 	}
+//
+// 	n = copy(p, *m)
+//
+// 	return n, nil
+// }
 
 // MarshalJSON implements json.Marshaler.
 //
-// MarshalJSON returns m as the JSON encoding of m.
+// The returns m as the JSON encoding of m.
 func (m RawMessage) MarshalJSON() ([]byte, error) {
-	if &m == nil {
-		return []byte("null"), nil
+	if m == nil {
+		return []byte{110, 117, 108, 108}, nil // null
 	}
 
 	return m, nil
@@ -90,16 +97,20 @@ func (m RawMessage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 //
-// UnmarshalJSON sets *m to a copy of data.
+// The sets *m to a copy of data.
 func (m *RawMessage) UnmarshalJSON(data []byte) error {
 	if m == nil {
-		return errors.New("json.RawMessage: UnmarshalJSON on nil pointer")
+		return errors.New("jsonrpc2.RawMessage: UnmarshalJSON on nil pointer")
 	}
 
 	*m = append((*m)[0:0], data...)
 
 	return nil
 }
+
+// var _ io.Reader = (*RawMessage)(nil)
+var _ json.Marshaler = (*RawMessage)(nil)
+var _ json.Unmarshaler = (*RawMessage)(nil)
 
 // Request is a request message to describe a request between the client and the server.
 //
