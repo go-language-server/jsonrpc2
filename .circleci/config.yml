@@ -1,8 +1,7 @@
 version: 2.1
 
 orbs:
-  golang: cci-orb/golang@0.0.4
-  github: cci-orb/github@dev:0.0.1
+  golang: cci-orb/golang@dev:0.0.5
   codecov: codecov/codecov@volatile
 
 defaults: &defaults
@@ -17,7 +16,6 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - github/token
       - golang/gomod
       - run:
           name: Run go mod vendor
@@ -40,7 +38,6 @@ jobs:
     <<: *defaults
     steps:
       - checkout
-      - github/token
       - golang/gomod
       - run:
           name: Run go mod vendor
