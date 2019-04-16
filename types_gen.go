@@ -10,17 +10,26 @@ import (
 	"github.com/francoispqt/gojay"
 )
 
+const (
+	keyJSONRPC = "jsonrpc"
+	keyID      = "id"
+	keyMethod  = "method"
+	keyParams  = "params"
+	keyError   = "error"
+	keyResult  = "result"
+)
+
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
-	case "jsonrpc":
+	case keyJSONRPC:
 		return dec.String(&v.JSONRPC)
-	case "id":
+	case keyID:
 		s := v.ID.String()
 		return dec.String(&s)
-	case "method":
+	case keyMethod:
 		return dec.String(&v.Method)
-	case "params":
+	case keyParams:
 		if v.Params == nil {
 			v.Params = &json.RawMessage{}
 		}
@@ -34,10 +43,10 @@ func (v *Request) NKeys() int { return 4 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Request) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey("jsonrpc", v.JSONRPC)
-	enc.StringKey("id", v.ID.String())
-	enc.StringKey("method", v.Method)
-	enc.AddEmbeddedJSONKeyOmitEmpty("params", (*gojay.EmbeddedJSON)(v.Params))
+	enc.StringKey(keyJSONRPC, v.JSONRPC)
+	enc.StringKey(keyID, v.ID.String())
+	enc.StringKey(keyMethod, v.Method)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(v.Params))
 }
 
 // IsNil returns wether the structure is nil value or not
@@ -46,17 +55,17 @@ func (v *Request) IsNil() bool { return v == nil }
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
-	case "jsonrpc":
+	case keyJSONRPC:
 		return dec.String(&v.JSONRPC)
-	case "id":
+	case keyID:
 		s := v.ID.String()
 		return dec.String(&s)
-	case "error":
+	case keyError:
 		if v.Error == nil {
 			v.Error = &Error{}
 		}
 		return dec.Object(v.Error)
-	case "result":
+	case keyResult:
 		if v.Result == nil {
 			v.Result = &json.RawMessage{}
 		}
@@ -70,10 +79,10 @@ func (v *Response) NKeys() int { return 4 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Response) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey("jsonrpc", v.JSONRPC)
-	enc.StringKey("id", v.ID.String())
-	enc.ObjectKeyOmitEmpty("error", v.Error)
-	enc.AddEmbeddedJSONKeyOmitEmpty("result", (*gojay.EmbeddedJSON)(v.Result))
+	enc.StringKey(keyJSONRPC, v.JSONRPC)
+	enc.StringKey(keyID, v.ID.String())
+	enc.ObjectKeyOmitEmpty(keyError, v.Error)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyResult, (*gojay.EmbeddedJSON)(v.Result))
 }
 
 // IsNil returns wether the structure is nil value or not
@@ -82,27 +91,27 @@ func (v *Response) IsNil() bool { return v == nil }
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
-	case "jsonrpc":
+	case keyJSONRPC:
 		return dec.String(&v.JSONRPC)
-	case "id":
+	case keyID:
 		if v.ID == nil {
 			v.ID = &ID{}
 		}
 		s := v.ID.String()
 		return dec.String(&s)
-	case "method":
+	case keyMethod:
 		return dec.String(&v.Method)
-	case "params":
+	case keyParams:
 		if v.Params == nil {
 			v.Params = &json.RawMessage{}
 		}
 		return dec.EmbeddedJSON((*gojay.EmbeddedJSON)(v.Params))
-	case "error":
+	case keyError:
 		if v.Error == nil {
 			v.Error = &Error{}
 		}
 		return dec.Object(v.Error)
-	case "result":
+	case keyResult:
 		if v.Result == nil {
 			v.Result = &json.RawMessage{}
 		}
@@ -116,12 +125,12 @@ func (v *Combined) NKeys() int { return 6 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Combined) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey("jsonrpc", v.JSONRPC)
-	enc.StringKeyOmitEmpty("id", v.ID.String())
-	enc.StringKey("method", v.Method)
-	enc.AddEmbeddedJSONKeyOmitEmpty("params", (*gojay.EmbeddedJSON)(v.Params))
-	enc.ObjectKeyOmitEmpty("error", v.Error)
-	enc.AddEmbeddedJSONKeyOmitEmpty("result", (*gojay.EmbeddedJSON)(v.Result))
+	enc.StringKey(keyJSONRPC, v.JSONRPC)
+	enc.StringKeyOmitEmpty(keyID, v.ID.String())
+	enc.StringKey(keyMethod, v.Method)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(v.Params))
+	enc.ObjectKeyOmitEmpty(keyError, v.Error)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyResult, (*gojay.EmbeddedJSON)(v.Result))
 }
 
 // IsNil returns wether the structure is nil value or not
@@ -130,11 +139,11 @@ func (v *Combined) IsNil() bool { return v == nil }
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *NotificationMessage) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
-	case "jsonrpc":
+	case keyJSONRPC:
 		return dec.String(&v.JSONRPC)
-	case "method":
+	case keyMethod:
 		return dec.String(&v.Method)
-	case "params":
+	case keyParams:
 		if v.Params == nil {
 			v.Params = &json.RawMessage{}
 		}
@@ -148,9 +157,9 @@ func (v *NotificationMessage) NKeys() int { return 3 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *NotificationMessage) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey("jsonrpc", v.JSONRPC)
-	enc.StringKey("method", v.Method)
-	enc.AddEmbeddedJSONKeyOmitEmpty("params", (*gojay.EmbeddedJSON)(v.Params))
+	enc.StringKey(keyJSONRPC, v.JSONRPC)
+	enc.StringKey(keyMethod, v.Method)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(v.Params))
 }
 
 // IsNil returns wether the structure is nil value or not
