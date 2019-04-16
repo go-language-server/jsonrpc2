@@ -60,7 +60,6 @@ type Conn struct {
 	Capacity           int
 	RejectIfOverloaded bool
 	stream             Stream
-	err                error
 	pendingMu          sync.Mutex // protects the pending map
 	pending            map[ID]chan *Response
 	handlingMu         sync.Mutex // protects the handling map
