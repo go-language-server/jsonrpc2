@@ -15,14 +15,14 @@ import (
 )
 
 const (
-	// "Header Content-Length" is the HTTP header name of the length of the content part in bytes. This header is required.
+	// HeaderContentLength is the HTTP header name of the length of the content part in bytes. This header is required.
 	// This entity header indicates the size of the entity-body, in bytes, sent to the recipient.
 	//
 	// RFC 7230, section 3.3.2: Content-Length:
 	//  https://tools.ietf.org/html/rfc7230#section-3.3.2
 	HeaderContentLength = "Content-Length"
 
-	// "HeaderContentType" is the mime type of the content part. Defaults to "application/vscode-jsonrpc; charset=utf-8".
+	// HeaderContentType is the mime type of the content part. Defaults to "application/vscode-jsonrpc; charset=utf-8".
 	// This entity header is used to indicate the media type of the resource.
 	//
 	// RFC 7231, section 3.1.1.5: Content-Type:
@@ -65,6 +65,9 @@ type stream struct {
 	outMu sync.Mutex
 }
 
+// NewStream returns a Stream built on top of an io.Reader and io.Writer
+// The messages are sent with HTTP content length and MIME type headers.
+// This is the format used by LSP and others.
 func NewStream(in io.Reader, out io.Writer) Stream {
 	return &stream{
 		in:  bufio.NewReader(in),
@@ -72,6 +75,7 @@ func NewStream(in io.Reader, out io.Writer) Stream {
 	}
 }
 
+// Read reads data from stream.
 func (s *stream) Read(ctx context.Context) ([]byte, error) {
 	select {
 	case <-ctx.Done():
@@ -118,6 +122,7 @@ func (s *stream) Read(ctx context.Context) ([]byte, error) {
 	return data, nil
 }
 
+// Write writes data to stream.
 func (s *stream) Write(ctx context.Context, data []byte) error {
 	select {
 	case <-ctx.Done():
