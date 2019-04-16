@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"golang.org/x/xerrors"
 )
 
 const (
@@ -62,9 +60,9 @@ type Stream interface {
 }
 
 type stream struct {
-	in  *bufio.Reader
-	out io.Writer
-	sync.Mutex
+	in    *bufio.Reader
+	out   io.Writer
+	outMu sync.Mutex
 }
 
 func NewStream(in io.Reader, out io.Writer) Stream {
@@ -82,61 +80,55 @@ func (s *stream) Read(ctx context.Context) ([]byte, error) {
 	}
 
 	var length int64
+	// read the header, stop on the first empty line
 	for {
 		line, err := s.in.ReadString('\n')
 		if err != nil {
-			return nil, xerrors.Errorf("failed reading header line: %w", err)
+			return nil, fmt.Errorf("failed reading header line %q", err)
 		}
-
 		line = strings.TrimSpace(line)
-		if line == "" { // check we have a header line
+		// check we have a header line
+		if line == "" {
 			break
 		}
-
 		colon := strings.IndexRune(line, ':')
 		if colon < 0 {
-			return nil, xerrors.Errorf("invalid header line: %q", line)
+			return nil, fmt.Errorf("invalid header line %q", line)
 		}
-
 		name, value := line[:colon], strings.TrimSpace(line[colon+1:])
-		if name != "Content-Length" {
-			continue
-		}
-
-		if length, err = strconv.ParseInt(value, 10, 32); err != nil {
-			return nil, xerrors.Errorf("failed parsing Content-Length: %v", value)
-		}
-
-		if length <= 0 {
-			return nil, xerrors.Errorf("invalid Content-Length: %v", length)
+		switch name {
+		case "Content-Length":
+			if length, err = strconv.ParseInt(value, 10, 32); err != nil {
+				return nil, fmt.Errorf("failed parsing Content-Length: %v", value)
+			}
+			if length <= 0 {
+				return nil, fmt.Errorf("invalid Content-Length: %v", length)
+			}
+		default:
+			// ignoring unknown headers
 		}
 	}
-
 	if length == 0 {
-		return nil, xerrors.New("missing Content-Length header")
+		return nil, fmt.Errorf("missing Content-Length header")
 	}
-
 	data := make([]byte, length)
 	if _, err := io.ReadFull(s.in, data); err != nil {
-		return nil, xerrors.Errorf("failed reading data: %w", err)
+		return nil, err
 	}
-
 	return data, nil
 }
 
-func (s *stream) Write(ctx context.Context, data []byte) (err error) {
+func (s *stream) Write(ctx context.Context, data []byte) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-
-	s.Lock()
-	_, err = fmt.Fprintf(s.out, HeaderContentLengthFmt+HeaderContentTypeFmt+HeaderContentSeparator, len(data), ContentTypeJSONRPC)
+	s.outMu.Lock()
+	_, err := fmt.Fprintf(s.out, "Content-Length: %v\r\n\r\n", len(data))
 	if err == nil {
 		_, err = s.out.Write(data)
 	}
-	s.Unlock()
-
+	s.outMu.Unlock()
 	return err
 }
