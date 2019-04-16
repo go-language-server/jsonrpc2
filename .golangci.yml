@@ -6,7 +6,6 @@ run:
   # skip-dirs:
   skip-files:
     - ".*\\.pb\\.go"
-    - ".*(.|_)gen\\.go"
   modules-download-mode: vendor
 
 linters-settings:
@@ -59,15 +58,12 @@ linters:
   enable:
   enable-all: true
   disable:
-    - dupl
     - gochecknoglobals
     - gochecknoinits
     - gocyclo
     - gosec
     - lll
-    - maligned
-    - megacheck
-    - typecheck
+    - nakedret
   fast: true
 
 issues:
