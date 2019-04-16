@@ -160,7 +160,7 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 	c.Logger.Debug("Notify")
 	p, err := c.marshalInterface(params)
 	if err != nil {
-		return Errorf(CodeParseError, "failed to marshaling notify parameters: %w", err)
+		return Errorf(CodeParseError, "failed to marshaling notify parameters: %v", err)
 	}
 
 	req := &NotificationMessage{
@@ -170,7 +170,7 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 	}
 	data, err := json.Marshal(req) // TODO(zchee): use gojay
 	if err != nil {
-		return Errorf(CodeParseError, "failed to marshaling notify request: %w", err)
+		return Errorf(CodeParseError, "failed to marshaling notify request: %v", err)
 	}
 
 	c.Logger.Debug(Send,
@@ -180,7 +180,7 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 
 	err = c.stream.Write(ctx, data)
 	if err != nil {
-		return Errorf(CodeInternalError, "failed to write notify request data to steam: %w", err)
+		return Errorf(CodeInternalError, "failed to write notify request data to steam: %v", err)
 	}
 
 	return nil
@@ -228,7 +228,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	)
 
 	if err := c.stream.Write(ctx, data); err != nil {
-		return Errorf(CodeInternalError, "failed to write call request data to steam: %w", err)
+		return Errorf(CodeInternalError, "failed to write call request data to steam: %v", err)
 	}
 
 	// wait for the response
@@ -253,7 +253,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 
 		if err := json.Unmarshal(*resp.Result, result); err != nil {
 			// if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
-			return Errorf(CodeParseError, "failed to unmarshalling result: %w", err)
+			return Errorf(CodeParseError, "failed to unmarshalling result: %v", err)
 		}
 
 		return nil
@@ -280,7 +280,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	}
 	c.handlingMu.Unlock()
 	if !found {
-		return Errorf(CodeInternalError, "not a call in progress: %w", req.ID)
+		return Errorf(CodeInternalError, "not a call in progress: %v", req.ID)
 	}
 
 	elapsed := time.Since(handling.start)
@@ -313,8 +313,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 			zap.Any("resp.Result", resp.Result),
 			zap.Error(err),
 		)
-		return Errorf(CodeParseError, "failed to marshaling reply response: %w", err)
-		// return err
+		return Errorf(CodeParseError, "failed to marshaling reply response: %v", err)
 	}
 
 	c.Logger.Debug(Send,
@@ -327,7 +326,7 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	if err := c.stream.Write(ctx, data); err != nil {
 		// TODO(iancottrell): if a stream write fails, we really need to shut down
 		// the whole stream
-		return Errorf(CodeInternalError, "failed to write response data to steam: %w", err)
+		return Errorf(CodeInternalError, "failed to write response data to steam: %v", err)
 	}
 
 	return nil
