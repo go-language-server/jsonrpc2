@@ -91,7 +91,7 @@ func (e *Error) Unwrap() error {
 	return e.err
 }
 
-// New builds a Error struct for the suppied message and code.
+// NewError builds a Error struct for the suppied message and code.
 func NewError(c Code, args ...interface{}) *Error {
 	e := &Error{
 		Code:    c,
