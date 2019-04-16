@@ -6,10 +6,10 @@ package jsonrpc2
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
-	"github.com/francoispqt/gojay"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 )
@@ -53,28 +53,21 @@ type Canceler func(context.Context, *Conn, *Request)
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
-	Handler    Handler
-	Canceler   Canceler
-	logger     *zap.Logger
-	capacity   int
-	overloaded bool
-	stream     Stream
-	done       chan struct{}
-	err        error
-	seq        atomic.Int64 // must only be accessed using atomic operations
-	pendingMu  sync.Mutex   // protects the pending map
-	pending    map[ID]chan *Response
-	handlingMu sync.Mutex // protects the handling map
-	handling   map[ID]handling
+	seq                *atomic.Int64 // must only be accessed using atomic operations
+	Handler            Handler
+	Canceler           Canceler
+	Logger             *zap.Logger
+	Capacity           int
+	RejectIfOverloaded bool
+	stream             Stream
+	err                error
+	pendingMu          sync.Mutex // protects the pending map
+	pending            map[ID]chan *Response
+	handlingMu         sync.Mutex // protects the handling map
+	handling           map[ID]handling
 }
 
 var _ Interface = (*Conn)(nil)
-
-type handling struct {
-	request *Request
-	cancel  context.CancelFunc
-	start   time.Time
-}
 
 type queueEntry struct {
 	ctx     context.Context
@@ -99,42 +92,45 @@ func WithCanceler(canceler Canceler) Options {
 	}
 }
 
-// WithLogger apply custom logger to Conn.
+// WithLogger apply custom Logger to Conn.
 func WithLogger(logger *zap.Logger) Options {
 	return func(c *Conn) {
-		c.logger = logger
+		c.Logger = logger
 	}
 }
 
 // WithCapacity apply custom capacity to Conn.
 func WithCapacity(capacity int) Options {
 	return func(c *Conn) {
-		c.capacity = capacity
+		c.Capacity = capacity
 	}
 }
 
-// WithOverloaded apply overloaded boolean to Conn.
-func WithOverloaded(overloaded bool) Options {
+// WithOverloaded apply RejectIfOverloaded boolean to Conn.
+func WithOverloaded(rejectIfOverloaded bool) Options {
 	return func(c *Conn) {
-		c.overloaded = overloaded
+		c.RejectIfOverloaded = rejectIfOverloaded
 	}
 }
 
-var defaultHandler = func(ctx context.Context, c *Conn, r *Request) {
-	if r.IsNotify() {
-		c.Reply(ctx, r, nil, Errorf(CodeMethodNotFound, "method %q not found", r.Method))
+var defaultHandler = func(ctx context.Context, conn *Conn, req *Request) {
+	if req.IsNotify() {
+		conn.Reply(ctx, req, nil, Errorf(CodeMethodNotFound, "method %q not found", req.Method))
 	}
 }
 
 var defaultCanceler = func(context.Context, *Conn, *Request) {}
 
+var defaultLogger = zap.NewNop()
+
 // NewConn creates a new connection object that reads and writes messages from
 // the supplied stream and dispatches incoming messages to the supplied handler.
-func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
+func NewConn(s Stream, options ...Options) *Conn {
 	conn := &Conn{
+		seq:      new(atomic.Int64),
 		Handler:  defaultHandler,  // the default handler reports a method error
 		Canceler: defaultCanceler, // the default canceller does nothing
-		logger:   zap.NewNop(),    // the default logger does nothing
+		Logger:   defaultLogger,   // the default Logger does nothing
 		stream:   s,
 		pending:  make(map[ID]chan *Response),
 		handling: make(map[ID]handling),
@@ -149,6 +145,7 @@ func NewConn(ctx context.Context, s Stream, options ...Options) *Conn {
 
 // Cancel cancels a pending Call on the server side.
 func (c *Conn) Cancel(id ID) {
+	c.Logger.Debug("Cancel")
 	c.handlingMu.Lock()
 	handling, found := c.handling[id]
 	c.handlingMu.Unlock()
@@ -160,6 +157,7 @@ func (c *Conn) Cancel(id ID) {
 
 // Notify is called to send a notification request over the connection.
 func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error {
+	c.Logger.Debug("Notify")
 	p, err := c.marshalInterface(params)
 	if err != nil {
 		return Errorf(CodeParseError, "failed to marshaling notify parameters: %w", err)
@@ -170,12 +168,12 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 		Method:  method,
 		Params:  p,
 	}
-	data, err := gojay.MarshalJSONObject(req)
+	data, err := json.Marshal(req) // TODO(zchee): use gojay
 	if err != nil {
 		return Errorf(CodeParseError, "failed to marshaling notify request: %w", err)
 	}
 
-	c.logger.Debug(Send,
+	c.Logger.Debug(Send,
 		zap.String("req.Method", req.Method),
 		zap.Any("req.Params", req.Params),
 	)
@@ -190,6 +188,7 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
+	c.Logger.Debug("Call")
 	p, err := c.marshalInterface(params)
 	if err != nil {
 		return Errorf(CodeParseError, "failed to marshaling call parameters: %w", err)
@@ -204,11 +203,10 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	}
 
 	// marshal the request now it is complete
-	data, err := gojay.MarshalJSONObject(req)
+	data, err := json.Marshal(req) // TODO(zchee): use gojay
 	if err != nil {
 		return Errorf(CodeParseError, "failed to marshaling call request: %w", err)
 	}
-	c.logger.Debug("gojay.MarshalJSONObject(req)", zap.ByteString("data", data))
 
 	rchan := make(chan *Response)
 
@@ -222,7 +220,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	}()
 
 	start := time.Now()
-	c.logger.Debug(Send,
+	c.Logger.Debug(Send,
 		zap.String("req.JSONRPC", req.JSONRPC),
 		zap.String("id", id.String()),
 		zap.String("req.method", req.Method),
@@ -233,31 +231,35 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		return Errorf(CodeInternalError, "failed to write call request data to steam: %w", err)
 	}
 
+	// wait for the response
 	select {
 	case resp := <-rchan:
-		c.logger.Debug(Receive,
-			zap.String("req.JSONRPC", req.JSONRPC),
-			zap.String("id", id.String()),
-			zap.Duration("elapsed", time.Since(start)),
+		elapsed := time.Since(start)
+		c.Logger.Debug(Receive,
+			zap.String("resp.ID", resp.ID.String()),
+			zap.Duration("elapsed", elapsed),
 			zap.String("req.method", req.Method),
 			zap.Any("resp.Result", resp.Result),
-			zap.Error(resp.Error),
 		)
 
+		// is it an error response?
 		if resp.Error != nil {
 			return resp.Error
 		}
+
 		if result == nil || resp.Result == nil {
 			return nil
 		}
 
-		if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
+		if err := json.Unmarshal(*resp.Result, result); err != nil {
+			// if err := gojay.Unsafe.Unmarshal(*resp.Result, result); err != nil {
 			return Errorf(CodeParseError, "failed to unmarshalling result: %w", err)
 		}
 
 		return nil
 
 	case <-ctx.Done():
+		// allow the handler to propagate the cancel
 		c.Canceler(ctx, c, req)
 
 		return ctx.Err()
@@ -266,6 +268,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 
 // Reply sends a reply to the given request.
 func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err error) error {
+	c.Logger.Debug("Reply")
 	if req.IsNotify() {
 		return NewError(CodeInvalidRequest, "reply not invoked with a valid call")
 	}
@@ -282,22 +285,28 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 
 	elapsed := time.Since(handling.start)
 
+	var raw *json.RawMessage
+	if err == nil {
+		raw, err = c.marshalInterface(result)
+	}
+
 	resp := &Response{
 		JSONRPC: Version,
 		ID:      req.ID,
+		Result:  raw,
 	}
 
-	if err == nil {
-		if resp.Result, err = c.marshalInterface(result); err != nil {
-			return err
-		}
-	} else {
-		resp.Error = NewError(CodeParseError, err)
-	}
-
-	data, err := gojay.MarshalJSONObject(resp)
 	if err != nil {
-		c.logger.Error(Send,
+		if callErr, ok := err.(*Error); ok {
+			resp.Error = callErr
+		} else {
+			resp.Error = Errorf(0, "%s", err)
+		}
+	}
+
+	data, err := json.Marshal(resp) // TODO(zchee): use gojay
+	if err != nil {
+		c.Logger.Error(Send,
 			zap.String("resp.ID", resp.ID.String()),
 			zap.Duration("elapsed", elapsed),
 			zap.String("req.Method", req.Method),
@@ -305,31 +314,37 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 			zap.Error(err),
 		)
 		return Errorf(CodeParseError, "failed to marshaling reply response: %w", err)
+		// return err
 	}
 
-	c.logger.Debug(Send,
+	c.Logger.Debug(Send,
 		zap.String("resp.ID", resp.ID.String()),
 		zap.Duration("elapsed", elapsed),
 		zap.String("req.Method", req.Method),
 		zap.Any("resp.Result", resp.Result),
-		zap.Error(resp.Error),
 	)
 
 	if err := c.stream.Write(ctx, data); err != nil {
+		// TODO(iancottrell): if a stream write fails, we really need to shut down
+		// the whole stream
 		return Errorf(CodeInternalError, "failed to write response data to steam: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Conn) deliver(ctx context.Context, q chan queueEntry, request *Request) bool {
-	e := queueEntry{
-		ctx:     ctx,
-		conn:    c,
-		request: request,
-	}
+type handling struct {
+	request *Request
+	cancel  context.CancelFunc
+	start   time.Time
+}
 
-	if !c.overloaded {
+func (c *Conn) deliver(ctx context.Context, q chan queueEntry, request *Request) bool {
+	c.Logger.Debug("deliver")
+
+	e := queueEntry{ctx: ctx, conn: c, request: request}
+
+	if !c.RejectIfOverloaded {
 		q <- e
 		return true
 	}
@@ -344,7 +359,7 @@ func (c *Conn) deliver(ctx context.Context, q chan queueEntry, request *Request)
 
 // Run run the jsonrpc2 server.
 func (c *Conn) Run(ctx context.Context) (err error) {
-	q := make(chan queueEntry, c.capacity)
+	q := make(chan queueEntry, c.Capacity)
 	defer close(q)
 
 	// start the queue processor
@@ -353,6 +368,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			if e.ctx.Err() != nil {
 				continue
 			}
+			c.Logger.Debug("c.Handler", zap.Reflect("e", e.conn), zap.Reflect("e.request", e.request))
 			c.Handler(e.ctx, e.conn, e.request)
 		}
 	}()
@@ -363,17 +379,13 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			return err // read the stream failed, cannot continue
 		}
 
-		c.logger.Debug(Receive, zap.ByteString("data", data), zap.Int("len(data)", len(data)))
-		// if len(data) == 0 {
-		// 	continue // stream is empty, continue
-		// }
+		c.Logger.Debug(Receive, zap.ByteString("data", data), zap.Int("len(data)", len(data)))
 
-		// read a combined message
 		msg := &Combined{}
-		if err := gojay.Unsafe.UnmarshalJSONObject(data, msg); err != nil {
+		if err := json.Unmarshal(data, msg); err != nil { // TODO(zchee): use gojay
 			// a badly formed message arrived, log it and continue
 			// we trust the stream to have isolated the error to just this message
-			c.logger.Debug(Receive,
+			c.Logger.Debug(Receive,
 				zap.Error(Errorf(CodeParseError, "unmarshal failed: %v", err)),
 			)
 			continue
@@ -391,7 +403,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 
 			if req.IsNotify() {
 				// handle the Notify because msg.ID is nil
-				c.logger.Debug(Receive,
+				c.Logger.Debug(Receive,
 					zap.String("req.ID", req.ID.String()),
 					zap.String("req.Method", req.Method),
 					zap.Any("req.Params", req.Params),
@@ -409,7 +421,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 					start:   time.Now(),
 				}
 				c.handlingMu.Unlock()
-				c.logger.Debug(Receive,
+				c.Logger.Debug(Receive,
 					zap.String("req.ID", req.ID.String()),
 					zap.String("req.Method", req.Method),
 					zap.Any("req.Params", req.Params),
@@ -441,19 +453,19 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			close(rchan) // for the range channel loop
 
 		default:
-			c.logger.Warn(Receive, zap.Error(NewError(CodeInvalidParams, "ignoring because message not a call, notify or response")))
+			c.Logger.Warn(Receive, zap.Error(NewError(CodeInvalidParams, "ignoring because message not a call, notify or response")))
 		}
 	}
 }
 
 // marshalInterface marshal obj to RawMessage.
-func (c *Conn) marshalInterface(obj interface{}) (*RawMessage, error) {
-	data, err := gojay.MarshalAny(obj)
+// TODO(zchee): use gojay
+func (c *Conn) marshalInterface(obj interface{}) (*json.RawMessage, error) {
+	data, err := json.Marshal(obj)
 	if err != nil {
 		return nil, err
 	}
-	msg := RawMessage(gojay.EmbeddedJSON(data))
-	c.logger.Debug("marshalInterface", zap.String("msg", msg.String()))
-
-	return &msg, nil
+	raw := json.RawMessage(data)
+	c.Logger.Debug("marshalInterface", zap.ByteString("raw", raw))
+	return &raw, nil
 }
