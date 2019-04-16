@@ -190,7 +190,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	c.Logger.Debug("Call")
 	p, err := c.marshalInterface(params)
 	if err != nil {
-		return Errorf(CodeParseError, "failed to marshaling call parameters: %w", err)
+		return Errorf(CodeParseError, "failed to marshaling call parameters: %v", err)
 	}
 
 	id := ID{Number: c.seq.Add(1)}
@@ -204,7 +204,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	// marshal the request now it is complete
 	data, err := json.Marshal(req) // TODO(zchee): use gojay
 	if err != nil {
-		return Errorf(CodeParseError, "failed to marshaling call request: %w", err)
+		return Errorf(CodeParseError, "failed to marshaling call request: %v", err)
 	}
 
 	rchan := make(chan *Response)
