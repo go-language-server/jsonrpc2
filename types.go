@@ -13,6 +13,7 @@ import (
 	"github.com/francoispqt/gojay"
 )
 
+// Version represents a JSONRPC version.
 const Version = "2.0"
 
 // ID is a Request identifier.
@@ -70,20 +71,6 @@ func (m RawMessage) String() string {
 	return *(*string)(unsafe.Pointer(&m))
 }
 
-// Read implements io.Reader.
-// func (m *RawMessage) Read(p []byte) (n int, err error) {
-// 	if len(p) == 0 || p == nil {
-// 		return 0, nil
-// 	}
-// 	if m == nil {
-// 		return 0, io.EOF
-// 	}
-//
-// 	n = copy(p, *m)
-//
-// 	return n, nil
-// }
-
 // MarshalJSON implements json.Marshaler.
 //
 // The returns m as the JSON encoding of m.
@@ -108,7 +95,6 @@ func (m *RawMessage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// var _ io.Reader = (*RawMessage)(nil)
 var _ json.Marshaler = (*RawMessage)(nil)
 var _ json.Unmarshaler = (*RawMessage)(nil)
 
@@ -126,7 +112,7 @@ type Request struct {
 	Method string `json:"method"`
 
 	// The method's params.
-	Params *RawMessage `json:"params,omitempty"`
+	Params *json.RawMessage `json:"params,omitempty"`
 }
 
 // IsNotify returns true if this request is a notification.
@@ -151,7 +137,7 @@ type Response struct {
 
 	// The result of a request. This member is REQUIRED on success.
 	// This member MUST NOT exist if there was an error invoking the method.
-	Result *RawMessage `json:"result,omitempty"`
+	Result *json.RawMessage `json:"result,omitempty"`
 }
 
 // Combined represents a all the fields of both Request and Response.
@@ -166,14 +152,14 @@ type Combined struct {
 	Method string `json:"method"`
 
 	// The method's params.
-	Params *RawMessage `json:"params,omitempty"`
+	Params *json.RawMessage `json:"params,omitempty"`
 
 	// The error object in case a request fails.
 	Error *Error `json:"error,omitempty"`
 
 	// The result of a request. This member is REQUIRED on success.
 	// This member MUST NOT exist if there was an error invoking the method.
-	Result *RawMessage `json:"result,omitempty"`
+	Result *json.RawMessage `json:"result,omitempty"`
 }
 
 // NotificationMessage is a notification message.
@@ -187,5 +173,5 @@ type NotificationMessage struct {
 	Method string `json:"method"`
 
 	// Params is the notification's params.
-	Params *RawMessage `json:"params,omitempty"`
+	Params *json.RawMessage `json:"params,omitempty"`
 }
