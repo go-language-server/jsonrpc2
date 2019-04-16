@@ -5,9 +5,9 @@
 package jsonrpc2
 
 import (
+	"encoding/json"
 	"fmt"
 
-	"github.com/francoispqt/gojay"
 	"golang.org/x/xerrors"
 )
 
@@ -53,7 +53,7 @@ type Error struct {
 
 	// Data a Primitive or Structured value that contains additional
 	// information about the error. Can be omitted.
-	Data *gojay.EmbeddedJSON `json:"data"`
+	Data *json.RawMessage `json:"data"`
 
 	frame xerrors.Frame
 	err   error
