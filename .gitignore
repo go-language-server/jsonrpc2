@@ -48,5 +48,6 @@ coverage.*
 # binary
 /jsonrpc2
 
-# vendor
+# modules
+go.sum
 vendor/*
