@@ -2,7 +2,7 @@
 
 [![CircleCI][circleci-badge]][circleci] [![godoc.org][godoc-badge]][godoc] [![codecov.io][codecov-badge]][codecov] [![Releases][release-badge]][release] [![GA][ga-badge]][ga]
 
-Package jsonrpc2 is a minimal implementation of the JSON RPC 2 spec.
+Package jsonrpc2 is a implementation of the JSON RPC 2 spec for Go.
 
 
 <!-- badge links -->
