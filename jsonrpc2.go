@@ -50,6 +50,12 @@ type Handler func(context.Context, *Conn, *Request)
 // instead.
 type Canceler func(context.Context, *Conn, *Request)
 
+type handling struct {
+	request *Request
+	cancel  context.CancelFunc
+	start   time.Time
+}
+
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
@@ -60,19 +66,13 @@ type Conn struct {
 	Capacity           int
 	RejectIfOverloaded bool
 	stream             Stream
-	pendingMu          sync.Mutex // protects the pending map
 	pending            map[ID]chan *Response
-	handlingMu         sync.Mutex // protects the handling map
+	pendingMu          sync.Mutex // protects the pending map
 	handling           map[ID]handling
+	handlingMu         sync.Mutex // protects the handling map
 }
 
 var _ Interface = (*Conn)(nil)
-
-type queueEntry struct {
-	ctx     context.Context
-	conn    *Conn
-	request *Request
-}
 
 // Options represents a functional options.
 type Options func(*Conn)
@@ -127,9 +127,6 @@ var defaultLogger = zap.NewNop()
 func NewConn(s Stream, options ...Options) *Conn {
 	conn := &Conn{
 		seq:      new(atomic.Int64),
-		Handler:  defaultHandler,  // the default handler reports a method error
-		Canceler: defaultCanceler, // the default canceller does nothing
-		Logger:   defaultLogger,   // the default Logger does nothing
 		stream:   s,
 		pending:  make(map[ID]chan *Response),
 		handling: make(map[ID]handling),
@@ -137,6 +134,19 @@ func NewConn(s Stream, options ...Options) *Conn {
 
 	for _, opt := range options {
 		opt(conn)
+	}
+
+	// the default handler reports a method error
+	if conn.Handler == nil {
+		conn.Handler = defaultHandler
+	}
+	// the default canceller does nothing
+	if conn.Canceler == nil {
+		conn.Canceler = defaultCanceler
+	}
+	// the default Logger does nothing
+	if conn.Logger == nil {
+		conn.Logger = defaultLogger
 	}
 
 	return conn
@@ -156,7 +166,7 @@ func (c *Conn) Cancel(id ID) {
 
 // Notify is called to send a notification request over the connection.
 func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error {
-	c.Logger.Debug("Notify")
+	c.Logger.Debug("Notify", zap.String("method", method), zap.Any("params", params))
 	p, err := c.marshalInterface(params)
 	if err != nil {
 		return Errorf(CodeParseError, "failed to marshaling notify parameters: %v", err)
@@ -187,7 +197,7 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
-	c.Logger.Debug("Call")
+	c.Logger.Debug("Call", zap.String("method", method), zap.Any("params", params))
 	p, err := c.marshalInterface(params)
 	if err != nil {
 		return Errorf(CodeParseError, "failed to marshaling call parameters: %v", err)
@@ -218,7 +228,6 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		c.pendingMu.Unlock()
 	}()
 
-	start := time.Now()
 	c.Logger.Debug(Send,
 		zap.String("req.JSONRPC", req.JSONRPC),
 		zap.String("id", id.String()),
@@ -233,12 +242,8 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	// wait for the response
 	select {
 	case resp := <-rchan:
-		elapsed := time.Since(start)
 		c.Logger.Debug(Receive,
-			zap.String("resp.ID", resp.ID.String()),
-			zap.Duration("elapsed", elapsed),
-			zap.String("req.method", req.Method),
-			zap.Any("resp.Result", resp.Result),
+			zap.Any("resp", resp),
 		)
 
 		// is it an error response?
@@ -331,24 +336,24 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 	return nil
 }
 
-type handling struct {
+type queueEntry struct {
+	ctx     context.Context
+	conn    *Conn
 	request *Request
-	cancel  context.CancelFunc
-	start   time.Time
 }
 
-func (c *Conn) deliver(ctx context.Context, q chan queueEntry, request *Request) bool {
+func (c *Conn) deliver(ctx context.Context, queuec chan queueEntry, request *Request) bool {
 	c.Logger.Debug("deliver")
 
 	e := queueEntry{ctx: ctx, conn: c, request: request}
 
 	if !c.RejectIfOverloaded {
-		q <- e
+		queuec <- e
 		return true
 	}
 
 	select {
-	case q <- e:
+	case queuec <- e:
 		return true
 	default:
 		return false
@@ -357,16 +362,15 @@ func (c *Conn) deliver(ctx context.Context, q chan queueEntry, request *Request)
 
 // Run run the jsonrpc2 server.
 func (c *Conn) Run(ctx context.Context) (err error) {
-	q := make(chan queueEntry, c.Capacity)
-	defer close(q)
+	queuec := make(chan queueEntry, c.Capacity)
+	defer close(queuec)
 
 	// start the queue processor
 	go func() {
-		for e := range q {
+		for e := range queuec {
 			if e.ctx.Err() != nil {
 				continue
 			}
-			c.Logger.Debug("c.Handler", zap.Reflect("e", e.conn), zap.Reflect("e.request", e.request))
 			c.Handler(e.ctx, e.conn, e.request)
 		}
 	}()
@@ -376,8 +380,6 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 		if err != nil {
 			return err // read the stream failed, cannot continue
 		}
-
-		c.Logger.Debug(Receive, zap.ByteString("data", data), zap.Int("len(data)", len(data)))
 
 		msg := &Combined{}
 		if err := json.Unmarshal(data, msg); err != nil { // TODO(zchee): use gojay
@@ -407,7 +409,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 					zap.Any("req.Params", req.Params),
 				)
 				// add to the processor queue
-				c.deliver(ctx, q, req)
+				c.deliver(ctx, queuec, req)
 				// TODO: log when we drop a message?
 			} else {
 				// handle the Call, add to the processor queue.
@@ -425,7 +427,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 					zap.Any("req.Params", req.Params),
 				)
 
-				if !c.deliver(ctxReq, q, req) {
+				if !c.deliver(ctxReq, queuec, req) {
 					// queue is full, reject the message by directly replying
 					c.Reply(ctx, req, nil, Errorf(CodeServerOverloaded, "no room in queue"))
 				}
@@ -464,6 +466,6 @@ func (c *Conn) marshalInterface(obj interface{}) (*json.RawMessage, error) {
 		return nil, err
 	}
 	raw := json.RawMessage(data)
-	c.Logger.Debug("marshalInterface", zap.ByteString("raw", raw))
+
 	return &raw, nil
 }
