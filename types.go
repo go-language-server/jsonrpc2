@@ -24,6 +24,8 @@ type ID struct {
 	Number int64
 }
 
+// String implements fmt.Stringer.
+//
 // String returns a string representation of the ID.
 // The representation is non ambiguous, string forms are quoted, number forms
 // are preceded by a #.
@@ -38,7 +40,7 @@ func (id *ID) String() string {
 	return "#" + strconv.FormatInt(id.Number, 10)
 }
 
-// MarshalJSON implements json.MarshalJSON.
+// MarshalJSON implements json.Marshaler.
 func (id *ID) MarshalJSON() ([]byte, error) {
 	if id.Name != "" {
 		return json.Marshal(id.Name)
@@ -47,7 +49,7 @@ func (id *ID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(id.Number)
 }
 
-// UnmarshalJSON implements json.UnmarshalJSON.
+// UnmarshalJSON implements json.Unmarshaler.
 func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID{}
 	if err := json.Unmarshal(data, &id.Number); err == nil {
@@ -56,6 +58,9 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 
 	return json.Unmarshal(data, &id.Name)
 }
+
+var _ json.Marshaler = (*ID)(nil)
+var _ json.Unmarshaler = (*ID)(nil)
 
 // RawMessage mimic json.RawMessage
 // RawMessage is a raw encoded JSON value.
