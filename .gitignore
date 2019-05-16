@@ -49,5 +49,4 @@ coverage.*
 /jsonrpc2
 
 # modules
-go.sum
 vendor/*
