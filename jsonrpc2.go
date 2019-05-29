@@ -322,7 +322,6 @@ func (c *Conn) Reply(ctx context.Context, req *Request, result interface{}, err 
 
 	c.Logger.Debug(Send,
 		zap.String("resp.ID", resp.ID.String()),
-		zap.Duration("elapsed", elapsed),
 		zap.String("req.Method", req.Method),
 		zap.Any("resp.Result", resp.Result),
 	)
