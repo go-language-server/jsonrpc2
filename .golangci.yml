@@ -24,7 +24,7 @@ linters-settings:
   gofmt:
     simplify: true
   goimports:
-    local-prefixes: github.com/go-language-server/jsonrpc2/
+    local-prefixes: github.com/go-language-server/jsonrpc2
   golint:
     min-confidence: 0.3
   govet:
@@ -35,6 +35,7 @@ linters-settings:
       - style
       - performance
       - experimental
+      - opinionated
     settings:
       captLocal:
         paramsOnly: true
@@ -56,7 +57,29 @@ linters-settings:
 
 linters:
   enable:
-  enable-all: true
+    - deadcode
+    - depguard
+    - dupl
+    - errcheck
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - golint
+    - ineffassign
+    - maligned
+    - misspell
+    - prealloc
+    - structcheck
+    - typecheck
+    - unconvert
+    - varcheck
+    - gosimple
+    - govet
+    - interfacer
+    - staticcheck
+    - stylecheck
+    - unparam
   disable:
     - gochecknoglobals
     - gochecknoinits
@@ -64,6 +87,7 @@ linters:
     - gosec
     - lll
     - nakedret
+    - unused
   fast: true
 
 issues:
