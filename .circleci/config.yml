@@ -35,13 +35,14 @@ jobs:
 
   lint:
     <<: *defaults
+    parallelism: 2
     steps:
       - checkout
       - golang/gomod
       - run:
           name: Run lint for sources
           command: |
-            make lint
+            make lint GO_LINT_FLAGS=$(circleci tests split .circleci/lint-buildtags)
 
 workflows:
   version: 2
