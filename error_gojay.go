@@ -6,9 +6,7 @@
 
 package jsonrpc2
 
-import (
-	"github.com/francoispqt/gojay"
-)
+import "github.com/francoispqt/gojay"
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Error) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {

@@ -32,7 +32,7 @@ var callTests = []callTest{
 	{"one_string", "fish", "got:fish"},
 	{"one_number", 10, "got:10"},
 	{"join", []string{"a", "b", "c"}, "a/b/c"},
-	//TODO: expand the test cases
+	// TODO: expand the test cases
 }
 
 func (test *callTest) newResults() interface{} {
