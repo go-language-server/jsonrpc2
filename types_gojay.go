@@ -8,9 +8,53 @@ package jsonrpc2
 
 import (
 	"encoding/json"
+	"errors"
+	"unsafe"
 
 	"github.com/francoispqt/gojay"
 )
+
+// RawMessage mimic json.RawMessage.
+//
+// RawMessage is a raw encoded JSON value.
+// It implements Marshaler and Unmarshaler and can
+// be used to delay JSON decoding or precompute a JSON encoding.
+type RawMessage gojay.EmbeddedJSON
+
+func (m RawMessage) String() string {
+	if m == nil {
+		return ""
+	}
+
+	return *(*string)(unsafe.Pointer(&m))
+}
+
+// MarshalJSON implements json.Marshaler.
+//
+// The returns m as the JSON encoding of m.
+func (m RawMessage) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return []byte{110, 117, 108, 108}, nil // null
+	}
+
+	return m, nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+//
+// The sets *m to a copy of data.
+func (m *RawMessage) UnmarshalJSON(data []byte) error {
+	if m == nil {
+		return errors.New("jsonrpc2.RawMessage: UnmarshalJSON on nil pointer")
+	}
+
+	*m = append((*m)[0:0], data...)
+
+	return nil
+}
+
+var _ json.Marshaler = (*RawMessage)(nil)
+var _ json.Unmarshaler = (*RawMessage)(nil)
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
