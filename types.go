@@ -58,11 +58,11 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 var _ json.Marshaler = (*ID)(nil)
 var _ json.Unmarshaler = (*ID)(nil)
 
-// Request represents a rpc call by sending a request object to a Server.
+// request represents a rpc call by sending a request object to a Server.
 // This is a request message to describe a request between the client and the server.
 //
 // Every processed request must send a response back to the sender of the request.
-type Request struct {
+type request struct {
 	// JSONRPC is a string specifying the version of the JSON-RPC protocol.
 	//
 	// MUST be exactly "2.0".
@@ -89,7 +89,7 @@ type Request struct {
 }
 
 // IsNotify returns true if this request is a notification.
-func (r *Request) IsNotify() bool {
+func (r *request) IsNotify() bool {
 	return r.ID == nil
 }
 
