@@ -12,15 +12,6 @@ import (
 	"github.com/francoispqt/gojay"
 )
 
-const (
-	keyJSONRPC = "jsonrpc"
-	keyID      = "id"
-	keyMethod  = "method"
-	keyParams  = "params"
-	keyError   = "error"
-	keyResult  = "result"
-)
-
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {

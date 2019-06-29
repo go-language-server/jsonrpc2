@@ -11,9 +11,9 @@ import "github.com/francoispqt/gojay"
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Error) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
-	case "code":
+	case keyCode:
 		return dec.Int64((*int64)(&v.Code))
-	case "message":
+	case keyMessage:
 		return dec.String(&v.Message)
 	}
 	return nil
@@ -24,8 +24,8 @@ func (v *Error) NKeys() int { return 2 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (v *Error) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.IntKey("code", int(v.Code))
-	enc.StringKey("message", v.Message)
+	enc.IntKey(keyCode, int(v.Code))
+	enc.StringKey(keyMessage, v.Message)
 }
 
 // IsNil returns wether the structure is nil value or not
