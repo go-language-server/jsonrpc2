@@ -137,7 +137,7 @@ type Request struct {
 
 var defaultHandler = func(ctx context.Context, req *Request) {
 	if req.IsNotify() {
-		req.Reply(ctx, req, Errorf(MethodNotFound, "method %q not found", req.Method))
+		req.Conn().err = req.Reply(ctx, req, Errorf(MethodNotFound, "method %q not found", req.Method))
 	}
 }
 
@@ -452,7 +452,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 				defer func() {
 					c.setHandling(req, false)
 					if !req.IsNotify() && req.state < requestReplied {
-						req.Reply(reqCtx, nil, Errorf(InternalError, "method %q did not reply", req.Method))
+						c.err = req.Reply(reqCtx, nil, Errorf(InternalError, "method %q did not reply", req.Method))
 					}
 					req.Parallel()
 					cancelReq()
