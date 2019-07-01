@@ -89,6 +89,12 @@ func (r *wireRequest) MarshalJSONObject(enc *gojay.Encoder) {
 // IsNil returns wether the structure is nil value or not
 func (r *wireRequest) IsNil() bool { return r == nil }
 
+// compile time check whether the wireRequest implements a gojay.MarshalerJSONObject interface.
+var _ gojay.MarshalerJSONObject = (*wireRequest)(nil)
+
+// compile time check whether the wireRequest implements a gojay.UnmarshalerJSONObject interface.
+var _ gojay.UnmarshalerJSONObject = (*wireRequest)(nil)
+
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (r *wireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
@@ -124,6 +130,12 @@ func (r *wireResponse) MarshalJSONObject(enc *gojay.Encoder) {
 
 // IsNil returns wether the structure is nil value or not
 func (r *wireResponse) IsNil() bool { return r == nil }
+
+// compile time check whether the wireResponse implements a gojay.MarshalerJSONObject interface.
+var _ gojay.MarshalerJSONObject = (*wireResponse)(nil)
+
+// compile time check whether the wireResponse implements a gojay.UnmarshalerJSONObject interface.
+var _ gojay.UnmarshalerJSONObject = (*wireResponse)(nil)
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (r *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
@@ -173,6 +185,12 @@ func (r *Combined) MarshalJSONObject(enc *gojay.Encoder) {
 // IsNil returns wether the structure is nil value or not
 func (r *Combined) IsNil() bool { return r == nil }
 
+// compile time check whether the Combined implements a gojay.MarshalerJSONObject interface.
+var _ gojay.MarshalerJSONObject = (*Combined)(nil)
+
+// compile time check whether the Combined implements a gojay.UnmarshalerJSONObject interface.
+var _ gojay.UnmarshalerJSONObject = (*Combined)(nil)
+
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (m *NotificationMessage) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
@@ -201,3 +219,9 @@ func (m *NotificationMessage) MarshalJSONObject(enc *gojay.Encoder) {
 
 // IsNil returns wether the structure is nil value or not
 func (m *NotificationMessage) IsNil() bool { return m == nil }
+
+// compile time check whether the NotificationMessage implements a gojay.MarshalerJSONObject interface.
+var _ gojay.MarshalerJSONObject = (*NotificationMessage)(nil)
+
+// compile time check whether the NotificationMessage implements a gojay.UnmarshalerJSONObject interface.
+var _ gojay.UnmarshalerJSONObject = (*NotificationMessage)(nil)
