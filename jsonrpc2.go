@@ -50,12 +50,6 @@ type Handler func(context.Context, *Request)
 // instead.
 type Canceler func(context.Context, *Conn, ID)
 
-type handling struct {
-	request *Request
-	cancel  context.CancelFunc
-	start   time.Time
-}
-
 // Conn is a JSON RPC 2 client server connection.
 // Conn is bidirectional; it does not have a designated server or client end.
 type Conn struct {
