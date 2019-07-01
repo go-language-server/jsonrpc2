@@ -67,7 +67,7 @@ type Conn struct {
 	RejectIfOverloaded bool
 	stream             Stream
 	err                error
-	pending            map[ID]chan *Response
+	pending            map[ID]chan *wireResponse
 	pendingMu          sync.Mutex // protects the pending map
 	handling           map[ID]*Request
 	handlingMu         sync.Mutex // protects the handling map
@@ -157,7 +157,7 @@ func NewConn(s Stream, options ...Options) *Conn {
 	conn := &Conn{
 		seq:      new(atomic.Int64),
 		stream:   s,
-		pending:  make(map[ID]chan *Response),
+		pending:  make(map[ID]chan *wireResponse),
 		handling: make(map[ID]*Request),
 	}
 
@@ -233,7 +233,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	}
 
 	id := ID{Number: c.seq.Add(1)}
-	req := &request{
+	req := &wireRequest{
 		JSONRPC: Version,
 		ID:      &id,
 		Method:  method,
@@ -246,7 +246,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		return Errorf(ParseError, "failed to marshaling call request: %v", err)
 	}
 
-	rchan := make(chan *Response)
+	rchan := make(chan *wireResponse)
 
 	c.pendingMu.Lock()
 	c.pending[id] = rchan
@@ -352,7 +352,7 @@ func (r *Request) Reply(ctx context.Context, result interface{}, err error) erro
 		raw, err = marshalInterface(result)
 	}
 
-	resp := &Response{
+	resp := &wireResponse{
 		JSONRPC: Version,
 		Result:  raw,
 		ID:      r.ID,
@@ -482,7 +482,7 @@ func (c *Conn) Run(ctx context.Context) (err error) {
 			c.pendingMu.Unlock()
 
 			// send the reply to the channel
-			resp := &Response{
+			resp := &wireResponse{
 				JSONRPC: Version,
 				Result:  msg.Result,
 				Error:   msg.Error,

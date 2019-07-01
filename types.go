@@ -58,11 +58,11 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 var _ json.Marshaler = (*ID)(nil)
 var _ json.Unmarshaler = (*ID)(nil)
 
-// request represents a rpc call by sending a request object to a Server.
+// wireRequest represents a rpc call by sending a request object to a Server.
 // This is a request message to describe a request between the client and the server.
 //
 // Every processed request must send a response back to the sender of the request.
-type request struct {
+type wireRequest struct {
 	// JSONRPC is a string specifying the version of the JSON-RPC protocol.
 	//
 	// MUST be exactly "2.0".
@@ -88,18 +88,13 @@ type request struct {
 	ID *ID `json:"id"`
 }
 
-// IsNotify returns true if this request is a notification.
-func (r *request) IsNotify() bool {
-	return r.ID == nil
-}
-
-// Response is a response ressage sent as a result of a request.
+// wireResponse is a response ressage sent as a result of a request.
 // When a rpc call is made, the Server MUST reply with a Response, except for in the case of Notifications.
 //
 // If a request doesn't provide a result value the receiver of a request still needs to return a response message to
 // conform to the JSON RPC specification.
 // The result property of the ResponseMessage should be set to null in this case to signal a successful request.
-type Response struct {
+type wireResponse struct {
 	// JSONRPC is a string specifying the version of the JSON-RPC protocol.
 	//
 	// MUST be exactly "2.0".

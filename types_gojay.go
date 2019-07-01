@@ -57,7 +57,7 @@ var _ json.Marshaler = (*RawMessage)(nil)
 var _ json.Unmarshaler = (*RawMessage)(nil)
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
-func (v *request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
+func (v *wireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
 		return dec.String(&v.JSONRPC)
@@ -76,10 +76,10 @@ func (v *request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 }
 
 // NKeys returns the number of keys to unmarshal
-func (v *request) NKeys() int { return 4 }
+func (v *wireRequest) NKeys() int { return 4 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
-func (v *request) MarshalJSONObject(enc *gojay.Encoder) {
+func (v *wireRequest) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, v.JSONRPC)
 	enc.StringKey(keyID, v.ID.String())
 	enc.StringKey(keyMethod, v.Method)
@@ -87,10 +87,10 @@ func (v *request) MarshalJSONObject(enc *gojay.Encoder) {
 }
 
 // IsNil returns wether the structure is nil value or not
-func (v *request) IsNil() bool { return v == nil }
+func (v *wireRequest) IsNil() bool { return v == nil }
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
-func (v *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
+func (v *wireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
 		return dec.String(&v.JSONRPC)
@@ -112,10 +112,10 @@ func (v *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 }
 
 // NKeys returns the number of keys to unmarshal
-func (v *Response) NKeys() int { return 4 }
+func (v *wireResponse) NKeys() int { return 4 }
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
-func (v *Response) MarshalJSONObject(enc *gojay.Encoder) {
+func (v *wireResponse) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, v.JSONRPC)
 	enc.StringKey(keyID, v.ID.String())
 	enc.ObjectKeyOmitEmpty(keyError, v.Error)
@@ -123,7 +123,7 @@ func (v *Response) MarshalJSONObject(enc *gojay.Encoder) {
 }
 
 // IsNil returns wether the structure is nil value or not
-func (v *Response) IsNil() bool { return v == nil }
+func (v *wireResponse) IsNil() bool { return v == nil }
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (v *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
