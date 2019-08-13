@@ -257,8 +257,6 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		c.pendingMu.Unlock()
 	}()
 
-	start := time.Now()
-
 	c.Logger.Debug(Send,
 		zap.String("req.JSONRPC", req.JSONRPC),
 		zap.String("id", id.String()),
@@ -273,10 +271,8 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	// wait for the response
 	select {
 	case resp := <-rchan:
-		elapsed := time.Since(start)
 		c.Logger.Debug(Receive,
 			zap.Stringer("resp.ID", resp.ID),
-			zap.Duration("elapsed", elapsed),
 			zap.String("req.Method", req.Method),
 			zap.Any("resp.Result", resp.Result),
 			zap.Any("resp.Error", resp.Error),
@@ -345,8 +341,6 @@ func (r *Request) Reply(ctx context.Context, result interface{}, err error) erro
 	r.Parallel()
 	r.state = requestReplied
 
-	elapsed := time.Since(r.start)
-
 	var raw *json.RawMessage
 	if err == nil {
 		raw, err = marshalInterface(result)
@@ -368,13 +362,6 @@ func (r *Request) Reply(ctx context.Context, result interface{}, err error) erro
 
 	data, err := json.Marshal(resp) // TODO(zchee): use gojay
 	if err != nil {
-		r.conn.Logger.Error(Send,
-			zap.String("resp.ID", resp.ID.String()),
-			zap.Duration("elapsed", elapsed),
-			zap.String("r.Method", r.Method),
-			zap.Any("resp.Result", resp.Result),
-			zap.Error(err),
-		)
 		return Errorf(ParseError, "failed to marshaling reply response: %v", err)
 	}
 
