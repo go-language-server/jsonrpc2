@@ -141,6 +141,8 @@ var defaultHandler = func(ctx context.Context, req *Request) {
 	}
 }
 
+const defaultCapacity = 20
+
 var defaultCanceler = func(context.Context, *Conn, ID) {}
 
 var defaultLogger = zap.NewNop()
@@ -162,6 +164,10 @@ func NewConn(s Stream, options ...Options) *Conn {
 	// the default handler reports a method error
 	if conn.Handler == nil {
 		conn.Handler = defaultHandler
+	}
+	// the default capacity is 20
+	if conn.Capacity == 0 {
+		conn.Capacity = defaultCapacity
 	}
 	// the default canceller does nothing
 	if conn.Canceler == nil {
