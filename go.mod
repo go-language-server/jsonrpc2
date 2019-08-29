@@ -4,7 +4,7 @@ go 1.12
 
 require (
 	github.com/francoispqt/gojay v1.2.13
-	github.com/google/go-cmp v0.3.0
+	github.com/google/go-cmp v0.3.1
 	github.com/pkg/errors v0.8.2-0.20190227000051-27936f6d90f9 // indirect
 	github.com/stretchr/testify v1.3.0 // indirect
 	go.uber.org/atomic v1.4.0
