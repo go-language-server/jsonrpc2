@@ -8,6 +8,15 @@ package jsonrpc2
 
 import "github.com/francoispqt/gojay"
 
+// MarshalJSONObject implements gojay's MarshalerJSONObject
+func (e *Error) MarshalJSONObject(enc *gojay.Encoder) {
+	enc.IntKey(keyCode, int(e.Code))
+	enc.StringKey(keyMessage, e.Message)
+}
+
+// IsNil returns wether the structure is nil value or not
+func (e *Error) IsNil() bool { return e == nil }
+
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (e *Error) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
@@ -21,15 +30,6 @@ func (e *Error) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 
 // NKeys returns the number of keys to unmarshal
 func (e *Error) NKeys() int { return 2 }
-
-// MarshalJSONObject implements gojay's MarshalerJSONObject
-func (e *Error) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.IntKey(keyCode, int(e.Code))
-	enc.StringKey(keyMessage, e.Message)
-}
-
-// IsNil returns wether the structure is nil value or not
-func (e *Error) IsNil() bool { return e == nil }
 
 // compile time check whether the Error implements a gojay.MarshalerJSONObject interface.
 var _ gojay.MarshalerJSONObject = (*Error)(nil)

@@ -6,9 +6,8 @@ package jsonrpc2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-
-	"golang.org/x/xerrors"
 )
 
 // Code represents a error's category.
@@ -66,11 +65,13 @@ type Error struct {
 	// information about the error. Can be omitted.
 	Data *json.RawMessage `json:"data"`
 
-	frame xerrors.Frame
-	err   error
+	err error
 }
 
-// Error implements error.
+// compile time check whether the Error implements error interface.
+var _ error = (*Error)(nil)
+
+// Error implements error.Error.
 func (e *Error) Error() string {
 	if e == nil {
 		return ""
@@ -78,50 +79,27 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
-// Format implements fmt.Formatter.
-func (e *Error) Format(s fmt.State, c rune) {
-	xerrors.FormatError(e, s, c)
-}
-
-// FormatError implements xerrors.Formatter.
-func (e *Error) FormatError(p xerrors.Printer) (next error) {
-	if e.Message == "" {
-		p.Printf("code=%v", e.Code)
-	} else {
-		p.Printf("%s (code=%v)", e.Message, e.Code)
-	}
-	e.frame.Format(p)
-
-	return e.err
-}
-
-// Unwrap implements xerrors.Wrapper.
+// Unwrap implements errors.Unwrap.
 //
-// The returns the error underlying the receiver, which may be nil.
-func (e *Error) Unwrap() error {
-	return e.err
-}
+// Returns the error underlying the receiver, which may be nil.
+func (e *Error) Unwrap() error { return e.err }
 
 // NewError builds a Error struct for the suppied message and code.
-func NewError(c Code, args ...interface{}) *Error {
-	e := &Error{
+func NewError(c Code, message string) *Error {
+	return &Error{
 		Code:    c,
-		Message: fmt.Sprint(args...),
-		frame:   xerrors.Caller(1),
+		Message: message,
+		err:     errors.New(message),
 	}
-	e.err = xerrors.New(e.Message)
-
-	return e
 }
 
 // Errorf builds a Error struct for the suppied message and code.
 func Errorf(c Code, format string, args ...interface{}) *Error {
 	e := &Error{
-		Code:    c,
-		Message: fmt.Sprintf(format, args...),
-		frame:   xerrors.Caller(1),
+		Code: c,
+		err:  fmt.Errorf(format, args...),
 	}
-	e.err = xerrors.New(e.Message)
+	e.Message = e.err.Error()
 
 	return e
 }
