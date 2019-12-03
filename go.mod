@@ -10,7 +10,6 @@ require (
 	go.uber.org/atomic v1.4.0
 	go.uber.org/multierr v1.1.1-0.20190429210458-bd075f90b08f // indirect
 	go.uber.org/zap v1.10.1-0.20190430155229-8a2ee5670ced
-	golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7
 )
 
 replace github.com/francoispqt/gojay v1.2.13 => github.com/zchee/gojay v1.2.14
