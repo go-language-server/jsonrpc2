@@ -11,5 +11,3 @@ require (
 	go.uber.org/multierr v1.1.1-0.20190429210458-bd075f90b08f // indirect
 	go.uber.org/zap v1.10.1-0.20190430155229-8a2ee5670ced
 )
-
-replace github.com/francoispqt/gojay v1.2.13 => github.com/zchee/gojay v1.2.14
