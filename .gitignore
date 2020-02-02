@@ -45,8 +45,5 @@ _testmain.go
 # coverage
 coverage.*
 
-# binary
-/jsonrpc2
-
 # modules
 vendor/*
