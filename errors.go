@@ -64,8 +64,6 @@ type Error struct {
 	// Data a Primitive or Structured value that contains additional
 	// information about the error. Can be omitted.
 	Data *json.RawMessage `json:"data"`
-
-	err error
 }
 
 // compile time check whether the Error implements error interface.
@@ -82,24 +80,22 @@ func (e *Error) Error() string {
 // Unwrap implements errors.Unwrap.
 //
 // Returns the error underlying the receiver, which may be nil.
-func (e *Error) Unwrap() error { return e.err }
+func (e *Error) Unwrap() error { return errors.New(e.Message) }
 
-// NewError builds a Error struct for the suppied message and code.
+// NewError builds a Error struct for the suppied code and message.
 func NewError(c Code, message string) *Error {
 	return &Error{
 		Code:    c,
 		Message: message,
-		err:     errors.New(message),
 	}
 }
 
-// Errorf builds a Error struct for the suppied message and code.
+// Errorf builds a Error struct for the suppied code, format and args.
 func Errorf(c Code, format string, args ...interface{}) *Error {
 	e := &Error{
-		Code: c,
-		err:  fmt.Errorf(format, args...),
+		Code:    c,
+		Message: fmt.Sprintf(format, args...),
 	}
-	e.Message = e.err.Error()
 
 	return e
 }
