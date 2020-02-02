@@ -84,9 +84,13 @@ func run(ctx context.Context, t *testing.T, r io.ReadCloser, w io.WriteCloser) *
 		}()
 
 		if err := conn.Run(ctx); err != nil {
-			t.Fatalf("Stream failed: %v", err)
+			t.Errorf("Stream failed: %v", err)
 		}
 	}()
+
+	if t.Failed() {
+		t.FailNow()
+	}
 
 	return conn
 }
