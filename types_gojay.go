@@ -9,7 +9,6 @@ package jsonrpc2
 import (
 	"encoding/json"
 	"errors"
-	"unsafe"
 
 	"github.com/francoispqt/gojay"
 )
@@ -21,12 +20,18 @@ import (
 // be used to delay JSON decoding or precompute a JSON encoding.
 type RawMessage gojay.EmbeddedJSON
 
+// compile time check whether the RawMessage implements a json.Marshaler and json.Unmarshaler interfaces.
+var (
+	_ json.Marshaler   = (*RawMessage)(nil)
+	_ json.Unmarshaler = (*RawMessage)(nil)
+)
+
 func (m RawMessage) String() string {
 	if m == nil {
 		return ""
 	}
 
-	return *(*string)(unsafe.Pointer(&m))
+	return string(m)
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -48,16 +53,24 @@ func (m *RawMessage) UnmarshalJSON(data []byte) error {
 		return errors.New("jsonrpc2.RawMessage: UnmarshalJSON on nil pointer")
 	}
 
-	*m = append((*m)[0:0], data...)
+	*m = append((*m)[:0], data...)
 
 	return nil
 }
 
-var _ json.Marshaler = (*RawMessage)(nil)
-var _ json.Unmarshaler = (*RawMessage)(nil)
+// MarshalJSONObject implements gojay.MarshalerJSONObject.
+func (r *WireRequest) MarshalJSONObject(enc *gojay.Encoder) {
+	enc.StringKey(keyJSONRPC, r.JSONRPC)
+	enc.StringKeyOmitEmpty(keyID, r.ID.String())
+	enc.StringKey(keyMethod, r.Method)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(r.Params))
+}
 
-// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
-func (r *wireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
+// IsNil implements gojay.MarshalerJSONObject.
+func (r *WireRequest) IsNil() bool { return r == nil }
+
+// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
+func (r *WireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
 		return dec.String(&r.JSONRPC)
@@ -75,28 +88,28 @@ func (r *wireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	return nil
 }
 
-// NKeys returns the number of keys to unmarshal
-func (r *wireRequest) NKeys() int { return 4 }
+// NKeys implements gojay.UnmarshalerJSONObject.
+func (r *WireRequest) NKeys() int { return 4 }
+
+// compile time check whether the WireRequest implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+var (
+	_ gojay.MarshalerJSONObject   = (*WireRequest)(nil)
+	_ gojay.UnmarshalerJSONObject = (*WireRequest)(nil)
+)
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
-func (r *wireRequest) MarshalJSONObject(enc *gojay.Encoder) {
+func (r *WireResponse) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, r.JSONRPC)
-	enc.StringKey(keyID, r.ID.String())
-	enc.StringKey(keyMethod, r.Method)
-	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(r.Params))
+	enc.StringKeyOmitEmpty(keyID, r.ID.String())
+	enc.ObjectKeyOmitEmpty(keyError, r.Error)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyResult, (*gojay.EmbeddedJSON)(r.Result))
 }
 
-// IsNil returns wether the structure is nil value or not
-func (r *wireRequest) IsNil() bool { return r == nil }
+// IsNil implements gojay.MarshalerJSONObject.
+func (r *WireResponse) IsNil() bool { return r == nil }
 
-// compile time check whether the wireRequest implements a gojay.MarshalerJSONObject interface.
-var _ gojay.MarshalerJSONObject = (*wireRequest)(nil)
-
-// compile time check whether the wireRequest implements a gojay.UnmarshalerJSONObject interface.
-var _ gojay.UnmarshalerJSONObject = (*wireRequest)(nil)
-
-// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
-func (r *wireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
+// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject
+func (r *WireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
 		return dec.String(&r.JSONRPC)
@@ -117,25 +130,27 @@ func (r *wireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	return nil
 }
 
-// NKeys returns the number of keys to unmarshal
-func (r *wireResponse) NKeys() int { return 4 }
+// NKeys implements gojay.UnmarshalerJSONObject.
+func (r *WireResponse) NKeys() int { return 4 }
+
+// compile time check whether the WireResponse implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+var (
+	_ gojay.MarshalerJSONObject   = (*WireResponse)(nil)
+	_ gojay.UnmarshalerJSONObject = (*WireResponse)(nil)
+)
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
-func (r *wireResponse) MarshalJSONObject(enc *gojay.Encoder) {
+func (r *Combined) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, r.JSONRPC)
-	enc.StringKey(keyID, r.ID.String())
+	enc.StringKeyOmitEmpty(keyID, r.ID.String())
+	enc.StringKey(keyMethod, r.Method)
+	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(r.Params))
 	enc.ObjectKeyOmitEmpty(keyError, r.Error)
 	enc.AddEmbeddedJSONKeyOmitEmpty(keyResult, (*gojay.EmbeddedJSON)(r.Result))
 }
 
-// IsNil returns wether the structure is nil value or not
-func (r *wireResponse) IsNil() bool { return r == nil }
-
-// compile time check whether the wireResponse implements a gojay.MarshalerJSONObject interface.
-var _ gojay.MarshalerJSONObject = (*wireResponse)(nil)
-
-// compile time check whether the wireResponse implements a gojay.UnmarshalerJSONObject interface.
-var _ gojay.UnmarshalerJSONObject = (*wireResponse)(nil)
+// IsNil implements gojay.MarshalerJSONObject.
+func (r *Combined) IsNil() bool { return r == nil }
 
 // UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
 func (r *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
@@ -169,59 +184,11 @@ func (r *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	return nil
 }
 
-// NKeys returns the number of keys to unmarshal
+// NKeys implements gojay.UnmarshalerJSONObject.
 func (r *Combined) NKeys() int { return 6 }
 
-// MarshalJSONObject implements gojay's MarshalerJSONObject
-func (r *Combined) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey(keyJSONRPC, r.JSONRPC)
-	enc.StringKeyOmitEmpty(keyID, r.ID.String())
-	enc.StringKey(keyMethod, r.Method)
-	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(r.Params))
-	enc.ObjectKeyOmitEmpty(keyError, r.Error)
-	enc.AddEmbeddedJSONKeyOmitEmpty(keyResult, (*gojay.EmbeddedJSON)(r.Result))
-}
-
-// IsNil returns wether the structure is nil value or not
-func (r *Combined) IsNil() bool { return r == nil }
-
-// compile time check whether the Combined implements a gojay.MarshalerJSONObject interface.
-var _ gojay.MarshalerJSONObject = (*Combined)(nil)
-
-// compile time check whether the Combined implements a gojay.UnmarshalerJSONObject interface.
-var _ gojay.UnmarshalerJSONObject = (*Combined)(nil)
-
-// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
-func (m *NotificationMessage) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-	switch k {
-	case keyJSONRPC:
-		return dec.String(&m.JSONRPC)
-	case keyMethod:
-		return dec.String(&m.Method)
-	case keyParams:
-		if m.Params == nil {
-			m.Params = &json.RawMessage{}
-		}
-		return dec.EmbeddedJSON((*gojay.EmbeddedJSON)(m.Params))
-	}
-	return nil
-}
-
-// NKeys returns the number of keys to unmarshal
-func (m *NotificationMessage) NKeys() int { return 3 }
-
-// MarshalJSONObject implements gojay's MarshalerJSONObject
-func (m *NotificationMessage) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey(keyJSONRPC, m.JSONRPC)
-	enc.StringKey(keyMethod, m.Method)
-	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(m.Params))
-}
-
-// IsNil returns wether the structure is nil value or not
-func (m *NotificationMessage) IsNil() bool { return m == nil }
-
-// compile time check whether the NotificationMessage implements a gojay.MarshalerJSONObject interface.
-var _ gojay.MarshalerJSONObject = (*NotificationMessage)(nil)
-
-// compile time check whether the NotificationMessage implements a gojay.UnmarshalerJSONObject interface.
-var _ gojay.UnmarshalerJSONObject = (*NotificationMessage)(nil)
+// compile time check whether the request implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+var (
+	_ gojay.MarshalerJSONObject   = (*Combined)(nil)
+	_ gojay.UnmarshalerJSONObject = (*Combined)(nil)
+)

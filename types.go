@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-// Version represents a JSONRPC version.
+// Version represents a JSON-RPC version.
 const Version = "2.0"
 
 // ID is a Request identifier.
@@ -20,8 +20,12 @@ type ID struct {
 	Number int64
 }
 
-// String implements fmt.Stringer.
-//
+// compile time check whether the ID implements a json.Marshaler and json.Unmarshaler interfaces.
+var (
+	_ json.Marshaler   = (*ID)(nil)
+	_ json.Unmarshaler = (*ID)(nil)
+)
+
 // String returns a string representation of the ID.
 // The representation is non ambiguous, string forms are quoted, number forms
 // are preceded by a #.
@@ -30,7 +34,7 @@ func (id *ID) String() string {
 		return ""
 	}
 	if id.Name != "" {
-		return id.Name
+		return strconv.Quote(id.Name)
 	}
 
 	return "#" + strconv.FormatInt(id.Number, 10)
@@ -55,62 +59,42 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &id.Name)
 }
 
-var _ json.Marshaler = (*ID)(nil)
-var _ json.Unmarshaler = (*ID)(nil)
-
-// wireRequest represents a rpc call by sending a request object to a Server.
-// This is a request message to describe a request between the client and the server.
-//
-// Every processed request must send a response back to the sender of the request.
-type wireRequest struct {
-	// JSONRPC is a string specifying the version of the JSON-RPC protocol.
-	//
-	// MUST be exactly "2.0".
+// WireRequest is sent to a server to represent a Call or Notify operaton.
+type WireRequest struct {
+	// JSONRPC is always encoded as the string "2.0"
 	JSONRPC string `json:"jsonrpc"`
 
-	// Method is a string containing the name of the method to be invoked.
+	// Method is a string containing the method name to invoke.
 	//
 	// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved
 	// for rpc-internal methods and extensions and MUST NOT be used for anything else.
 	Method string `json:"method"`
 
-	// Params is a string containing the name of the method to be invoked.
-	//
-	// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved
-	// for rpc-internal methods and extensions and MUST NOT be used for anything else.
+	// Params is either a struct or an array with the parameters of the method.
 	Params *json.RawMessage `json:"params,omitempty"`
 
-	// ID is an identifier established by the Client that MUST contain a String, Number, or NULL value if included.
+	// ID is the id of this request, used to tie the Response back to the request.
+	// Will be either a string or a number.
 	//
-	// If it is not included it is assumed to be a notification.
-	//
-	// The value SHOULD normally not be Null and Numbers SHOULD NOT contain fractional parts.
-	ID *ID `json:"id"`
+	// If not set, the Request is a notify, and no response is possible.
+	ID *ID `json:"id,omitempty"`
 }
 
-// wireResponse is a response ressage sent as a result of a request.
-// When a rpc call is made, the Server MUST reply with a Response, except for in the case of Notifications.
-//
-// If a request doesn't provide a result value the receiver of a request still needs to return a response message to
-// conform to the JSON RPC specification.
-// The result property of the ResponseMessage should be set to null in this case to signal a successful request.
-type wireResponse struct {
-	// JSONRPC is a string specifying the version of the JSON-RPC protocol.
-	//
-	// MUST be exactly "2.0".
+// WireResponse is a reply to a Request.
+// It will always have the ID field set to tie it back to a request, and will
+// have either the Result or Error fields set depending on whether it is a
+// success or failure response.
+type WireResponse struct {
+	// JSONRPC is always encoded as the string "2.0"
 	JSONRPC string `json:"jsonrpc"`
 
-	// Result is the result of a request.
-	//
-	// This member is REQUIRED on success.
+	// Result is the response value, and is required on success.
 	// This member MUST NOT exist if there was an error invoking the method.
 	//
 	// The value of this member is determined by the method invoked on the Server.
 	Result *json.RawMessage `json:"result,omitempty"`
 
-	// Error is the object in case a request fails.
-	//
-	// This member is REQUIRED on error.
+	// Error is the object in case a request fails., and is required on error.
 	// This member MUST NOT exist if there was no error triggered during invocation.
 	//
 	// The value for this member MUST be an Object.
@@ -118,41 +102,20 @@ type wireResponse struct {
 
 	// ID is the request id.
 	//
-	// This member is REQUIRED.
-	// It MUST be the same as the value of the id member in the Request Object.
+	// ID must be set and is the identifier of the Request this is a response to.
 	//
+	// It MUST be the same as the value of the id member in the Request Object.
 	// If there was an error in detecting the id in the Request object (e.g. Parse error/Invalid Request), it MUST be Null.
-	ID *ID `json:"id"`
+	ID *ID `json:"id,omitempty"`
 }
 
 // Combined represents a all the fields of both Request and Response.
+// We can decode this and then work out which it is.
 type Combined struct {
 	JSONRPC string           `json:"jsonrpc"`
+	ID      *ID              `json:"id,omitempty"`
 	Method  string           `json:"method"`
 	Params  *json.RawMessage `json:"params,omitempty"`
 	Result  *json.RawMessage `json:"result,omitempty"`
 	Error   *Error           `json:"error,omitempty"`
-	ID      *ID              `json:"id,omitempty"`
-}
-
-// NotificationMessage is a notification message.
-//
-// A processed notification message must not send a response back. They work like events.
-type NotificationMessage struct {
-	// JSONRPC is a string specifying the version of the JSON-RPC protocol.
-	//
-	// MUST be exactly "2.0".
-	JSONRPC string `json:"jsonrpc"`
-
-	// Method is a string containing the name of the method to be invoked.
-	//
-	// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved
-	// for rpc-internal methods and extensions and MUST NOT be used for anything else.
-	Method string `json:"method"`
-
-	// Params is a string containing the name of the method to be invoked.
-	//
-	// Method names that begin with the word rpc followed by a period character (U+002E or ASCII 46) are reserved
-	// for rpc-internal methods and extensions and MUST NOT be used for anything else.
-	Params *json.RawMessage `json:"params,omitempty"`
 }

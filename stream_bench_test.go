@@ -42,7 +42,7 @@ func BenchmarkSteam_Read(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		in.Write([]byte(payload))
 		stream := NewStream(&in, ioutil.Discard)
-		_, _ = stream.Read(context.Background())
+		_, _, _ = stream.Read(context.Background())
 		in.Reset()
 	}
 	b.SetBytes(int64(len(payload)))
@@ -53,7 +53,7 @@ func BenchmarkSteam_Write(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		stream := NewStream(nil, ioutil.Discard)
-		_ = stream.Write(context.Background(), []byte(payload))
+		_, _ = stream.Write(context.Background(), []byte(payload))
 	}
 	b.SetBytes(int64(len(payload)))
 }

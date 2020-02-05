@@ -1,1 +1,1 @@
-(*github.com/go-language-server/jsonrpc2.Conn).Reply
+(*github.com/go-language-server/jsonrpc2.Request).Reply

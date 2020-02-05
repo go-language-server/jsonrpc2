@@ -15,6 +15,14 @@ import (
 )
 
 const (
+	// ContentTypeJSONRPC is the custom mime type content for the Language Server Protocol.
+	ContentTypeJSONRPC = "application/jsonrpc; charset=utf-8"
+
+	// ContentTypeVSCodeJSONRPC is the default mime type content for the Language Server Protocol Specification.
+	ContentTypeVSCodeJSONRPC = "application/vscode-jsonrpc; charset=utf-8"
+)
+
+const (
 	// HeaderContentLength is the HTTP header name of the length of the content part in bytes. This header is required.
 	// This entity header indicates the size of the entity-body, in bytes, sent to the recipient.
 	//
@@ -31,32 +39,15 @@ const (
 
 	// HeaderContentSeparator is the header and content part separator.
 	HeaderContentSeparator = "\r\n"
-
-	headerSeparatorComma = ":"
 )
 
-const (
-	// ContentTypeJSONRPC is the custom mime type content for the Language Server Protocol.
-	ContentTypeJSONRPC = "application/jsonrpc; charset=utf-8"
-
-	// ContentTypeVSCodeJSONRPC is the default mime type content for the Language Server Protocol Specification.
-	ContentTypeVSCodeJSONRPC = "application/vscode-jsonrpc; charset=utf-8"
-)
-
-const (
-	// HeaderContentLengthFmt is the a format of "Content-Length" header for fmt function arg.
-	HeaderContentLengthFmt = HeaderContentLength + headerSeparatorComma + " %d" + HeaderContentSeparator
-	// HeaderContentTypeFmt is the a format of "Content-Type" header for fmt function arg.
-	HeaderContentTypeFmt = HeaderContentType + headerSeparatorComma + " %s" + HeaderContentSeparator
-)
-
-// Stream abstracts the transport mechanics from the JSON RPC protocol.
+// Stream abstracts the transport mechanics from the JSON-RPC protocol.
 type Stream interface {
 	// Read gets the next message from the stream.
-	Read(ctx context.Context) (data []byte, err error)
+	Read(ctx context.Context) (data []byte, n int64, err error)
 
 	// Write sends a message to the stream.
-	Write(ctx context.Context, data []byte) (err error)
+	Write(ctx context.Context, data []byte) (n int64, err error)
 }
 
 type stream struct {
@@ -64,6 +55,9 @@ type stream struct {
 	out   io.Writer
 	outMu sync.Mutex
 }
+
+// compile time check whether the stream implements Stream interface.
+var _ Stream = (*stream)(nil)
 
 // NewStream returns a Stream built on top of an io.Reader and io.Writer
 // The messages are sent with HTTP content length and MIME type headers.
@@ -76,10 +70,10 @@ func NewStream(in io.Reader, out io.Writer) Stream {
 }
 
 // Read reads data from stream.
-func (s *stream) Read(ctx context.Context) ([]byte, error) {
+func (s *stream) Read(ctx context.Context) (data []byte, n int64, err error) {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, 0, ctx.Err()
 	default:
 	}
 
@@ -87,53 +81,65 @@ func (s *stream) Read(ctx context.Context) ([]byte, error) {
 	// read the header, stop on the first empty line
 	for {
 		line, err := s.in.ReadString('\n')
+		n += int64(len(line))
 		if err != nil {
-			return nil, fmt.Errorf("failed reading header line %q", err)
+			return nil, n, fmt.Errorf("failed reading header line %q", err)
 		}
+
 		line = strings.TrimSpace(line)
-		// check we have a header line
-		if line == "" {
+		if line == "" { // check we have a header line
 			break
 		}
+
 		colon := strings.IndexRune(line, ':')
 		if colon < 0 {
-			return nil, fmt.Errorf("invalid header line %q", line)
+			return nil, n, fmt.Errorf("invalid header line %q", line)
 		}
+
 		name, value := line[:colon], strings.TrimSpace(line[colon+1:])
 		switch name {
-		case "Content-Length":
+		case HeaderContentLength:
 			if length, err = strconv.ParseInt(value, 10, 32); err != nil {
-				return nil, fmt.Errorf("failed parsing Content-Length: %v", value)
+				return nil, n, fmt.Errorf("failed to parsing Content-Length: %v", value)
 			}
 			if length <= 0 {
-				return nil, fmt.Errorf("invalid Content-Length: %v", length)
+				return nil, n, fmt.Errorf("invalid Content-Length: %v", length)
 			}
 		default:
 			// ignoring unknown headers
 		}
 	}
 	if length == 0 {
-		return nil, fmt.Errorf("missing Content-Length header")
+		return nil, n, fmt.Errorf("missing %s header", HeaderContentLength)
 	}
-	data := make([]byte, length)
+
+	data = make([]byte, length)
 	if _, err := io.ReadFull(s.in, data); err != nil {
-		return nil, err
+		return nil, n, err
 	}
-	return data, nil
+	n += length
+
+	return data, n, nil
 }
 
 // Write writes data to stream.
-func (s *stream) Write(ctx context.Context, data []byte) error {
+func (s *stream) Write(ctx context.Context, data []byte) (total int64, err error) {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return 0, ctx.Err()
 	default:
 	}
+
 	s.outMu.Lock()
-	_, err := fmt.Fprintf(s.out, "Content-Length: %v\r\n\r\n", len(data))
+	var n int
+	msg := HeaderContentLength + ":" + strconv.FormatInt(int64(len(data)), 10) + HeaderContentSeparator + HeaderContentSeparator
+	n, err = s.out.Write([]byte(msg))
+	total = int64(n)
 	if err == nil {
-		_, err = s.out.Write(data)
+		n, err = s.out.Write(data)
+		total += int64(n)
 	}
 	s.outMu.Unlock()
-	return err
+
+	return total, err
 }
