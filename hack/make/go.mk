@@ -61,17 +61,15 @@ pkg/install:
 ## test, bench and coverage
 
 .PHONY: test
-test: GO_LDFLAGS=${GO_LDFLAGS_STATIC}
+test: GO_LDFLAGS=
 test: GO_BUILDTAGS+=${GO_BUILDTAGS_STATIC}
-test: GO_FLAGS+=-installsuffix ${GO_INSTALLSUFFIX_STATIC}
 test:  ## Runs package test including race condition.
 	$(call target)
 	@GO111MODULE=on $(GO_TEST) -v -race -count 1 $(strip $(GO_FLAGS)) -run=$(GO_TEST_FUNC) $(GO_TEST_PKGS)
 
 .PHONY: bench
-bench: GO_LDFLAGS=${GO_LDFLAGS_STATIC}
+bench: GO_LDFLAGS=
 bench: GO_BUILDTAGS+=${GO_BUILDTAGS_STATIC}
-bench: GO_FLAGS+=-installsuffix ${GO_INSTALLSUFFIX_STATIC}
 bench:  ## Take a package benchmark.
 	$(call target)
 	@GO111MODULE=on $(GO_TEST) -v $(strip $(GO_FLAGS)) -run='^$$' -bench=$(GO_BENCH_FUNC) -benchmem $(GO_TEST_PKGS)
@@ -174,12 +172,12 @@ mod/install/static:  ## Install the module vendor package as an object file with
 
 .PHONY: mod/update
 mod/update: mod/goget mod/tidy mod/vendor mod/install  ## Updates all of vendor packages.
-	@GO111MODULE=on go mod edit -go 1.12
+	@GO111MODULE=on go mod edit -go 1.13
 
 .PHONY: mod
 mod: mod/init mod/tidy mod/vendor mod/install
 mod:  ## Updates the vendoring directory using go mod.
-	@GO111MODULE=on go mod edit -go 1.12
+	@GO111MODULE=on go mod edit -go 1.13
 
 
 ## clean
