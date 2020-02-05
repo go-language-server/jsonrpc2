@@ -8,16 +8,16 @@ package jsonrpc2
 
 import "github.com/francoispqt/gojay"
 
-// MarshalJSONObject implements gojay's MarshalerJSONObject
+// MarshalJSONObject implements gojay.MarshalerJSONObject.
 func (e *Error) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.IntKey(keyCode, int(e.Code))
 	enc.StringKey(keyMessage, e.Message)
 }
 
-// IsNil returns wether the structure is nil value or not
+// IsNil implements gojay.MarshalerJSONObject.
 func (e *Error) IsNil() bool { return e == nil }
 
-// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
+// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
 func (e *Error) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyCode:
@@ -28,11 +28,11 @@ func (e *Error) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	return nil
 }
 
-// NKeys returns the number of keys to unmarshal
+// NKeys implements gojay.UnmarshalerJSONObject.
 func (e *Error) NKeys() int { return 2 }
 
-// compile time check whether the Error implements a gojay.MarshalerJSONObject interface.
-var _ gojay.MarshalerJSONObject = (*Error)(nil)
-
-// compile time check whether the Error implements a gojay.UnmarshalerJSONObject interface.
-var _ gojay.UnmarshalerJSONObject = (*Error)(nil)
+// compile time check whether the Error implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+var (
+	_ gojay.MarshalerJSONObject   = (*Error)(nil)
+	_ gojay.UnmarshalerJSONObject = (*Error)(nil)
+)
