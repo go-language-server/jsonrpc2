@@ -159,13 +159,13 @@ issues:
         - deadcode
         - unused
         - varcheck
-      text: "`requestWaiting` is unused"
+      text: "`reqWaiting` is unused"
     - path: jsonrpc2.go
       linters:
         - deadcode
         - unused
         - varcheck
-      text: "`requestDone` is unused"
+      text: "`reqDone` is unused"
     - path: errors.go
       linters:
         - deadcode
