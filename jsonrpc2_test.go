@@ -60,11 +60,11 @@ func (test *callTest) verifyResults(t *testing.T, results interface{}) {
 	}
 }
 
-func prepare(ctx context.Context, t *testing.T) (*jsonrpc2.Conn, *jsonrpc2.Conn) {
+func prepare(ctx context.Context, t *testing.T) (a, b *jsonrpc2.Conn) {
 	aR, bW := io.Pipe()
 	bR, aW := io.Pipe()
-	a := run(ctx, t, aR, aW)
-	b := run(ctx, t, bR, bW)
+	a = run(ctx, t, aR, aW)
+	b = run(ctx, t, bR, bW)
 	return a, b
 }
 

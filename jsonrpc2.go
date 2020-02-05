@@ -109,11 +109,11 @@ func WithOverloaded(rejectIfOverloaded bool) Options {
 type requestState int
 
 const (
-	requestWaiting = requestState(iota) //nolint:varcheck,deadcode
+	requestWaiting = requestState(iota)
 	requestSerial
 	requestParallel
 	requestReplied
-	requestDone //nolint:varcheck,deadcode
+	requestDone
 )
 
 // Request is sent to a server to represent a Call or Notify operaton.
