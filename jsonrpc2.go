@@ -168,14 +168,15 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		ctx = h.Request(ctx, c, Send, req)
 	}
 
-	// we have to add ourselves to the pending map before we send, otherwise we
-	// are racing the response
-	rchan := make(chan *WireResponse)
+	// We have to add ourselves to the pending map before we send, otherwise we
+	// are racing the response. Also add a buffer to rchan, so that if we get a
+	// wire response between the time this call is cancelled and id is deleted
+	// from c.pending, the send to rchan will not block.
+	rchan := make(chan *WireResponse, 1)
 	c.pendingMu.Lock()
 	c.pending[id] = rchan
 	c.pendingMu.Unlock()
 	defer func() {
-		// clean up the pending response handler on the way out
 		c.pendingMu.Lock()
 		delete(c.pending, id)
 		c.pendingMu.Unlock()
@@ -340,22 +341,19 @@ func (c *Conn) Run(ctx context.Context) error {
 			}()
 
 		case msg.ID != nil: // msg.ID not nil, handle the response
-			// we have a response, get the pending entry from the map
+			// If method is not set, this should be a response, in which case we must
+			// have an id to send the response back to the caller.
 			c.pendingMu.Lock()
-			rchan := c.pending[*msg.ID]
-			if rchan != nil {
-				delete(c.pending, *msg.ID)
-			}
+			rchan, ok := c.pending[*msg.ID]
 			c.pendingMu.Unlock()
-
-			// send the reply to the channel
-			resp := &WireResponse{
-				Result: msg.Result,
-				Error:  msg.Error,
-				ID:     msg.ID,
+			if ok {
+				resp := &WireResponse{
+					Result: msg.Result,
+					Error:  msg.Error,
+					ID:     msg.ID,
+				}
+				rchan <- resp
 			}
-			rchan <- resp
-			close(rchan) // for rchan range loop
 
 		default:
 			for _, h := range c.handlers {
@@ -430,9 +428,9 @@ func (r *Request) Reply(ctx context.Context, result interface{}, reqErr error) e
 		return err
 	}
 	resp := &WireResponse{
-		JSONRPC: Version,
-		Result:  raw,
-		ID:      r.ID,
+		// JSONRPC: Version,
+		Result: raw,
+		ID:     r.ID,
 	}
 	if reqErr != nil {
 		var callErr *Error
