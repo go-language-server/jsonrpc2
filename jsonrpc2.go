@@ -428,9 +428,9 @@ func (r *Request) Reply(ctx context.Context, result interface{}, reqErr error) e
 		return err
 	}
 	resp := &WireResponse{
-		// JSONRPC: Version,
-		Result: raw,
-		ID:     r.ID,
+		JSONRPC: Version,
+		Result:  raw,
+		ID:      r.ID,
 	}
 	if reqErr != nil {
 		var callErr *Error
