@@ -170,7 +170,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 
 	// We have to add ourselves to the pending map before we send, otherwise we
 	// are racing the response. Also add a buffer to rchan, so that if we get a
-	// wire response between the time this call is cancelled and id is deleted
+	// wire response between the time this call is canceled and id is deleted
 	// from c.pending, the send to rchan will not block.
 	rchan := make(chan *WireResponse, 1)
 	c.pendingMu.Lock()
