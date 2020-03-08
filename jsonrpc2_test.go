@@ -17,7 +17,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/go-language-server/jsonrpc2"
+	"go.lsp.dev/jsonrpc2"
 )
 
 var logRPC = flag.Bool("logrpc", false, "Enable jsonrpc2 communication logging")

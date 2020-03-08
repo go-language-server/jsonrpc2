@@ -40,7 +40,7 @@ linters-settings:
   gofmt:
     simplify: true
   goimports:
-    local-prefixes: github.com/go-language-server/jsonrpc2
+    local-prefixes: go.lsp.dev/jsonrpc2
   golint:
     min-confidence: 0.3
   govet:

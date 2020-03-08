@@ -1,4 +1,4 @@
-module github.com/go-language-server/jsonrpc2
+module go.lsp.dev/jsonrpc2
 
 go 1.13
 

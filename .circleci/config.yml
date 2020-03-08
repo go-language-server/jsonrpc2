@@ -9,7 +9,7 @@ jobs:
     executor:
       name: golang/buster
       tag: "1.14-buster"
-    working_directory: /go/src/github.com/go-language-server/jsonrpc2
+    working_directory: /go/src/go.lsp.dev/jsonrpc2
     environment:
       GO111MODULE: "on"
     parallelism: 2
@@ -34,7 +34,7 @@ jobs:
     executor:
       name: golang/buster
       tag: "1.14-buster"
-    working_directory: /go/src/github.com/go-language-server/jsonrpc2
+    working_directory: /go/src/go.lsp.dev/jsonrpc2
     environment:
       GO111MODULE: "on"
     parallelism: 2
