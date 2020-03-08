@@ -4,17 +4,14 @@ orbs:
   golang: cci-orb/golang@volatile
   codecov: codecov/codecov@volatile
 
-defaults: &defaults
-  working_directory: /go/src/github.com/go-language-server/jsonrpc2
-  executor: golang/stretch
-  environment:
-    GO111MODULE: "on"
-    GOPROXY: "https://proxy.golang.org"
-    GOSUMDB: "sum.golang.org"
-
 jobs:
   test:
-    <<: *defaults
+    executor:
+      name: golang/buster
+      tag: "1.14-buster"
+    working_directory: /go/src/github.com/go-language-server/jsonrpc2
+    environment:
+      GO111MODULE: "on"
     parallelism: 2
     steps:
       - checkout
@@ -34,7 +31,12 @@ jobs:
           path: /tmp/ci/test-results
 
   lint:
-    <<: *defaults
+    executor:
+      name: golang/buster
+      tag: "1.14-buster"
+    working_directory: /go/src/github.com/go-language-server/jsonrpc2
+    environment:
+      GO111MODULE: "on"
     parallelism: 2
     steps:
       - checkout
