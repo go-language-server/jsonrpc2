@@ -132,7 +132,7 @@ func (s *stream) Write(ctx context.Context, data []byte) (total int64, err error
 
 	s.outMu.Lock()
 	var n int
-	msg := HeaderContentLength + ":" + strconv.FormatInt(int64(len(data)), 10) + HeaderContentSeparator + HeaderContentSeparator
+	msg := HeaderContentLength + ": " + strconv.FormatInt(int64(len(data)), 10) + HeaderContentSeparator + HeaderContentSeparator
 	n, err = s.out.Write([]byte(msg))
 	total = int64(n)
 	if err == nil {
