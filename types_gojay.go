@@ -75,6 +75,9 @@ func (r *WireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	case keyJSONRPC:
 		return dec.String(&r.JSONRPC)
 	case keyID:
+		if r.ID == nil {
+			r.ID = &ID{}
+		}
 		s := r.ID.String()
 		return dec.String(&s)
 	case keyMethod:
@@ -114,6 +117,9 @@ func (r *WireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	case keyJSONRPC:
 		return dec.String(&r.JSONRPC)
 	case keyID:
+		if r.ID == nil {
+			r.ID = &ID{}
+		}
 		s := r.ID.String()
 		return dec.String(&s)
 	case keyError:
