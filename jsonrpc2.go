@@ -97,7 +97,6 @@ func (c *Conn) AddHandler(handler Handler) {
 // directly wired in. This method allows a higher level protocol to choose how
 // to propagate the cancel.
 func (c *Conn) Cancel(id ID) {
-	c.logger.Debug("Cancel")
 	c.handlingMu.Lock()
 	handling, found := c.handling[id]
 	c.handlingMu.Unlock()
@@ -109,8 +108,6 @@ func (c *Conn) Cancel(id ID) {
 
 // Notify is called to send a notification request over the connection.
 func (c *Conn) Notify(ctx context.Context, method string, params interface{}) error {
-	c.logger.Debug("Notify", zap.String("method", method), zap.Any("params", params))
-
 	p, err := marshalInterface(params)
 	if err != nil {
 		return fmt.Errorf("failed to marshaling notify parameters: %v", err)
@@ -144,8 +141,6 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
-	c.logger.Debug("Call", zap.String("method", method), zap.Any("params", params))
-
 	// generate a new request identifier
 	id := ID{Number: atomic.AddInt64(&c.seq, 1)}
 	p, err := marshalInterface(params)
@@ -185,14 +180,6 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		}
 	}()
 
-	c.logger.Debug(Send.String(),
-		zap.String("req.JSONRPC", req.JSONRPC),
-		zap.String("id", id.String()),
-		zap.String("req.method", req.Method),
-		zap.Any("req.params", req.Params),
-	)
-
-	// now we are ready to send
 	n, err := c.stream.Write(ctx, data)
 	for _, h := range c.handlers {
 		ctx = h.Write(ctx, n)
@@ -205,13 +192,6 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 	// now wait for the response
 	select {
 	case resp := <-rchan:
-		c.logger.Debug(Receive.String(),
-			zap.Stringer("resp.ID", resp.ID),
-			zap.String("req.Method", req.Method),
-			zap.Any("resp.Result", resp.Result),
-			zap.Any("resp.Error", resp.Error),
-		)
-
 		for _, h := range c.handlers {
 			ctx = h.Response(ctx, c, Receive, resp)
 		}
@@ -280,9 +260,6 @@ func (c *Conn) Run(ctx context.Context) error {
 			for _, h := range c.handlers {
 				h.Error(ctx, errMsg)
 			}
-			c.logger.Debug(Receive.String(),
-				zap.Error(errMsg),
-			)
 			continue
 		}
 
@@ -325,12 +302,6 @@ func (c *Conn) Run(ctx context.Context) error {
 					}
 					cancelReq()
 				}()
-
-				c.logger.Debug(Receive.String(),
-					zap.Stringer("req.ID", req.ID),
-					zap.String("req.Method", req.Method),
-					zap.Any("req.Params", req.Params),
-				)
 
 				delivered := false
 				for _, h := range c.handlers {
@@ -404,7 +375,6 @@ func (r *Request) Parallel() {
 
 // Reply sends a reply to the given request.
 func (r *Request) Reply(ctx context.Context, result interface{}, reqErr error) error {
-	r.conn.logger.Debug("Reply")
 	if r.state >= reqReplied {
 		return fmt.Errorf("reply invoked more than once")
 	}
@@ -445,12 +415,6 @@ func (r *Request) Reply(ctx context.Context, result interface{}, reqErr error) e
 	if err != nil {
 		return err
 	}
-
-	r.conn.logger.Debug(Send.String(),
-		zap.Stringer("resp.ID", resp.ID),
-		zap.String("r.Method", r.Method),
-		zap.Any("resp.Result", resp.Result),
-	)
 
 	for _, h := range r.conn.handlers {
 		ctx = h.Response(ctx, r.conn, Send, resp)
