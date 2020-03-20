@@ -38,7 +38,7 @@ const (
 	HeaderContentType = "Content-Type"
 
 	// HeaderContentSeparator is the header and content part separator.
-	HeaderContentSeparator = "\r\n"
+	HeaderContentSeparator = "\r\n\r\n"
 )
 
 // Stream abstracts the transport mechanics from the JSON-RPC protocol.
@@ -132,7 +132,7 @@ func (s *stream) Write(ctx context.Context, data []byte) (total int64, err error
 
 	s.outMu.Lock()
 	var n int
-	msg := HeaderContentLength + ": " + strconv.FormatInt(int64(len(data)), 10) + HeaderContentSeparator + HeaderContentSeparator
+	msg := HeaderContentLength + ": " + strconv.FormatInt(int64(len(data)), 10) + HeaderContentSeparator
 	n, err = s.out.Write([]byte(msg))
 	total = int64(n)
 	if err == nil {
