@@ -1,8 +1,8 @@
 version: 2.1
 
 orbs:
-  golang: cci-orb/golang@volatile
-  codecov: codecov/codecov@volatile
+  golang: cci-orb/golang@volatile    # https://circleci.com/orbs/registry/orb/cci-orb/golang
+  codecov: codecov/codecov@volatile  # https://circleci.com/orbs/registry/orb/codecov/codecov
 
 jobs:
   test:
@@ -16,6 +16,12 @@ jobs:
     steps:
       - checkout
       - golang/gomod
+      - run:
+          name: Check versions
+          command: |
+            cat /etc/os-release
+            go version
+            go env
       - run:
           name: Test and collect coverages
           command: |
@@ -41,6 +47,12 @@ jobs:
     steps:
       - checkout
       - golang/gomod
+      - run:
+          name: Check versions
+          command: |
+            cat /etc/os-release
+            go version
+            go env
       - run:
           name: Run lint for sources
           command: |
