@@ -71,7 +71,7 @@ func NewConn(s Stream, options ...Options) *Conn {
 
 	// the default handler reports a method error
 	if conn.handlers == nil {
-		h := emptyHandler{}
+		h := EmptyHandler{}
 		conn.handlers = []Handler{h}
 	}
 	// the default Logger does nothing

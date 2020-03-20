@@ -83,13 +83,13 @@ func (d Direction) String() string {
 	}
 }
 
-// emptyHandler represents a empty handler which implements Handler interface.
-type emptyHandler struct{}
+// EmptyHandler represents a empty handler which implements Handler interface.
+type EmptyHandler struct{}
 
 // compile time check whether the emptyHandler implements Handler interface.
-var _ Handler = (*emptyHandler)(nil)
+var _ Handler = (*EmptyHandler)(nil)
 
-func (emptyHandler) Deliver(ctx context.Context, r *Request, delivered bool) bool {
+func (EmptyHandler) Deliver(ctx context.Context, r *Request, delivered bool) bool {
 	if delivered {
 		return false
 	}
@@ -102,26 +102,26 @@ func (emptyHandler) Deliver(ctx context.Context, r *Request, delivered bool) boo
 }
 
 // Cancel implements Handler interface.
-func (emptyHandler) Cancel(context.Context, *Conn, ID, bool) bool { return false }
+func (EmptyHandler) Cancel(context.Context, *Conn, ID, bool) bool { return false }
 
 // Request implements Handler interface.
-func (emptyHandler) Request(ctx context.Context, _ *Conn, _ Direction, _ *WireRequest) context.Context {
+func (EmptyHandler) Request(ctx context.Context, _ *Conn, _ Direction, _ *WireRequest) context.Context {
 	return ctx
 }
 
 // Response implements Handler interface.
-func (emptyHandler) Response(ctx context.Context, _ *Conn, _ Direction, _ *WireResponse) context.Context {
+func (EmptyHandler) Response(ctx context.Context, _ *Conn, _ Direction, _ *WireResponse) context.Context {
 	return ctx
 }
 
 // Done implements Handler interface.
-func (emptyHandler) Done(context.Context, error) {}
+func (EmptyHandler) Done(context.Context, error) {}
 
 // Read implements Handler interface.
-func (emptyHandler) Read(ctx context.Context, _ int64) context.Context { return ctx }
+func (EmptyHandler) Read(ctx context.Context, _ int64) context.Context { return ctx }
 
 // Write implements Handler interface.
-func (emptyHandler) Write(ctx context.Context, _ int64) context.Context { return ctx }
+func (EmptyHandler) Write(ctx context.Context, _ int64) context.Context { return ctx }
 
 // Error implements Handler interface.
-func (emptyHandler) Error(context.Context, error) {}
+func (EmptyHandler) Error(context.Context, error) {}
