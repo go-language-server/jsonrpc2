@@ -32,7 +32,7 @@ type Conn struct {
 	pending    map[ID]chan *WireResponse
 	pendingMu  sync.Mutex // protects the pending map
 	handling   map[ID]*Request
-	handlingMu sync.Mutex // protects the handling map
+	handlingMu sync.RWMutex // protects the handling map
 	logger     *zap.Logger
 }
 
@@ -245,12 +245,12 @@ func (c *Conn) setHandling(r *Request, active bool) {
 		return
 	}
 	r.conn.handlingMu.Lock()
-	defer r.conn.handlingMu.Unlock()
 	if active {
 		r.conn.handling[*r.ID] = r
 	} else {
 		delete(r.conn.handling, *r.ID)
 	}
+	r.conn.handlingMu.Unlock()
 }
 
 // Run blocks until the connection is terminated, and returns any error that
