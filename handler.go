@@ -26,15 +26,6 @@ type Handler interface {
 	// canceled set to true, and should not attempt to cancel the message.
 	Cancel(ctx context.Context, conn *Conn, id ID, canceled bool) bool
 
-	// Log is invoked for all messages flowing through a Conn.
-	// direction indicates if the message being received or sent
-	// id is the message id, if not set it was a notification
-	// elapsed is the time between a call being seen and the response, and is
-	// negative for anything that is not a response.
-	// method is the method name specified in the message
-	// payload is the parameters for a call or notification, and the result for a
-	// response
-
 	// Request is called near the start of processing any request.
 	Request(ctx context.Context, conn *Conn, direction Direction, r *WireRequest) context.Context
 
