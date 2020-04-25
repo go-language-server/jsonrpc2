@@ -38,9 +38,11 @@ flags:
   json:
     paths:
       - /
+    carryforward: true
   gojay:
     paths:
       - /
+    carryforward: true
 
 comment:
   behavior: default

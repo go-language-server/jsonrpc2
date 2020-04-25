@@ -19,7 +19,6 @@ jobs:
       - run:
           name: Check versions
           command: |
-            cat /etc/os-release
             go version
             go env
       - run:
@@ -50,7 +49,6 @@ jobs:
       - run:
           name: Check versions
           command: |
-            cat /etc/os-release
             go version
             go env
       - run:
