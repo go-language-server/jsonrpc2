@@ -57,7 +57,8 @@ pkg/install:
 
 .PHONY: tools
 tools: ## Install tools
-	@cd tools; \
+	cd tools; \
+		go mod vendor -v; \
 	  for t in $$(go list -f '{{ join .Imports " " }}' -tags=tools); do \
 	  	GOBIN=${CURDIR}/bin go install -v -x -mod=vendor "$${t}" > /dev/null 2>&1; \
 	  done
@@ -97,7 +98,7 @@ lint: lint/golangci-lint  ## Run all linters.
 .PHONY: lint/golangci-lint
 lint/golangci-lint: tools .golangci.yml  ## Run golangci-lint.
 	$(call target)
-	@golangci-lint run $(strip ${GO_LINT_FLAGS}) ./...
+	@${TOOLS_BIN}/golangci-lint run $(strip ${GO_LINT_FLAGS}) ./...
 
 
 ##@ clean
