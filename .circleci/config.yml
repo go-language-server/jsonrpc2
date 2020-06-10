@@ -10,8 +10,6 @@ jobs:
       name: golang/buster
       tag: "1.14-buster"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
-    environment:
-      GO111MODULE: "on"
     parallelism: 2
     steps:
       - checkout
@@ -24,24 +22,22 @@ jobs:
       - run:
           name: Test and collect coverages
           command: |
+            make tools
+            mkdir -p /tmp/test-results
             make $(circleci tests split .circleci/coverage-targets)
+          environment:
+            GOTESTSUM_JSONFILE: "/tmp/test-results/unit-test.xml"
       - codecov/upload:
-          file: "/tmp/ci/artifacts/coverage.out"
+          file: "coverage.out"
           flags: $(if [ $CIRCLE_NODE_INDEX == 0 ]; then echo "json"; else echo "gojay"; fi)
-      - store_artifacts:
-          path: /tmp/ci/artifacts
-      - store_artifacts:
-          path: /tmp/ci/artifacts
       - store_test_results:
-          path: /tmp/ci/test-results
+          path: /tmp/test-results
 
   lint:
     executor:
       name: golang/buster
       tag: "1.14-buster"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
-    environment:
-      GO111MODULE: "on"
     parallelism: 2
     steps:
       - checkout
