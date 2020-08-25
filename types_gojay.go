@@ -9,6 +9,7 @@ package jsonrpc2
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/francoispqt/gojay"
 )
@@ -59,9 +60,31 @@ func (m *RawMessage) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSONObject implements gojay.MarshalerJSONObject.
+func (r *version) MarshalJSONObject(enc *gojay.Encoder) {
+	enc.String(Version)
+}
+
+// IsNil implements gojay.MarshalerJSONObject.
+func (r *version) IsNil() bool { return r == nil }
+
+// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
+func (r *version) UnmarshalJSONObject(dec *gojay.Decoder, _ string) error {
+	return dec.String(&versionStr)
+}
+
+// NKeys implements gojay.UnmarshalerJSONObject.
+func (r *version) NKeys() int { return 0 }
+
+// compile time check whether the WireRequest implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+var (
+	_ gojay.MarshalerJSONObject   = (*version)(nil)
+	_ gojay.UnmarshalerJSONObject = (*version)(nil)
+)
+
+// MarshalJSONObject implements gojay.MarshalerJSONObject.
 func (r *WireRequest) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey(keyJSONRPC, r.JSONRPC)
-	enc.StringKeyOmitEmpty(keyID, r.ID.String())
+	enc.StringKey(keyJSONRPC, Version)
+	enc.StringKeyOmitEmpty(keyID, fmt.Sprint(r.ID))
 	enc.StringKey(keyMethod, r.Method)
 	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(r.Params))
 }
@@ -73,12 +96,12 @@ func (r *WireRequest) IsNil() bool { return r == nil }
 func (r *WireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
-		return dec.String(&r.JSONRPC)
+		return dec.String(&versionStr)
 	case keyID:
 		if r.ID == nil {
 			r.ID = &ID{}
 		}
-		s := r.ID.String()
+		s := fmt.Sprint(r.ID)
 		return dec.String(&s)
 	case keyMethod:
 		return dec.String(&r.Method)
@@ -102,8 +125,8 @@ var (
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (r *WireResponse) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey(keyJSONRPC, r.JSONRPC)
-	enc.StringKeyOmitEmpty(keyID, r.ID.String())
+	enc.StringKey(keyJSONRPC, Version)
+	enc.StringKeyOmitEmpty(keyID, fmt.Sprint(r.ID))
 	enc.ObjectKeyOmitEmpty(keyError, r.Error)
 	enc.AddEmbeddedJSONKeyOmitEmpty(keyResult, (*gojay.EmbeddedJSON)(r.Result))
 }
@@ -115,12 +138,12 @@ func (r *WireResponse) IsNil() bool { return r == nil }
 func (r *WireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
-		return dec.String(&r.JSONRPC)
+		return dec.String(&versionStr)
 	case keyID:
 		if r.ID == nil {
 			r.ID = &ID{}
 		}
-		s := r.ID.String()
+		s := fmt.Sprint(r.ID)
 		return dec.String(&s)
 	case keyError:
 		if r.Error == nil {
@@ -147,8 +170,8 @@ var (
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject
 func (r *Combined) MarshalJSONObject(enc *gojay.Encoder) {
-	enc.StringKey(keyJSONRPC, r.JSONRPC)
-	enc.StringKeyOmitEmpty(keyID, r.ID.String())
+	enc.StringKey(keyJSONRPC, Version)
+	enc.StringKeyOmitEmpty(keyID, fmt.Sprint(r.ID))
 	enc.StringKey(keyMethod, r.Method)
 	enc.AddEmbeddedJSONKeyOmitEmpty(keyParams, (*gojay.EmbeddedJSON)(r.Params))
 	enc.ObjectKeyOmitEmpty(keyError, r.Error)
@@ -162,12 +185,12 @@ func (r *Combined) IsNil() bool { return r == nil }
 func (r *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
-		return dec.String(&r.JSONRPC)
+		return dec.String(&versionStr)
 	case keyID:
 		if r.ID == nil {
 			r.ID = &ID{}
 		}
-		s := r.ID.String()
+		s := fmt.Sprint(r.ID)
 		return dec.String(&s)
 	case keyMethod:
 		return dec.String(&r.Method)

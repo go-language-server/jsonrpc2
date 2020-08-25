@@ -113,9 +113,8 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 		return fmt.Errorf("failed to marshaling notify parameters: %v", err)
 	}
 	req := &WireRequest{
-		JSONRPC: Version,
-		Method:  method,
-		Params:  p,
+		Method: method,
+		Params: p,
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -142,16 +141,15 @@ func (c *Conn) Notify(ctx context.Context, method string, params interface{}) er
 // Call sends a request over the connection and then waits for a response.
 func (c *Conn) Call(ctx context.Context, method string, params, result interface{}) error {
 	// generate a new request identifier
-	id := ID{Number: atomic.AddInt64(&c.seq, 1)}
+	id := NewIntID(atomic.AddInt64(&c.seq, 1))
 	p, err := marshalInterface(params)
 	if err != nil {
 		return fmt.Errorf("failed to marshaling call parameters: %v", err)
 	}
 	req := &WireRequest{
-		JSONRPC: Version,
-		ID:      &id,
-		Method:  method,
-		Params:  p,
+		ID:     &id,
+		Method: method,
+		Params: p,
 	}
 
 	// marshal the request now it is complete
@@ -275,10 +273,9 @@ func (c *Conn) Run(ctx context.Context) error {
 				cancel:    cancelReq,
 				nextReqCh: nextReqCh,
 				WireRequest: WireRequest{
-					JSONRPC: Version,
-					Method:  msg.Method,
-					Params:  msg.Params,
-					ID:      msg.ID,
+					Method: msg.Method,
+					Params: msg.Params,
+					ID:     msg.ID,
 				},
 			}
 			for _, h := range c.handlers {
@@ -398,9 +395,8 @@ func (r *Request) Reply(ctx context.Context, result interface{}, reqErr error) e
 		return err
 	}
 	resp := &WireResponse{
-		JSONRPC: Version,
-		Result:  raw,
-		ID:      r.ID,
+		Result: raw,
+		ID:     r.ID,
 	}
 	if reqErr != nil {
 		var callErr *Error

@@ -6,63 +6,96 @@ package jsonrpc2
 
 import (
 	"encoding/json"
-	"strconv"
+	"fmt"
+	"math"
 )
 
 // Version represents a JSON-RPC version.
 const Version = "2.0"
 
+var versionStr = string(Version)
+
+// version is a special 0 sized struct that encodes as the JSON-RPC version
+// tag.
+// It will fail during decode if it is not the correct version tag in the
+// stream.
+type version struct{}
+
+func (version) MarshalJSON() ([]byte, error) {
+	return json.Marshal(Version)
+}
+
+func (version) UnmarshalJSON(data []byte) error {
+	version := ""
+	if err := json.Unmarshal(data, &version); err != nil {
+		return err
+	}
+	if version != Version {
+		return fmt.Errorf("invalid JSON-RPC version %v", version)
+	}
+	return nil
+}
+
 // ID is a Request identifier.
 // Only one of either the Name or Number members will be set, using the
 // number form if the Name is the empty string.
 type ID struct {
-	Name   string
-	Number int64
+	name   string
+	number int64
 }
 
 // compile time check whether the ID implements a json.Marshaler and json.Unmarshaler interfaces.
 var (
+	_ fmt.Formatter    = (*ID)(nil)
 	_ json.Marshaler   = (*ID)(nil)
 	_ json.Unmarshaler = (*ID)(nil)
 )
 
-// String returns a string representation of the ID.
-// The representation is non ambiguous, string forms are quoted, number forms
-// are preceded by a #.
-func (id *ID) String() string {
-	if id == nil {
-		return ""
+// Format writes the ID to the formatter.
+// If the rune is q the representation is non ambiguous,
+// string forms are quoted, number forms are preceded by a #
+func (id ID) Format(f fmt.State, r rune) {
+	numF, strF := `%d`, `%s`
+	if r == 'q' {
+		numF, strF = `#%d`, `%q`
 	}
-	if id.Name != "" {
-		return strconv.Quote(id.Name)
+	switch {
+	case id.name != "":
+		fmt.Fprintf(f, strF, id.name)
+	default:
+		fmt.Fprintf(f, numF, id.number)
 	}
-
-	return "#" + strconv.FormatInt(id.Number, 10)
 }
 
 // MarshalJSON implements json.Marshaler.
 func (id *ID) MarshalJSON() ([]byte, error) {
-	if id.Name != "" {
-		return json.Marshal(id.Name)
+	if id.name != "" {
+		return json.Marshal(id.name)
 	}
-
-	return json.Marshal(id.Number)
+	return json.Marshal(id.number)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID{}
-	if err := json.Unmarshal(data, &id.Number); err == nil {
+	if err := json.Unmarshal(data, &id.number); err == nil {
 		return nil
 	}
-
-	return json.Unmarshal(data, &id.Name)
+	return json.Unmarshal(data, &id.name)
 }
+
+// NewIntID returns a new numerical request ID.
+func NewIntID(v int64) ID { return ID{number: v} }
+
+// NewStringID returns a new string request ID.
+func NewStringID(v string) ID { return ID{name: v} }
+
+const invalidID int64 = math.MaxInt64
 
 // WireRequest is sent to a server to represent a Call or Notify operaton.
 type WireRequest struct {
 	// JSONRPC is always encoded as the string "2.0"
-	JSONRPC string `json:"jsonrpc"`
+	JSONRPC version `json:"jsonrpc"`
 
 	// Method is a string containing the method name to invoke.
 	//
@@ -86,7 +119,7 @@ type WireRequest struct {
 // success or failure response.
 type WireResponse struct {
 	// JSONRPC is always encoded as the string "2.0"
-	JSONRPC string `json:"jsonrpc"`
+	JSONRPC version `json:"jsonrpc"`
 
 	// Result is the response value, and is required on success.
 	// This member MUST NOT exist if there was an error invoking the method.
@@ -112,7 +145,7 @@ type WireResponse struct {
 // Combined represents a all the fields of both Request and Response.
 // We can decode this and then work out which it is.
 type Combined struct {
-	JSONRPC string           `json:"jsonrpc"`
+	JSONRPC version          `json:"jsonrpc"`
 	ID      *ID              `json:"id,omitempty"`
 	Method  string           `json:"method"`
 	Params  *json.RawMessage `json:"params,omitempty"`
