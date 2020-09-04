@@ -50,7 +50,7 @@ var (
 
 // Format writes the ID to the formatter.
 // If the rune is q the representation is non ambiguous,
-// string forms are quoted, number forms are preceded by a #
+// string forms are quoted, number forms are preceded by a #.
 func (id ID) Format(f fmt.State, r rune) {
 	numF, strF := `%d`, `%s`
 	if r == 'q' {

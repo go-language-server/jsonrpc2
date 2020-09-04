@@ -125,7 +125,7 @@ var (
 	_ gojay.UnmarshalerJSONObject = (*WireRequest)(nil)
 )
 
-// MarshalJSONObject implements gojay's MarshalerJSONObject
+// MarshalJSONObject implements gojay's MarshalerJSONObject.
 func (r *WireResponse) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, Version)
 	enc.StringKeyOmitEmpty(keyID, fmt.Sprint(r.ID))
@@ -136,7 +136,7 @@ func (r *WireResponse) MarshalJSONObject(enc *gojay.Encoder) {
 // IsNil implements gojay.MarshalerJSONObject.
 func (r *WireResponse) IsNil() bool { return r == nil }
 
-// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject
+// UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
 func (r *WireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
@@ -170,7 +170,7 @@ var (
 	_ gojay.UnmarshalerJSONObject = (*WireResponse)(nil)
 )
 
-// MarshalJSONObject implements gojay's MarshalerJSONObject
+// MarshalJSONObject implements gojay's MarshalerJSONObject.
 func (r *Combined) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, Version)
 	enc.StringKeyOmitEmpty(keyID, fmt.Sprint(r.ID))
@@ -183,7 +183,7 @@ func (r *Combined) MarshalJSONObject(enc *gojay.Encoder) {
 // IsNil implements gojay.MarshalerJSONObject.
 func (r *Combined) IsNil() bool { return r == nil }
 
-// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject
+// UnmarshalJSONObject implements gojay's UnmarshalerJSONObject.
 func (r *Combined) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
