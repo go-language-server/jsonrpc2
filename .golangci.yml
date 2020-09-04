@@ -1,33 +1,42 @@
 run:
+  timeout: 1m
   issues-exit-code: 1
   tests: true
-  skip-dirs:
-    - "vendor$"
+  skip-dirs: []
+  skip-dirs-use-default: true
   skip-files:
     - ".*\\.pb\\.go"
     - ".*(.|_)gen\\.go"
-  modules-download-mode: readonly
+  modules-download-mode: vendor
+  allow-parallel-runners: true
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
 
 linters-settings:
   dupl:
-    threshold: 400
+    threshold: 100
   errcheck:
     check-type-assertions: true
     check-blank: true
     exclude: .errcheckignore
   funlen:
     lines: 80
-    statements: 40
+    statements: 80
+  gocognit:
+    min-complexity: 10
   goconst:
     min-len: 3
     min-occurrences: 3
   gocritic:
     enabled-tags:
       - diagnostic
+      - style
+      - performance
       - experimental
       - opinionated
-      - performance
-      - style
     settings:
       hugeParam:
         sizeThreshold: 80
@@ -36,7 +45,7 @@ linters-settings:
       rangeValCopy:
         sizeThreshold: 128
   gocyclo:
-    min-complexity: 10
+    min-complexity: 15
   gofmt:
     simplify: true
   goimports:
@@ -44,42 +53,11 @@ linters-settings:
   golint:
     min-confidence: 0.3
   govet:
-    enable:
-      -  asmdecl
-      -  assign
-      -  atomic
-      -  atomicalign
-      -  bools
-      -  buildssa
-      -  buildtag
-      -  cgocall
-      -  composite
-      -  copylock
-      -  ctrlflow
-      -  deepequalerrors
-      -  errorsas
-      -  findcall
-      -  httpresponse
-      -  inspect
-      -  loopclosure
-      -  lostcancel
-      -  nilfunc
-      -  nilness
-      -  pkgfact
-      -  printf
-      -  shift
-      -  sortslice
-      -  stdmethods
-      -  structtag
-      -  tests
-      -  unmarshal
-      -  unreachable
-      -  unsafeptr
-      -  unusedresult
+    enable-all: true
     disable:
-      -  shadow
+      - shadow
   lll:
-    line-length: 180
+    line-length: 120
     tab-width: 1
   maligned:
     suggest-new: false
@@ -90,26 +68,30 @@ linters-settings:
   prealloc:
     simple: true
     range-loops: true
-    for-loops: false
+    for-loops: true  # default: false
   unparam:
-    algo: cha
     check-exported: true
+    algo: cha
   unused:
     check-exported: false
+  whitespace:
+    multi-if: true
+    multi-func: true
 
 linters:
-  # disabled:
-    # - funlen
+  disable-all: true
+  disabled:
+    # - asciicheck
     # - gochecknoglobals
     # - gochecknoinits
-    # - gocyclo
     # - godox
+    # - goerr113
     # - gomnd
+    # - gosec
     # - maligned
-    # - megacheck
     # - scopelint
+    # - testpackage
     # - wsl
-  disable-all: true
   enable:
     - bodyclose
     - deadcode
@@ -117,21 +99,28 @@ linters:
     - dogsled
     - dupl
     - errcheck
+    - exhaustive
+    - funlen
     - gocognit
     - goconst
     - gocritic
+    - gocyclo
+    - godot
     - gofmt
     - goimports
     - golint
-    - gosec
+    - goprintffuncname
     - gosimple
     - govet
     - ineffassign
     - interfacer
-    - lll
     - misspell
     - nakedret
+    - noctx
+    - nestif
     - prealloc
+    - nolintlint
+    - rowserrcheck
     - staticcheck
     - structcheck
     - stylecheck
@@ -166,20 +155,23 @@ issues:
         - unused
         - varcheck
       text: "`reqDone` is unused"
-    - path: errors.go
+    - path: codes.go
       linters:
         - deadcode
         - unused
         - varcheck
       text: "`codeServerErrorStart` is unused"
-    - path: errors.go
+    - path: codes.go
       linters:
         - deadcode
         - unused
         - varcheck
       text: "`codeServerErrorEnd` is unused"
-
-output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+    - path: jsonrpc2.go
+      linters:
+        - funlen
+        - gocyclo
+        - gocognit
+    - path: stream.go
+      linters:
+        - gocognit
