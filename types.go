@@ -7,13 +7,10 @@ package jsonrpc2
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 )
 
 // Version represents a JSON-RPC version.
 const Version = "2.0"
-
-var versionStr = string(Version)
 
 // version is a special 0 sized struct that encodes as the JSON-RPC version
 // tag.
@@ -89,8 +86,6 @@ func NewIntID(v int64) ID { return ID{number: v} }
 
 // NewStringID returns a new string request ID.
 func NewStringID(v string) ID { return ID{name: v} }
-
-const invalidID int64 = math.MaxInt64
 
 // WireRequest is sent to a server to represent a Call or Notify operaton.
 type WireRequest struct {

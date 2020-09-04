@@ -59,6 +59,8 @@ func (m *RawMessage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+var versionStr = string(Version)
+
 // MarshalJSONObject implements gojay.MarshalerJSONObject.
 func (r *version) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.String(Version)
