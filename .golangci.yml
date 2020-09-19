@@ -14,6 +14,7 @@ output:
   format: colored-line-number
   print-issued-lines: true
   print-linter-name: true
+  uniq-by-line: true
 
 linters-settings:
   dupl:
@@ -23,8 +24,8 @@ linters-settings:
     check-blank: true
     exclude: .errcheckignore
   funlen:
-    lines: 80
-    statements: 80
+    lines: 60
+    statements: 40
   gocognit:
     min-complexity: 10
   goconst:
@@ -48,14 +49,19 @@ linters-settings:
     min-complexity: 15
   gofmt:
     simplify: true
+  gofumpt:
+    extra-rules: true
   goimports:
-    local-prefixes: go.lsp.dev/jsonrpc2
+    local-prefixes: github.com/
   golint:
     min-confidence: 0.3
   govet:
     enable-all: true
     disable:
       - shadow
+  depguard:
+    list-type: blacklist
+    include-go-root: false
   lll:
     line-length: 120
     tab-width: 1
@@ -79,19 +85,8 @@ linters-settings:
     multi-func: true
 
 linters:
+  fast: false
   disable-all: true
-  disabled:
-    # - asciicheck
-    # - gochecknoglobals
-    # - gochecknoinits
-    # - godox
-    # - goerr113
-    # - gomnd
-    # - gosec
-    # - maligned
-    # - scopelint
-    # - testpackage
-    # - wsl
   enable:
     - bodyclose
     - deadcode
@@ -107,6 +102,7 @@ linters:
     - gocyclo
     - godot
     - gofmt
+    - gofumpt
     - goimports
     - golint
     - goprintffuncname
@@ -116,10 +112,10 @@ linters:
     - interfacer
     - misspell
     - nakedret
-    - noctx
     - nestif
-    - prealloc
+    - noctx
     - nolintlint
+    - prealloc
     - rowserrcheck
     - staticcheck
     - structcheck
@@ -130,6 +126,18 @@ linters:
     - unused
     - varcheck
     - whitespace
+  disabled:
+    # - asciicheck
+    # - gochecknoglobals
+    # - gochecknoinits
+    # - godox
+    # - goerr113
+    # - gomnd
+    # - gosec
+    # - maligned
+    # - scopelint
+    # - testpackage
+    # - wsl
 
 issues:
   exclude-use-default: true
@@ -148,25 +156,12 @@ issues:
         - deadcode
         - unused
         - varcheck
-      text: "`reqWaiting` is unused"
-    - path: jsonrpc2.go
-      linters:
+      text: "`(reqWaiting|reqDone)` is unused"
+    - linters:
         - deadcode
         - unused
         - varcheck
-      text: "`reqDone` is unused"
-    - path: codes.go
-      linters:
-        - deadcode
-        - unused
-        - varcheck
-      text: "`codeServerErrorStart` is unused"
-    - path: codes.go
-      linters:
-        - deadcode
-        - unused
-        - varcheck
-      text: "`codeServerErrorEnd` is unused"
+      text: "`(codeServerErrorStart|codeServerErrorEnd)` is unused"
     - path: jsonrpc2.go
       linters:
         - funlen
