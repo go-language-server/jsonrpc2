@@ -8,7 +8,7 @@ jobs:
   test:
     executor:
       name: golang/linux
-      tag: "1.15-buster"
+      version: "1.15-buster"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     parallelism: 2
     steps:
@@ -36,7 +36,7 @@ jobs:
   lint:
     executor:
       name: golang/linux
-      tag: "1.15-buster"
+      version: "1.15-buster"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     parallelism: 2
     steps:
