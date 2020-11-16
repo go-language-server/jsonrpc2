@@ -89,6 +89,7 @@ func (EmptyHandler) Deliver(ctx context.Context, r *Request, delivered bool) boo
 			return false
 		}
 	}
+
 	return true
 }
 

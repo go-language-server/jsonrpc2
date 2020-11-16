@@ -30,6 +30,7 @@ func (version) UnmarshalJSON(data []byte) error {
 	if version != Version {
 		return fmt.Errorf("invalid JSON-RPC version %v", version)
 	}
+
 	return nil
 }
 
@@ -69,6 +70,7 @@ func (id *ID) MarshalJSON() ([]byte, error) {
 	if id.name != "" {
 		return json.Marshal(id.name)
 	}
+
 	return json.Marshal(id.number)
 }
 
@@ -78,6 +80,7 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &id.number); err == nil {
 		return nil
 	}
+
 	return json.Unmarshal(data, &id.name)
 }
 

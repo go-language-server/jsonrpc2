@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package jsonrpc2
+package jsonrpc2_test
 
 import (
 	"bytes"
 	"context"
 	"io/ioutil"
 	"testing"
+
+	"go.lsp.dev/jsonrpc2"
 )
 
 const payload = `Content-Length: 265
@@ -41,7 +43,7 @@ func BenchmarkSteam_Read(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		in.Write([]byte(payload))
-		stream := NewStream(&in, ioutil.Discard)
+		stream := jsonrpc2.NewStream(&in, ioutil.Discard)
 		_, _, _ = stream.Read(context.Background())
 		in.Reset()
 	}
@@ -52,7 +54,7 @@ func BenchmarkSteam_Write(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		stream := NewStream(nil, ioutil.Discard)
+		stream := jsonrpc2.NewStream(nil, ioutil.Discard)
 		_, _ = stream.Write(context.Background(), []byte(payload))
 	}
 	b.SetBytes(int64(len(payload)))

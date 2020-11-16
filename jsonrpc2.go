@@ -204,6 +204,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 		if err := json.Unmarshal(*resp.Result, result); err != nil {
 			return fmt.Errorf("failed to unmarshalling result: %v", err)
 		}
+
 		return nil
 
 	case <-ctx.Done():
@@ -214,6 +215,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result interface
 				canceled = true
 			}
 		}
+
 		return ctx.Err()
 	}
 }
@@ -258,6 +260,7 @@ func (c *Conn) Run(ctx context.Context) error {
 			for _, h := range c.handlers {
 				h.Error(ctx, errMsg)
 			}
+
 			continue
 		}
 

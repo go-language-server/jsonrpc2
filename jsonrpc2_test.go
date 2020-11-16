@@ -58,6 +58,7 @@ func (test *callTest) newResults() interface{} {
 		for _, v := range e {
 			r = append(r, reflect.New(reflect.TypeOf(v)).Interface())
 		}
+
 		return r
 	case nil:
 		return nil
@@ -81,6 +82,7 @@ func prepare(ctx context.Context, t *testing.T) (a, b *jsonrpc2.Conn) {
 	bR, aW := io.Pipe()
 	a = run(ctx, t, aR, aW)
 	b = run(ctx, t, bR, bW)
+
 	return a, b
 }
 
@@ -139,6 +141,7 @@ func (h handle) Deliver(ctx context.Context, r *jsonrpc2.Request, delivered bool
 	case "no_args":
 		if r.Params != nil {
 			r.Reply(ctx, nil, jsonrpc2.Errorf(jsonrpc2.InvalidParams, "Expected no params"))
+
 			return true
 		}
 		r.Reply(ctx, true, nil)
@@ -147,6 +150,7 @@ func (h handle) Deliver(ctx context.Context, r *jsonrpc2.Request, delivered bool
 		var v string
 		if err := json.Unmarshal(*r.Params, &v); err != nil {
 			r.Reply(ctx, nil, jsonrpc2.Errorf(jsonrpc2.ParseError, "%v", err.Error()))
+
 			return true
 		}
 		r.Reply(ctx, "got:"+v, nil)
@@ -155,6 +159,7 @@ func (h handle) Deliver(ctx context.Context, r *jsonrpc2.Request, delivered bool
 		var v int
 		if err := json.Unmarshal(*r.Params, &v); err != nil {
 			r.Reply(ctx, nil, jsonrpc2.Errorf(jsonrpc2.ParseError, "%v", err.Error()))
+
 			return true
 		}
 		r.Reply(ctx, fmt.Sprintf("got:%d", v), nil)
@@ -163,6 +168,7 @@ func (h handle) Deliver(ctx context.Context, r *jsonrpc2.Request, delivered bool
 		var v []string
 		if err := json.Unmarshal(*r.Params, &v); err != nil {
 			r.Reply(ctx, nil, jsonrpc2.Errorf(jsonrpc2.ParseError, "%v", err.Error()))
+
 			return true
 		}
 		r.Reply(ctx, path.Join(v...), nil)
@@ -193,6 +199,7 @@ func (h handle) Request(ctx context.Context, conn *jsonrpc2.Conn, direction json
 		ctx = context.WithValue(ctx, ctxMethodKey{}, r.Method)
 		ctx = context.WithValue(ctx, ctxTimeKey{}, time.Now())
 	}
+
 	return ctx
 }
 
@@ -202,6 +209,7 @@ func (h handle) Response(ctx context.Context, conn *jsonrpc2.Conn, direction jso
 		elapsed := time.Since(ctx.Value(ctxTimeKey{}).(time.Time))
 		h.logger.Info("Response", zap.String(method.(string), fmt.Sprintf("%v response in %v [%v] %s %v", direction, elapsed, r.ID, method, r.Result)))
 	}
+
 	return ctx
 }
 
