@@ -19,7 +19,7 @@ GO_PKGS := $(shell go list ./... | grep -v -e '.pb.go')
 GO_TEST_PKGS := $(shell go list -f='{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 
 export GOTESTSUM_FORMAT=pkgname-and-test-fails
-GO_TEST ?= ${TOOLS_BIN}/gotestsum --
+GO_TEST ?= ${TOOLS_BIN}/gotestsum --format=standard-verbose --
 GO_TEST_FUNC ?= .
 GO_TEST_FLAGS ?=
 GO_BENCH_FUNC ?= .
@@ -27,9 +27,10 @@ GO_BENCH_FLAGS ?= -benchmem
 GO_LINT_FLAGS ?=
 
 CGO_ENABLED ?= 0
-GO_BUILDTAGS=osusergo netgo static static_build
+GO_BUILDTAGS=osusergo netgo static
 GO_LDFLAGS=-s -w "-extldflags=-static"
 GO_FLAGS ?= -tags='$(subst $(space),$(comma),${GO_BUILDTAGS})' -ldflags='${GO_LDFLAGS}' -installsuffix=netgo
+GO_FLAGS_TOOLS ?= -tags='$(subst $(space),$(comma),${GO_BUILDTAGS})' -ldflags='-s -w' -installsuffix=netgo
 
 # ----------------------------------------------------------------------------
 # defines
@@ -50,7 +51,7 @@ tools: ${TOOLS_BIN}  ## Install tools
 ${TOOLS_BIN}:
 	cd tools; \
 	  for t in $$(go list -f '{{ join .Imports " " }}' -tags=tools); do \
-	  	GOBIN=${TOOLS_BIN} go install -v -mod=mod "$${t}"; \
+	  	GOBIN=${TOOLS_BIN} CGO_ENABLED=0 go install -v -mod=mod ${GO_FLAGS_TOOLS} "$${t}"; \
 	  done
 
 ##@ test, bench, coverage
@@ -58,9 +59,10 @@ ${TOOLS_BIN}:
 .PHONY: test
 test: ${TOOLS_BIN}
 test: CGO_ENABLED=1
+test: GO_FLAGS=-tags='$(subst $(space),$(comma),${GO_BUILDTAGS})'
 test:  ## Runs package test including race condition.
 	$(call target)
-	CGO_ENABLED=$(CGO_ENABLED) $(GO_TEST) -v -race -count 1 -run=$(GO_TEST_FUNC) $(strip ${GO_FLAGS}) $(GO_TEST_PKGS)
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_TEST) -race -count 1 -run=$(GO_TEST_FUNC) $(strip ${GO_FLAGS}) $(GO_TEST_PKGS)
 
 .PHONY: test/gojay
 test/gojay: GO_BUILDTAGS+=gojay
