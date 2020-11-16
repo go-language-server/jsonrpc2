@@ -9,7 +9,6 @@ space := $(empty) $(empty)
 # ----------------------------------------------------------------------------
 # go
 
-ifneq ($(shell command -v go),)
 GO_PATH ?= $(shell go env GOPATH)
 GO_OS ?= $(shell go env GOOS)
 GO_ARCH ?= $(shell go env GOARCH)
@@ -31,7 +30,6 @@ CGO_ENABLED ?= 0
 GO_BUILDTAGS=osusergo netgo static static_build
 GO_LDFLAGS=-s -w "-extldflags=-static"
 GO_FLAGS ?= -tags='$(subst $(space),$(comma),${GO_BUILDTAGS})' -ldflags='${GO_LDFLAGS}' -installsuffix=netgo
-endif
 
 # ----------------------------------------------------------------------------
 # defines
