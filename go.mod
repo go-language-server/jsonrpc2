@@ -4,5 +4,5 @@ go 1.14
 
 require (
 	github.com/francoispqt/gojay v1.2.13
-	go.uber.org/zap v1.13.0
+	github.com/google/go-cmp v0.5.3
 )
