@@ -1,8 +1,8 @@
 module go.lsp.dev/jsonrpc2/tools
 
-go 1.14
+go 1.15
 
 require (
-	github.com/golangci/golangci-lint v1.31.0
-	gotest.tools/gotestsum v0.5.3
+	github.com/golangci/golangci-lint v1.34.1
+	gotest.tools/gotestsum v0.6.0
 )
