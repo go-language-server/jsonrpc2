@@ -100,7 +100,7 @@ func AsyncHandler(handler Handler) Handler {
 		}
 		go func() {
 			<-waitForPrevious
-			handler(ctx, reply, req) //nolint:errcheck
+			handler(ctx, reply, req)
 		}()
 		return nil
 	}

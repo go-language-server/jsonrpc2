@@ -20,7 +20,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result interface
 	id := ID{number: atomic.AddInt64(&c.seq, 1)}
 	call, err := NewRequest(id, method, params)
 	if err != nil {
-		return id, fmt.Errorf("marshaling call parameters: %v", err)
+		return id, fmt.Errorf("marshaling call parameters: %w", err)
 	}
 
 	// We have to add ourselves to the pending map before we send, otherwise we
@@ -59,7 +59,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result interface
 		default:
 			dec := json.NewDecoder(bytes.NewReader(response.result))
 			if err := dec.Decode(result); err != nil {
-				return id, fmt.Errorf("unmarshaling result: %v", err)
+				return id, fmt.Errorf("unmarshaling result: %w", err)
 			}
 			return id, nil
 		}

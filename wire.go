@@ -13,7 +13,8 @@ type Code int64
 
 // list of JSON-RPC error codes.
 const (
-	// ParseError is the invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
+	// ParseError is the invalid JSON was received by the server.
+	// An error occurred on the server while parsing the JSON text.
 	ParseError Code = -32700
 
 	// InvalidRequest is the JSON sent is not a valid Request object.
@@ -75,7 +76,7 @@ func (version) MarshalJSON() ([]byte, error) {
 func (version) UnmarshalJSON(data []byte) error {
 	version := ""
 	if err := json.Unmarshal(data, &version); err != nil {
-		return err
+		return fmt.Errorf("failed to Unmarshal: %w", err)
 	}
 	if version != Version {
 		return fmt.Errorf("invalid RPC version %v", version)

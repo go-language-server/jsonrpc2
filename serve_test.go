@@ -5,6 +5,7 @@ package jsonrpc2
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -52,7 +53,7 @@ func TestIdleTimeout(t *testing.T) {
 
 	wg.Wait()
 
-	if runErr != ErrIdleTimeout {
+	if !errors.Is(runErr, ErrIdleTimeout) {
 		t.Errorf("run() returned error %v, want %v", runErr, ErrIdleTimeout)
 	}
 }

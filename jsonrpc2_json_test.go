@@ -48,6 +48,8 @@ func (test *callTest) newResults() interface{} {
 }
 
 func (test *callTest) verifyResults(t *testing.T, results interface{}) {
+	t.Helper()
+
 	if results == nil {
 		return
 	}
@@ -78,6 +80,8 @@ func TestRequest(t *testing.T) {
 }
 
 func prepare(ctx context.Context, t *testing.T) (conn, conn2 jsonrpc2.Conn, done func()) {
+	t.Helper()
+
 	// make a wait group that can be used to wait for the system to shut down
 	aPipe, bPipe := net.Pipe()
 	a := run(ctx, aPipe)
@@ -108,19 +112,19 @@ func testHandler() jsonrpc2.Handler {
 		case "one_string":
 			var v string
 			if err := json.Unmarshal(req.Params(), &v); err != nil {
-				return reply(ctx, nil, fmt.Errorf("%w: %s", jsonrpc2.ErrParse, err))
+				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, "got:"+v, nil)
 		case "one_number":
 			var v int
 			if err := json.Unmarshal(req.Params(), &v); err != nil {
-				return reply(ctx, nil, fmt.Errorf("%w: %s", jsonrpc2.ErrParse, err))
+				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, fmt.Sprintf("got:%d", v), nil)
 		case "join":
 			var v []string
 			if err := json.Unmarshal(req.Params(), &v); err != nil {
-				return reply(ctx, nil, fmt.Errorf("%w: %s", jsonrpc2.ErrParse, err))
+				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, path.Join(v...), nil)
 		default:

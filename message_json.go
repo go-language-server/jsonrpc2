@@ -15,7 +15,7 @@ import (
 func marshalInterface(obj interface{}) (RawMessage, error) {
 	data, err := json.Marshal(obj)
 	if err != nil {
-		return RawMessage{}, err
+		return RawMessage{}, fmt.Errorf("failed to marshal json: %w", err)
 	}
 	return RawMessage(data), nil
 }

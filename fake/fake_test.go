@@ -21,7 +21,7 @@ func fakeHandler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 }
 
 func TestTestServer(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	server := jsonrpc2.HandlerServer(fakeHandler)

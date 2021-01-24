@@ -28,7 +28,7 @@ func NewRawStream(conn net.Conn) Stream {
 	}
 }
 
-func (s *rawStream) Write(ctx context.Context, msg Message) (int64, error) {
+func (s *rawStream) Write(ctx context.Context, msg Message) (total int64, err error) {
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
@@ -36,13 +36,14 @@ func (s *rawStream) Write(ctx context.Context, msg Message) (int64, error) {
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return 0, fmt.Errorf("marshaling message: %v", err)
+		return 0, fmt.Errorf("marshaling message: %w", err)
 	}
 	n, err := s.conn.Write(data)
-	return int64(n), err
+	total = int64(n)
+	return
 }
 
-func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
+func (s *headerStream) Write(ctx context.Context, msg Message) (total int64, err error) {
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
@@ -50,13 +51,13 @@ func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return 0, fmt.Errorf("marshaling message: %v", err)
+		return 0, fmt.Errorf("marshaling message: %w", err)
 	}
 	n, err := fmt.Fprintf(s.conn, "Content-Length: %v\r\n\r\n", len(data))
-	total := int64(n)
+	total = int64(n)
 	if err == nil {
 		n, err = s.conn.Write(data)
 		total += int64(n)
 	}
-	return total, err
+	return
 }

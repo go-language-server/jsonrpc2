@@ -42,10 +42,10 @@ func (s *rawStream) Read(ctx context.Context) (Message, int64, error) {
 	}
 	var raw RawMessage
 	if err := s.in.Decode(&raw); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("failed to Decode: %w", err)
 	}
 	msg, err := DecodeMessage(raw)
-	return msg, int64(len(raw)), err
+	return msg, int64(len(raw)), fmt.Errorf("failed to DecodeMessage: %w", err)
 }
 
 func (s *rawStream) Close() error {
@@ -108,7 +108,7 @@ func (s *headerStream) Read(ctx context.Context) (Message, int64, error) {
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(s.in, data); err != nil {
-		return nil, total, err
+		return nil, total, fmt.Errorf("failed to ReadFull: %w", err)
 	}
 	total += length
 	msg, err := DecodeMessage(data)

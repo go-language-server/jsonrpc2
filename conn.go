@@ -77,7 +77,7 @@ func NewConn(s Stream) Conn {
 func (c *conn) Notify(ctx context.Context, method string, params interface{}) (err error) {
 	notify, err := NewNotification(method, params)
 	if err != nil {
-		return fmt.Errorf("marshaling notify parameters: %v", err)
+		return fmt.Errorf("marshaling notify parameters: %w", err)
 	}
 
 	_, err = c.write(ctx, notify)
@@ -113,7 +113,7 @@ func (c *conn) write(ctx context.Context, msg Message) (n int64, err error) {
 	c.writeMu.Lock()
 	n, err = c.stream.Write(ctx, msg)
 	c.writeMu.Unlock()
-	return n, err
+	return
 }
 
 // Go implemens Conn.

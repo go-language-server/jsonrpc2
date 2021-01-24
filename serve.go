@@ -49,7 +49,7 @@ func HandlerServer(h Handler) StreamServer {
 func ListenAndServe(ctx context.Context, network, addr string, server StreamServer, idleTimeout time.Duration) error {
 	ln, err := net.Listen(network, addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to listen %s:%s: %w", network, addr, err)
 	}
 	defer ln.Close()
 	if network == "unix" {

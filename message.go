@@ -179,12 +179,12 @@ func toError(err error) *Error {
 		// no error, the response is complete
 		return nil
 	}
-	if err, ok := err.(*Error); ok {
+	var wrapped *Error
+	if errors.As(err, &wrapped) {
 		// already a wire error, just use it
-		return err
+		return wrapped
 	}
 	result := &Error{Message: err.Error()}
-	var wrapped *Error
 	if errors.As(err, &wrapped) {
 		// if we wrapped a wire error, keep the code from the wrapped error
 		// but the message from the outer error
