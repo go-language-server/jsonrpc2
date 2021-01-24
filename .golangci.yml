@@ -1,20 +1,18 @@
 run:
-  timeout: 1m
+  timeout: 5m
   issues-exit-code: 1
   tests: true
   skip-dirs: []
   skip-dirs-use-default: true
-  skip-files:
-    - ".*\\.pb\\.go"
-    - ".*(.|_)gen\\.go"
-  modules-download-mode: vendor
-  allow-parallel-runners: true
+  skip-files: []
+  allow-parallel-runners: false
 
 output:
   format: colored-line-number
   print-issued-lines: true
   print-linter-name: true
   uniq-by-line: true
+  sort-results: true
 
 linters-settings:
   dupl:
@@ -24,20 +22,23 @@ linters-settings:
     check-blank: true
     exclude: .errcheckignore
   funlen:
-    lines: 60
-    statements: 40
+    lines: 100
+    statements: 60
   gocognit:
-    min-complexity: 10
+    min-complexity: 20
   goconst:
     min-len: 3
     min-occurrences: 3
   gocritic:
     enabled-tags:
       - diagnostic
-      - style
-      - performance
       - experimental
       - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - commentedOutCode
+      - whyNoLint
     settings:
       hugeParam:
         sizeThreshold: 80
@@ -47,34 +48,40 @@ linters-settings:
         sizeThreshold: 128
   gocyclo:
     min-complexity: 15
+  godot:
+    scope: declarations
+    capital: false
   gofmt:
     simplify: true
-  gofumpt:
-    extra-rules: true
   goimports:
-    local-prefixes: github.com/
+    local-prefixes: go.lsp.dev/jsonrpc2,go.lsp.dev
   golint:
     min-confidence: 0.3
   govet:
     enable-all: true
-    disable:
-      - shadow
+    check-shadowing: true
   depguard:
     list-type: blacklist
-    include-go-root: false
+    include-go-root: true
+    # packages-with-error-message:
+    #   - github.com/sirupsen/logrus: "logging is allowed only by logutils.Log"
   lll:
     line-length: 120
     tab-width: 1
   maligned:
-    suggest-new: false
+    suggest-new: true
   misspell:
     locale: US
+    ignore-words:
+      - cancelled
   nakedret:
     max-func-lines: 30
   prealloc:
     simple: true
     range-loops: true
-    for-loops: true  # default: false
+    for-loops: true
+  testpackage:
+    skip-regexp: '.*(export)_test\.go'
   unparam:
     check-exported: true
     algo: cha
@@ -86,15 +93,36 @@ linters-settings:
 
 linters:
   fast: false
-  disable-all: true
+  disabled:
+    - exhaustivestruct  # Checks if all struct's fields are initialized
+    - forbidigo         # Forbids identifiers
+    - gci               # Gci control golang package import order and make it always deterministic.
+    - gochecknoglobals  # check that no global variables exist
+    - gochecknoinits    # Checks that no init functions are present in Go code
+    - godox             # Tool for detection of FIXME, TODO and other comment keywords
+    - goerr113          # Golang linter to check the errors handling expressions
+    - gofumpt           # Gofumpt checks whether code was gofumpt-ed.
+    - goheader          # Checks is file header matches to pattern
+    - gomnd             # An analyzer to detect magic numbers.
+    - gomodguard        # Allow and block list linter for direct Go module dependencies.
+    - gosec             # Inspects source code for security problems
+    - nlreturn          # nlreturn checks for a new line before return and branch statements to increase code clarity
+    - paralleltest      # paralleltest detects missing usage of t.Parallel() method in your Go test
+    - scopelint         # Scopelint checks for unpinned variables in go programs
+    - sqlclosecheck     # Checks that sql.Rows and sql.Stmt are closed.
+    - testpackage
+    - wsl               # Whitespace Linter
   enable:
+    - asciicheck
     - bodyclose
     - deadcode
     - depguard
     - dogsled
     - dupl
     - errcheck
+    - errorlint
     - exhaustive
+    - exportloopref
     - funlen
     - gocognit
     - goconst
@@ -102,7 +130,6 @@ linters:
     - gocyclo
     - godot
     - gofmt
-    - gofumpt
     - goimports
     - golint
     - goprintffuncname
@@ -110,6 +137,9 @@ linters:
     - govet
     - ineffassign
     - interfacer
+    - lll               # Reports long lines
+    - makezero
+    - maligned
     - misspell
     - nakedret
     - nestif
@@ -120,53 +150,59 @@ linters:
     - staticcheck
     - structcheck
     - stylecheck
+    - thelper
+    - tparallel
     - typecheck
     - unconvert
     - unparam
     - unused
     - varcheck
     - whitespace
-  disabled:
-    # - asciicheck
-    # - gochecknoglobals
-    # - gochecknoinits
-    # - godox
-    # - goerr113
-    # - gomnd
-    # - gosec
-    # - maligned
-    # - scopelint
-    # - testpackage
-    # - wsl
+    - wrapcheck
 
 issues:
+  max-same-issues: 0
   exclude-use-default: true
   exclude-rules:
     - path: _test\.go
       linters:
-        - funlen
-        - lll
         - errcheck
-    - path: jsonrpc2.go
-      linters:
+        - funlen
         - gocognit
-      text: "func `.*.Run`"
+        - goconst
+        - gocyclo
+        - lll
+        - maligned
+        - wrapcheck
+    - path: "(.*)?_example_test.go"
+      linters:
+        - gocritic
+    # `TestMain` function is no longer required to call `os.Exit` since Go 1.15.
+    # ref: https://golang.org/doc/go1.15#testing
+    - text: "SA3000:"
+      linters:
+        - staticcheck
+    # Exclude shadow checking on the variable named err
+    - text: "shadow: declaration of \"(err|ok)\""
+      linters:
+        - govet
+    # fake implements
+    - path: fake/fake.go
+      linters:
+        - errcheck
+    # future use
     - path: jsonrpc2.go
       linters:
         - deadcode
         - unused
         - varcheck
       text: "`(reqWaiting|reqDone)` is unused"
+    # future use
     - linters:
         - deadcode
         - unused
         - varcheck
       text: "`(codeServerErrorStart|codeServerErrorEnd)` is unused"
-    - path: jsonrpc2.go
-      linters:
-        - funlen
-        - gocyclo
-        - gocognit
-    - path: stream.go
-      linters:
-        - gocognit
+    # goroutine
+    - path: handler.go
+      text: "Error return value of `handler` is not checked"
