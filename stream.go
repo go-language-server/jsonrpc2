@@ -1,5 +1,5 @@
-// Copyright 2018 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2018 The Go Language Server Authors
 
 package jsonrpc2
 
@@ -52,22 +52,22 @@ func (s *rawStream) Close() error {
 	return s.conn.Close()
 }
 
-// NewHeaderStream returns a Stream built on top of a net.Conn.
+// NewStream returns a Stream built on top of a net.Conn.
 // The messages are sent with HTTP content length and MIME type headers.
 // This is the format used by LSP and others.
-func NewHeaderStream(conn net.Conn) Stream {
-	return &headerStream{
+func NewStream(conn net.Conn) Stream {
+	return &stream{
 		conn: conn,
 		in:   bufio.NewReader(conn),
 	}
 }
 
-type headerStream struct {
+type stream struct {
 	conn net.Conn
 	in   *bufio.Reader
 }
 
-func (s *headerStream) Read(ctx context.Context) (Message, int64, error) {
+func (s *stream) Read(ctx context.Context) (Message, int64, error) {
 	select {
 	case <-ctx.Done():
 		return nil, 0, ctx.Err()
@@ -115,6 +115,6 @@ func (s *headerStream) Read(ctx context.Context) (Message, int64, error) {
 	return msg, total, err
 }
 
-func (s *headerStream) Close() error {
+func (s *stream) Close() error {
 	return s.conn.Close()
 }

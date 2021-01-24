@@ -60,36 +60,29 @@ func (test *callTest) verifyResults(t *testing.T, results interface{}) {
 
 func TestRequest(t *testing.T) {
 	ctx := context.Background()
-	for _, headers := range []bool{false, true} {
-		name := "Plain"
-		if headers {
-			name = "Headers"
-		}
-		t.Run(name, func(t *testing.T) {
-			a, b, done := prepare(ctx, t, headers)
-			defer done()
-			for _, test := range callTests {
-				t.Run(test.method, func(t *testing.T) {
-					results := test.newResults()
-					if _, err := a.Call(ctx, test.method, test.params, results); err != nil {
-						t.Fatalf("%v:Call failed: %v", test.method, err)
-					}
-					test.verifyResults(t, results)
-					if _, err := b.Call(ctx, test.method, test.params, results); err != nil {
-						t.Fatalf("%v:Call failed: %v", test.method, err)
-					}
-					test.verifyResults(t, results)
-				})
+	a, b, done := prepare(ctx, t)
+	defer done()
+
+	for _, test := range callTests {
+		t.Run(test.method, func(t *testing.T) {
+			results := test.newResults()
+			if _, err := a.Call(ctx, test.method, test.params, results); err != nil {
+				t.Fatalf("%v:Call failed: %v", test.method, err)
 			}
+			test.verifyResults(t, results)
+			if _, err := b.Call(ctx, test.method, test.params, results); err != nil {
+				t.Fatalf("%v:Call failed: %v", test.method, err)
+			}
+			test.verifyResults(t, results)
 		})
 	}
 }
 
-func prepare(ctx context.Context, t *testing.T, withHeaders bool) (jsonrpc2.Conn, jsonrpc2.Conn, func()) {
+func prepare(ctx context.Context, t *testing.T) (jsonrpc2.Conn, jsonrpc2.Conn, func()) {
 	// make a wait group that can be used to wait for the system to shut down
 	aPipe, bPipe := net.Pipe()
-	a := run(ctx, withHeaders, aPipe)
-	b := run(ctx, withHeaders, bPipe)
+	a := run(ctx, aPipe)
+	b := run(ctx, bPipe)
 	return a, b, func() {
 		a.Close()
 		b.Close()
@@ -98,20 +91,15 @@ func prepare(ctx context.Context, t *testing.T, withHeaders bool) (jsonrpc2.Conn
 	}
 }
 
-func run(ctx context.Context, withHeaders bool, nc net.Conn) jsonrpc2.Conn {
-	var stream jsonrpc2.Stream
-	if withHeaders {
-		stream = jsonrpc2.NewHeaderStream(nc)
-	} else {
-		stream = jsonrpc2.NewRawStream(nc)
-	}
+func run(ctx context.Context, nc net.Conn) jsonrpc2.Conn {
+	stream := jsonrpc2.NewHeaderStream(nc)
 	conn := jsonrpc2.NewConn(stream)
 	conn.Go(ctx, testHandler())
 	return conn
 }
 
 func testHandler() jsonrpc2.Handler {
-	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Requester) error {
+	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {
 		case "no_args":
 			if len(req.Params()) > 0 {

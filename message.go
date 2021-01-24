@@ -1,12 +1,14 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 package jsonrpc2
 
 import (
-	"encoding/json"
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
+
+	json "github.com/goccy/go-json"
 )
 
 // Message is the interface to all JSON-RPC message types.
@@ -14,18 +16,18 @@ import (
 // They share no common functionality, but are a closed set of concrete types
 // that are allowed to implement this interface.
 //
-// The message types are *Request, *Response and *Notification.
+// The message types are *Call, *Response and *Notification.
 type Message interface {
-	// isJSONRPC2Message is used to make the set of message implementations a
+	// jsonrpc2Message is used to make the set of message implementations a
 	// closed set.
-	isJSONRPC2Message()
+	jsonrpc2Message()
 }
 
-// Requester is the shared interface to jsonrpc2 messages that request
+// Request is the shared interface to jsonrpc2 messages that request
 // a method be invoked.
 //
-// The request types are a closed set of *Request and *Notification.
-type Requester interface {
+// The request types are a closed set of *Call and *Notification.
+type Request interface {
 	Message
 
 	// Method is a string containing the method name to invoke.
@@ -33,14 +35,14 @@ type Requester interface {
 	// Params is either a struct or an array with the parameters of the method.
 	Params() RawMessage
 
-	// isJSONRPC2Request is used to make the set of request implementations closed.
-	isJSONRPC2Request()
+	// jsonrpc2Request is used to make the set of request implementations closed.
+	jsonrpc2Request()
 }
 
-// Request is a request that expects a response.
+// Call is a request that expects a response.
 //
 // The response will have a matching ID.
-type Request struct {
+type Call struct {
 	// Method is a string containing the method name to invoke.
 	method string
 	// Params is either a struct or an array with the parameters of the method.
@@ -51,15 +53,15 @@ type Request struct {
 
 // compile time check whether the Request implements a json.Marshaler and json.Unmarshaler interfaces.
 var (
-	_ json.Marshaler   = (*Request)(nil)
-	_ json.Unmarshaler = (*Request)(nil)
+	_ json.Marshaler   = (*Call)(nil)
+	_ json.Unmarshaler = (*Call)(nil)
 )
 
-// NewRequest constructs a new Call message for the supplied ID, method and
+// NewCall constructs a new Call message for the supplied ID, method and
 // parameters.
-func NewRequest(id ID, method string, params interface{}) (*Request, error) {
+func NewCall(id ID, method string, params interface{}) (*Call, error) {
 	p, merr := marshalInterface(params)
-	req := &Request{
+	req := &Call{
 		id:     id,
 		method: method,
 		params: p,
@@ -67,20 +69,29 @@ func NewRequest(id ID, method string, params interface{}) (*Request, error) {
 	return req, merr
 }
 
-func (r *Request) Method() string     { return r.method }
-func (r *Request) Params() RawMessage { return r.params }
-func (r *Request) ID() ID             { return r.id }
-func (r *Request) isJSONRPC2Message() {}
-func (r *Request) isJSONRPC2Request() {}
+// Method implements Request.
+func (r *Call) Method() string { return r.method }
+
+// Params implements Request.
+func (r *Call) Params() RawMessage { return r.params }
+
+// ID implements Request.
+func (r *Call) ID() ID { return r.id }
+
+// jsonrpc2Message implements Message.
+func (r *Call) jsonrpc2Message() {}
+
+// jsonrpc2Request implements Request.
+func (r *Call) jsonrpc2Request() {}
 
 // MarshalJSON implements json.Marshaler.
-func (r *Request) MarshalJSON() ([]byte, error) {
-	req := request{
+func (r *Call) MarshalJSON() ([]byte, error) {
+	req := wireRequest{
 		Method: r.method,
 		Params: &r.params,
 		ID:     &r.id,
 	}
-	data, err := json.Marshal(req)
+	data, err := stdjson.Marshal(req)
 	if err != nil {
 		return data, fmt.Errorf("marshaling call: %w", err)
 	}
@@ -89,9 +100,9 @@ func (r *Request) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (r *Request) UnmarshalJSON(data []byte) error {
-	req := request{}
-	if err := json.Unmarshal(data, &req); err != nil {
+func (r *Call) UnmarshalJSON(data []byte) error {
+	req := wireRequest{}
+	if err := stdjson.Unmarshal(data, &req); err != nil {
 		return fmt.Errorf("unmarshaling call: %w", err)
 	}
 	r.method = req.Method
@@ -134,14 +145,21 @@ func NewResponse(id ID, result interface{}, err error) (*Response, error) {
 	return resp, merr
 }
 
+// Result returns the Response result.
 func (r *Response) Result() RawMessage { return r.result }
-func (r *Response) Err() error         { return r.err }
-func (r *Response) ID() ID             { return r.id }
-func (r *Response) isJSONRPC2Message() {}
+
+// Err returns the Response error.
+func (r *Response) Err() error { return r.err }
+
+// ID implements Request.
+func (r *Response) ID() ID { return r.id }
+
+// jsonrpc2Message implements Message.
+func (r *Response) jsonrpc2Message() {}
 
 // MarshalJSON implements json.Marshaler.
 func (r *Response) MarshalJSON() ([]byte, error) {
-	resp := &response{
+	resp := &wireResponse{
 		Error: toError(r.err),
 		ID:    &r.id,
 	}
@@ -149,7 +167,7 @@ func (r *Response) MarshalJSON() ([]byte, error) {
 		resp.Result = &r.result
 	}
 
-	data, err := json.Marshal(resp)
+	data, err := stdjson.Marshal(resp)
 	if err != nil {
 		return data, fmt.Errorf("marshaling notification: %w", err)
 	}
@@ -158,8 +176,8 @@ func (r *Response) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (r *Response) UnmarshalJSON(data []byte) error {
-	resp := response{}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	resp := wireResponse{}
+	if err := stdjson.Unmarshal(data, &resp); err != nil {
 		return fmt.Errorf("unmarshaling jsonrpc response: %w", err)
 	}
 	if resp.Result != nil {
@@ -219,18 +237,25 @@ func NewNotification(method string, params interface{}) (*Notification, error) {
 	return notify, merr
 }
 
-func (r *Notification) Method() string     { return r.method }
+// Method implements Request.
+func (r *Notification) Method() string { return r.method }
+
+// Params implements Request.
 func (r *Notification) Params() RawMessage { return r.params }
-func (r *Notification) isJSONRPC2Message() {}
-func (r *Notification) isJSONRPC2Request() {}
+
+// jsonrpc2Message implements Message.
+func (r *Notification) jsonrpc2Message() {}
+
+// jsonrpc2Request implements Request.
+func (r *Notification) jsonrpc2Request() {}
 
 // MarshalJSON implements json.Marshaler.
 func (r *Notification) MarshalJSON() ([]byte, error) {
-	req := request{
+	req := wireRequest{
 		Method: r.method,
 		Params: &r.params,
 	}
-	data, err := json.Marshal(req)
+	data, err := stdjson.Marshal(req)
 	if err != nil {
 		return data, fmt.Errorf("marshaling notification: %w", err)
 	}
@@ -239,8 +264,8 @@ func (r *Notification) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (r *Notification) UnmarshalJSON(data []byte) error {
-	req := request{}
-	if err := json.Unmarshal(data, &req); err != nil {
+	req := wireRequest{}
+	if err := stdjson.Unmarshal(data, &req); err != nil {
 		return fmt.Errorf("unmarshaling notification: %w", err)
 	}
 	r.method = req.Method

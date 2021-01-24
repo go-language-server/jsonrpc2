@@ -1,5 +1,5 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 package jsonrpc2
 
@@ -95,7 +95,7 @@ func Serve(ctx context.Context, ln net.Listener, server StreamServer, idleTimeou
 		case netConn := <-newConns:
 			activeConns++
 			connTimer.Stop()
-			stream := NewHeaderStream(netConn)
+			stream := NewStream(netConn)
 			go func() {
 				conn := NewConn(stream)
 				closedConns <- server.ServeStream(ctx, conn)

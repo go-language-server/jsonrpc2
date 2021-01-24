@@ -1,5 +1,5 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2019 The Go Language Server Authors
 
 // +build !gojay
 
@@ -12,16 +12,30 @@ import (
 	"sync/atomic"
 
 	json "github.com/goccy/go-json"
+
+	"go.lsp.dev/pkg/event"
+	"go.lsp.dev/pkg/event/tag"
 )
 
 // Call implemens Conn.
-func (c *conn) Call(ctx context.Context, method string, params, result interface{}) (ID, error) {
+func (c *conn) Call(ctx context.Context, method string, params, result interface{}) (_ ID, err error) {
 	// generate a new request identifier
 	id := ID{number: atomic.AddInt64(&c.seq, 1)}
-	call, err := NewRequest(id, method, params)
+	call, err := NewCall(id, method, params)
 	if err != nil {
 		return id, fmt.Errorf("marshaling call parameters: %w", err)
 	}
+
+	ctx, done := event.Start(ctx, method,
+		tag.Method.Of(method),
+		tag.RPCDirection.Of(tag.Outbound),
+		tag.RPCID.Of(fmt.Sprintf("%q", id)),
+	)
+	defer func() {
+		recordStatus(ctx, err)
+		done()
+	}()
+	event.Metric(ctx, tag.Started.Of(1))
 
 	// We have to add ourselves to the pending map before we send, otherwise we
 	// are racing the response. Also add a buffer to rchan, so that if we get a
@@ -40,7 +54,8 @@ func (c *conn) Call(ctx context.Context, method string, params, result interface
 	}()
 
 	// now we are ready to send
-	_, err = c.write(ctx, call)
+	n, err := c.write(ctx, call)
+	event.Metric(ctx, tag.SentBytes.Of(n))
 	if err != nil {
 		// sending failed, we will never get a response, so don't leave it pending
 		return id, err
@@ -50,7 +65,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result interface
 	select {
 	case response := <-rchan:
 		switch {
-		case response.err != nil:
+		case response.err != nil: // is it an error response?
 			return id, response.err
 
 		case result == nil || len(response.result) == 0:

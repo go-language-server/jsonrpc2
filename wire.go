@@ -1,11 +1,12 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 package jsonrpc2
 
 import (
-	"encoding/json"
 	"fmt"
+
+	json "github.com/goccy/go-json"
 )
 
 // Code is an int64 error code as defined in the JSON-RPC spec.
@@ -141,8 +142,8 @@ func (id *ID) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &id.name)
 }
 
-// request is sent to a server to represent a Call or Notify operaton.
-type request struct {
+// wireRequest is sent to a server to represent a Call or Notify operaton.
+type wireRequest struct {
 	// VersionTag is always encoded as the string "2.0"
 	VersionTag version `json:"jsonrpc"`
 	// Method is a string containing the method name to invoke.
@@ -155,12 +156,12 @@ type request struct {
 	ID *ID `json:"id,omitempty"`
 }
 
-// response is a reply to a Request.
+// wireResponse is a reply to a Request.
 //
 // It will always have the ID field set to tie it back to a request, and will
 // have either the Result or Error fields set depending on whether it is a
-// success or failure response.
-type response struct {
+// success or failure wireResponse.
+type wireResponse struct {
 	// VersionTag is always encoded as the string "2.0"
 	VersionTag version `json:"jsonrpc"`
 	// Result is the response value, and is required on success.

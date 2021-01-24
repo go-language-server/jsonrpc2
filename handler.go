@@ -1,5 +1,5 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2019 The Go Language Server Authors
 
 package jsonrpc2
 
@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"go.lsp.dev/pkg/event"
 )
 
 // Handler is invoked to handle incoming requests.
 //
 // The Replier sends a reply to the request and must be called exactly once.
-type Handler func(ctx context.Context, reply Replier, req Requester) error
+type Handler func(ctx context.Context, reply Replier, req Request) error
 
 // Replier is passed to handlers to allow them to reply to the request.
 //
@@ -23,14 +25,14 @@ type Replier func(ctx context.Context, result interface{}, err error) error
 // standard method not found response.
 //
 // This should normally be the final handler in a chain.
-func MethodNotFoundHandler(ctx context.Context, reply Replier, req Requester) error {
+func MethodNotFoundHandler(ctx context.Context, reply Replier, req Request) error {
 	return reply(ctx, nil, fmt.Errorf("%w: %q", ErrMethodNotFound, req.Method()))
 }
 
 // ReplyHandler creates a Handler that panics if the wrapped handler does
 // not call Reply for every request that it is passed.
 func ReplyHandler(handler Handler) Handler {
-	return func(ctx context.Context, reply Replier, req Requester) error {
+	return func(ctx context.Context, reply Replier, req Request) error {
 		called := false
 		err := handler(ctx, func(ctx context.Context, result interface{}, err error) error {
 			if called {
@@ -51,8 +53,9 @@ func ReplyHandler(handler Handler) Handler {
 func CancelHandler(handler Handler) (h Handler, cancel func(id ID)) {
 	var mu sync.Mutex
 	handling := make(map[ID]context.CancelFunc)
-	h = func(ctx context.Context, reply Replier, req Requester) error {
-		if call, ok := req.(*Request); ok {
+
+	h = func(ctx context.Context, reply Replier, req Request) error {
+		if call, ok := req.(*Call); ok {
 			cancelCtx, cancel := context.WithCancel(ctx)
 			ctx = cancelCtx
 			mu.Lock()
@@ -66,8 +69,10 @@ func CancelHandler(handler Handler) (h Handler, cancel func(id ID)) {
 				return innerReply(ctx, result, err)
 			}
 		}
+
 		return handler(ctx, reply, req)
 	}
+
 	return h, func(id ID) {
 		mu.Lock()
 		cancel, found := handling[id]
@@ -89,7 +94,8 @@ func CancelHandler(handler Handler) (h Handler, cancel func(id ID)) {
 func AsyncHandler(handler Handler) Handler {
 	nextRequest := make(chan struct{})
 	close(nextRequest)
-	return func(ctx context.Context, reply Replier, req Requester) error {
+
+	return func(ctx context.Context, reply Replier, req Request) error {
 		waitForPrevious := nextRequest
 		nextRequest = make(chan struct{})
 		unlockNext := nextRequest
@@ -98,9 +104,13 @@ func AsyncHandler(handler Handler) Handler {
 			close(unlockNext)
 			return innerReply(ctx, result, err)
 		}
+		_, queueDone := event.Start(ctx, "queued")
 		go func() {
 			<-waitForPrevious
-			handler(ctx, reply, req)
+			queueDone()
+			if err := handler(ctx, reply, req); err != nil {
+				event.Error(ctx, "jsonrpc2 async message delivery failed", err)
+			}
 		}()
 		return nil
 	}

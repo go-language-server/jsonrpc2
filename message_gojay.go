@@ -12,8 +12,8 @@ import (
 )
 
 // MarshalJSONObject implements gojay.MarshalerJSONObject.
-func (r *Request) MarshalJSONObject(enc *gojay.Encoder) {
-	req := request{
+func (r *Call) MarshalJSONObject(enc *gojay.Encoder) {
+	req := wireRequest{
 		Method: r.method,
 		Params: &r.params,
 		ID:     &r.id,
@@ -22,11 +22,11 @@ func (r *Request) MarshalJSONObject(enc *gojay.Encoder) {
 }
 
 // IsNil implements gojay.MarshalerJSONObject.
-func (r *Request) IsNil() bool { return r == nil }
+func (r *Call) IsNil() bool { return r == nil }
 
 // UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
-func (r *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-	req := request{}
+func (r *Call) UnmarshalJSONObject(dec *gojay.Decoder, _ string) error {
+	req := wireRequest{}
 	if err := dec.Decode(&req); err != nil {
 		return fmt.Errorf("unmarshaling call: %w", err)
 	}
@@ -41,17 +41,17 @@ func (r *Request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 }
 
 // NKeys implements gojay.UnmarshalerJSONObject.
-func (Request) NKeys() int { return 0 }
+func (Call) NKeys() int { return 0 }
 
-// compile time check whether the Request implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+// compile time check whether the Call implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
 var (
-	_ gojay.MarshalerJSONObject   = (*Request)(nil)
-	_ gojay.UnmarshalerJSONObject = (*Request)(nil)
+	_ gojay.MarshalerJSONObject   = (*Call)(nil)
+	_ gojay.UnmarshalerJSONObject = (*Call)(nil)
 )
 
 // MarshalJSONObject implements gojay.MarshalerJSONObject.
 func (r *Response) MarshalJSONObject(enc *gojay.Encoder) {
-	resp := &response{
+	resp := &wireResponse{
 		Error: toError(r.err),
 		ID:    &r.id,
 	}
@@ -65,8 +65,8 @@ func (r *Response) MarshalJSONObject(enc *gojay.Encoder) {
 func (r *Response) IsNil() bool { return r == nil }
 
 // UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
-func (r *Response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-	resp := response{}
+func (r *Response) UnmarshalJSONObject(dec *gojay.Decoder, _ string) error {
+	resp := wireResponse{}
 	if err := dec.Decode(&resp); err != nil {
 		return fmt.Errorf("unmarshaling call: %w", err)
 	}
@@ -93,7 +93,7 @@ var (
 
 // MarshalJSONObject implements gojay.MarshalerJSONObject.
 func (r *Notification) MarshalJSONObject(enc *gojay.Encoder) {
-	req := request{
+	req := wireRequest{
 		Method: r.method,
 		Params: &r.params,
 	}
@@ -104,8 +104,8 @@ func (r *Notification) MarshalJSONObject(enc *gojay.Encoder) {
 func (r *Notification) IsNil() bool { return r == nil }
 
 // UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
-func (r *Notification) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-	req := request{}
+func (r *Notification) UnmarshalJSONObject(dec *gojay.Decoder, _ string) error {
+	req := wireRequest{}
 	if err := dec.Decode(&req); err != nil {
 		return fmt.Errorf("unmarshaling call: %w", err)
 	}
@@ -171,7 +171,7 @@ func DecodeMessage(data []byte) (Message, error) {
 	}
 
 	// request with an ID, must be a call
-	req := &Request{
+	req := &Call{
 		method: msg.Method,
 		id:     *msg.ID,
 	}

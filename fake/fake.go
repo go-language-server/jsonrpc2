@@ -73,7 +73,7 @@ func NewTCPServer(ctx context.Context, server jsonrpc2.StreamServer, framer json
 		panic(fmt.Sprintf("servertest: failed to listen: %v", err))
 	}
 	if framer == nil {
-		framer = jsonrpc2.NewHeaderStream
+		framer = jsonrpc2.NewStream
 	}
 
 	go jsonrpc2.Serve(ctx, ln, server, 0)

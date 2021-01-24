@@ -42,7 +42,7 @@ func (s *rawStream) Write(ctx context.Context, msg Message) (int64, error) {
 	return int64(n), err
 }
 
-func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
+func (s *stream) Write(ctx context.Context, msg Message) (int64, error) {
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()

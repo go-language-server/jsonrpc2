@@ -1,5 +1,5 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 // +build !gojay
 
@@ -69,7 +69,7 @@ func TestIDEncode(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(&test.id)
+			data, err := json.MarshalNoEscape(&test.id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +105,7 @@ func TestIDDecode(t *testing.T) {
 func TestErrorEncode(t *testing.T) {
 	t.Parallel()
 
-	b, err := json.Marshal(jsonrpc2.NewError(0, ""))
+	b, err := json.MarshalNoEscape(jsonrpc2.NewError(0, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestErrorResponse(t *testing.T) {
 	// originally reported in #39719, this checks that result is not present if
 	// it is an error response
 	r, _ := jsonrpc2.NewResponse(jsonrpc2.NewNumberID(3), nil, fmt.Errorf("computing fix edits"))
-	data, err := json.Marshal(r)
+	data, err := json.MarshalNoEscape(r)
 	if err != nil {
 		t.Fatal(err)
 	}

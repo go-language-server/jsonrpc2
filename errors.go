@@ -1,5 +1,5 @@
-// Copyright 2019 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2019 The Go Language Server Authors
 
 package jsonrpc2
 
@@ -29,7 +29,6 @@ func (e *Error) Error() string {
 	if e == nil {
 		return ""
 	}
-
 	return e.Message
 }
 
@@ -48,12 +47,10 @@ func NewError(c Code, message string) *Error {
 
 // Errorf builds a Error struct for the suppied code, format and args.
 func Errorf(c Code, format string, args ...interface{}) *Error {
-	e := &Error{
+	return &Error{
 		Code:    c,
 		Message: fmt.Sprintf(format, args...),
 	}
-
-	return e
 }
 
 // constErr represents a error constant.

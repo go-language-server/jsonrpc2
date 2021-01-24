@@ -9,6 +9,8 @@ import (
 	"github.com/francoispqt/gojay"
 )
 
+// RawMessage is a raw encoded JSON value.
+// It can be used to delay JSON decoding or precompute a JSON encoding.
 type RawMessage = gojay.EmbeddedJSON
 
 var versionStr = string(Version)
@@ -66,7 +68,7 @@ var (
 )
 
 // MarshalJSONObject implements gojay.MarshalerJSONObject.
-func (r *request) MarshalJSONObject(enc *gojay.Encoder) {
+func (r *wireRequest) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, Version)
 	enc.ObjectKeyOmitEmpty(keyID, r.ID)
 	enc.StringKey(keyMethod, r.Method)
@@ -74,10 +76,10 @@ func (r *request) MarshalJSONObject(enc *gojay.Encoder) {
 }
 
 // IsNil implements gojay.MarshalerJSONObject.
-func (r *request) IsNil() bool { return r == nil }
+func (r *wireRequest) IsNil() bool { return r == nil }
 
 // UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
-func (r *request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
+func (r *wireRequest) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
 		return dec.String(&versionStr)
@@ -98,16 +100,16 @@ func (r *request) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 }
 
 // NKeys implements gojay.UnmarshalerJSONObject.
-func (r *request) NKeys() int { return 4 }
+func (r *wireRequest) NKeys() int { return 4 }
 
-// compile time check whether the request implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+// compile time check whether the wireRequest implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
 var (
-	_ gojay.MarshalerJSONObject   = (*request)(nil)
-	_ gojay.UnmarshalerJSONObject = (*request)(nil)
+	_ gojay.MarshalerJSONObject   = (*wireRequest)(nil)
+	_ gojay.UnmarshalerJSONObject = (*wireRequest)(nil)
 )
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject.
-func (r *response) MarshalJSONObject(enc *gojay.Encoder) {
+func (r *wireResponse) MarshalJSONObject(enc *gojay.Encoder) {
 	enc.StringKey(keyJSONRPC, Version)
 	enc.ObjectKeyOmitEmpty(keyID, r.ID)
 	enc.ObjectKeyOmitEmpty(keyError, r.Error)
@@ -115,10 +117,10 @@ func (r *response) MarshalJSONObject(enc *gojay.Encoder) {
 }
 
 // IsNil implements gojay.MarshalerJSONObject.
-func (r *response) IsNil() bool { return r == nil }
+func (r *wireResponse) IsNil() bool { return r == nil }
 
 // UnmarshalJSONObject implements gojay.UnmarshalerJSONObject.
-func (r *response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
+func (r *wireResponse) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 	switch k {
 	case keyJSONRPC:
 		return dec.String(&versionStr)
@@ -136,12 +138,12 @@ func (r *response) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
 }
 
 // NKeys implements gojay.UnmarshalerJSONObject.
-func (r *response) NKeys() int { return 4 }
+func (r *wireResponse) NKeys() int { return 4 }
 
-// compile time check whether the response implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
+// compile time check whether the wireResponse implements a gojay.MarshalerJSONObject and gojay.UnmarshalerJSONObject interfaces.
 var (
-	_ gojay.MarshalerJSONObject   = (*response)(nil)
-	_ gojay.UnmarshalerJSONObject = (*response)(nil)
+	_ gojay.MarshalerJSONObject   = (*wireResponse)(nil)
+	_ gojay.UnmarshalerJSONObject = (*wireResponse)(nil)
 )
 
 // MarshalJSONObject implements gojay's MarshalerJSONObject.

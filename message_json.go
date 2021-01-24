@@ -1,5 +1,5 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 // +build !gojay
 
@@ -11,19 +11,10 @@ import (
 	json "github.com/goccy/go-json"
 )
 
-// marshalInterface marshal obj to RawMessage.
-func marshalInterface(obj interface{}) (RawMessage, error) {
-	data, err := json.Marshal(obj)
-	if err != nil {
-		return RawMessage{}, fmt.Errorf("failed to marshal json: %w", err)
-	}
-	return RawMessage(data), nil
-}
-
 // DecodeMessage decodes data to Message.
 func DecodeMessage(data []byte) (Message, error) {
 	msg := combined{}
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := json.UnmarshalNoEscape(data, &msg); err != nil {
 		return nil, fmt.Errorf("unmarshaling jsonrpc message: %w", err)
 	}
 
@@ -57,7 +48,7 @@ func DecodeMessage(data []byte) (Message, error) {
 	}
 
 	// request with an ID, must be a call
-	req := &Request{
+	req := &Call{
 		method: msg.Method,
 		id:     *msg.ID,
 	}
@@ -65,4 +56,13 @@ func DecodeMessage(data []byte) (Message, error) {
 		req.params = *msg.Params
 	}
 	return req, nil
+}
+
+// marshalInterface marshal obj to RawMessage.
+func marshalInterface(obj interface{}) (RawMessage, error) {
+	data, err := json.MarshalNoEscape(obj)
+	if err != nil {
+		return RawMessage{}, fmt.Errorf("failed to marshal json: %w", err)
+	}
+	return RawMessage(data), nil
 }

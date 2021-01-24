@@ -18,7 +18,7 @@ import (
 func (c *conn) Call(ctx context.Context, method string, params, result interface{}) (ID, error) {
 	// generate a new request identifier
 	id := ID{number: atomic.AddInt64(&c.seq, 1)}
-	call, err := NewRequest(id, method, params)
+	call, err := NewCall(id, method, params)
 	if err != nil {
 		return id, fmt.Errorf("marshaling call parameters: %v", err)
 	}

@@ -1,5 +1,5 @@
-// Copyright 2018 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2018 The Go Language Server Authors
 
 // +build !gojay
 
@@ -34,7 +34,7 @@ func (s *rawStream) Write(ctx context.Context, msg Message) (total int64, err er
 		return 0, ctx.Err()
 	default:
 	}
-	data, err := json.Marshal(msg)
+	data, err := json.MarshalNoEscape(msg)
 	if err != nil {
 		return 0, fmt.Errorf("marshaling message: %w", err)
 	}
@@ -43,13 +43,13 @@ func (s *rawStream) Write(ctx context.Context, msg Message) (total int64, err er
 	return
 }
 
-func (s *headerStream) Write(ctx context.Context, msg Message) (total int64, err error) {
+func (s *stream) Write(ctx context.Context, msg Message) (total int64, err error) {
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	default:
 	}
-	data, err := json.Marshal(msg)
+	data, err := json.MarshalNoEscape(msg)
 	if err != nil {
 		return 0, fmt.Errorf("marshaling message: %w", err)
 	}

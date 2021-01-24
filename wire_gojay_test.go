@@ -1,5 +1,5 @@
-// Copyright 2020 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 // +build gojay
 
@@ -76,8 +76,8 @@ func TestIDEncode(t *testing.T) {
 func TestIDDecode(t *testing.T) {
 	for _, test := range idTestData {
 		t.Run(test.name, func(t *testing.T) {
-			var got *jsonrpc2.ID
-			if err := gojay.UnmarshalJSONObject(test.encoded, got); err != nil {
+			var got jsonrpc2.ID
+			if err := gojay.UnmarshalJSONObject(test.encoded, &got); err != nil {
 				t.Fatal(err)
 			}
 
@@ -85,7 +85,7 @@ func TestIDDecode(t *testing.T) {
 				t.Errorf("got nil want %s", test.id)
 			}
 
-			if *got != test.id {
+			if got != test.id {
 				t.Errorf("got %s want %s", got, test.id)
 			}
 		})

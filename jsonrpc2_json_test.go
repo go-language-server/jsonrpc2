@@ -1,5 +1,5 @@
-// Copyright 2019 The Go Language Server Authors.
 // SPDX-License-Identifier: BSD-3-Clause
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
 // +build !gojay
 
@@ -95,14 +95,14 @@ func prepare(ctx context.Context, t *testing.T) (conn, conn2 jsonrpc2.Conn, done
 }
 
 func run(ctx context.Context, nc net.Conn) jsonrpc2.Conn {
-	stream := jsonrpc2.NewHeaderStream(nc)
+	stream := jsonrpc2.NewStream(nc)
 	conn := jsonrpc2.NewConn(stream)
 	conn.Go(ctx, testHandler())
 	return conn
 }
 
 func testHandler() jsonrpc2.Handler {
-	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Requester) error {
+	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {
 		case "no_args":
 			if len(req.Params()) > 0 {
@@ -111,19 +111,19 @@ func testHandler() jsonrpc2.Handler {
 			return reply(ctx, true, nil)
 		case "one_string":
 			var v string
-			if err := json.Unmarshal(req.Params(), &v); err != nil {
+			if err := json.UnmarshalNoEscape(req.Params(), &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, "got:"+v, nil)
 		case "one_number":
 			var v int
-			if err := json.Unmarshal(req.Params(), &v); err != nil {
+			if err := json.UnmarshalNoEscape(req.Params(), &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, fmt.Sprintf("got:%d", v), nil)
 		case "join":
 			var v []string
-			if err := json.Unmarshal(req.Params(), &v); err != nil {
+			if err := json.UnmarshalNoEscape(req.Params(), &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, path.Join(v...), nil)
