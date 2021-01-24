@@ -1,6 +1,7 @@
-// Copyright 2020 The Go Language Server Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Copyright 2020 The Go Language Server Authors.
+// SPDX-License-Identifier: BSD-3-Clause
 
 // Package jsonrpc2 is an implementation of the JSON-RPC 2 specification for Go.
+//
+// https://www.jsonrpc.org/specification
 package jsonrpc2 // import "go.lsp.dev/jsonrpc2"
