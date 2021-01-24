@@ -5,45 +5,17 @@ coverage:
 
   status:
     project:
-      default: off
-      json:
-        flags: json
-        target: auto
-        threshold: 10%
-        if_not_found: success
-        if_ci_failed: error
-      gojay:
-        flags: gojay
+      default:
         target: auto
         threshold: 10%
         if_not_found: success
         if_ci_failed: error
     patch:
-      default: off
-      json:
-        flags: json
-        only_pulls: true
-        target: 50%
-        threshold: 10%
-      gojay:
-        flags: gojay
+      default:
         only_pulls: true
         target: 50%
         threshold: 10%
     changes: false
-  ignore:
-    - "vendor"
-
-flags:
-  json:
-    paths:
-      - /
-    carryforward: true
-  gojay:
-    paths:
-      - /
-    carryforward: true
 
 comment:
   behavior: default
-  require_changes: true

@@ -10,7 +10,7 @@ jobs:
       name: golang/linux
       version: "1.15-buster"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
-    parallelism: 2
+    resource_class: large
     steps:
       - checkout
       - golang/gomod
@@ -24,12 +24,11 @@ jobs:
           command: |
             make tools
             mkdir -p /tmp/test-results
-            make $(circleci tests split .circleci/coverage-targets)
+            make test
           environment:
             GOTESTSUM_JSONFILE: "/tmp/test-results/unit-test.xml"
       - codecov/upload:
           file: "coverage.out"
-          flags: $(if [ $CIRCLE_NODE_INDEX == 0 ]; then echo "json"; else echo "gojay"; fi)
       - store_test_results:
           path: /tmp/test-results
 
@@ -38,7 +37,7 @@ jobs:
       name: golang/linux
       version: "1.15-buster"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
-    parallelism: 2
+    resource_class: large
     steps:
       - checkout
       - golang/gomod
@@ -48,9 +47,14 @@ jobs:
             go version
             go env
       - run:
+          name: Run fmt for sources
+          command: |
+            make fmt
+            git add -N . && git diff --exit-code
+      - run:
           name: Run lint for sources
           command: |
-            make lint GO_LINT_FLAGS=$(circleci tests split .circleci/lint-buildtags)
+            make lint
 
 workflows:
   version: 2
