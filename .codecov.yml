@@ -19,3 +19,6 @@ coverage:
 
 comment:
   behavior: default
+
+github_checks:
+  annotations: true
