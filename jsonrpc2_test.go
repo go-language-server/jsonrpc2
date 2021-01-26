@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 
-// +build !gojay
-
 package jsonrpc2_test
 
 import (

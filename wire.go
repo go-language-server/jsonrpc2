@@ -149,7 +149,7 @@ type wireRequest struct {
 	// Method is a string containing the method name to invoke.
 	Method string `json:"method"`
 	// Params is either a struct or an array with the parameters of the method.
-	Params *RawMessage `json:"params,omitempty"`
+	Params *json.RawMessage `json:"params,omitempty"`
 	// The id of this request, used to tie the Response back to the request.
 	// Will be either a string or a number. If not set, the Request is a notify,
 	// and no response is possible.
@@ -165,7 +165,7 @@ type wireResponse struct {
 	// VersionTag is always encoded as the string "2.0"
 	VersionTag version `json:"jsonrpc"`
 	// Result is the response value, and is required on success.
-	Result *RawMessage `json:"result,omitempty"`
+	Result *json.RawMessage `json:"result,omitempty"`
 	// Error is a structured error response if the call fails.
 	Error *Error `json:"error,omitempty"`
 	// ID must be set and is the identifier of the Request this is a response to.
@@ -176,10 +176,10 @@ type wireResponse struct {
 //
 // We can decode this and then work out which it is.
 type combined struct {
-	VersionTag version     `json:"jsonrpc"`
-	ID         *ID         `json:"id,omitempty"`
-	Method     string      `json:"method"`
-	Params     *RawMessage `json:"params,omitempty"`
-	Result     *RawMessage `json:"result,omitempty"`
-	Error      *Error      `json:"error,omitempty"`
+	VersionTag version          `json:"jsonrpc"`
+	ID         *ID              `json:"id,omitempty"`
+	Method     string           `json:"method"`
+	Params     *json.RawMessage `json:"params,omitempty"`
+	Result     *json.RawMessage `json:"result,omitempty"`
+	Error      *Error           `json:"error,omitempty"`
 }

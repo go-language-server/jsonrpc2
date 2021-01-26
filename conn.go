@@ -4,7 +4,9 @@
 package jsonrpc2
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -75,7 +77,74 @@ func NewConn(s Stream) Conn {
 	return conn
 }
 
-// Notify implemens Conn.
+// Call implements Conn.
+func (c *conn) Call(ctx context.Context, method string, params, result interface{}) (_ ID, err error) {
+	// generate a new request identifier
+	id := ID{number: atomic.AddInt64(&c.seq, 1)}
+	call, err := NewCall(id, method, params)
+	if err != nil {
+		return id, fmt.Errorf("marshaling call parameters: %w", err)
+	}
+
+	ctx, done := event.Start(ctx, method,
+		tag.Method.Of(method),
+		tag.RPCDirection.Of(tag.Outbound),
+		tag.RPCID.Of(fmt.Sprintf("%q", id)),
+	)
+	defer func() {
+		recordStatus(ctx, err)
+		done()
+	}()
+	event.Metric(ctx, tag.Started.Of(1))
+
+	// We have to add ourselves to the pending map before we send, otherwise we
+	// are racing the response. Also add a buffer to rchan, so that if we get a
+	// wire response between the time this call is cancelled and id is deleted
+	// from c.pending, the send to rchan will not block.
+	rchan := make(chan *Response, 1)
+
+	c.pendingMu.Lock()
+	c.pending[id] = rchan
+	c.pendingMu.Unlock()
+
+	defer func() {
+		c.pendingMu.Lock()
+		delete(c.pending, id)
+		c.pendingMu.Unlock()
+	}()
+
+	// now we are ready to send
+	n, err := c.write(ctx, call)
+	event.Metric(ctx, tag.SentBytes.Of(n))
+	if err != nil {
+		// sending failed, we will never get a response, so don't leave it pending
+		return id, err
+	}
+
+	// now wait for the response
+	select {
+	case response := <-rchan:
+		switch {
+		case response.err != nil: // is it an error response?
+			return id, response.err
+
+		case result == nil || len(response.result) == 0:
+			return id, nil
+
+		default:
+			dec := json.NewDecoder(bytes.NewReader(response.result))
+			if err := dec.Decode(result); err != nil {
+				return id, fmt.Errorf("unmarshaling result: %w", err)
+			}
+			return id, nil
+		}
+
+	case <-ctx.Done():
+		return id, ctx.Err()
+	}
+}
+
+// Notify implements Conn.
 func (c *conn) Notify(ctx context.Context, method string, params interface{}) (err error) {
 	notify, err := NewNotification(method, params)
 	if err != nil {
@@ -128,7 +197,7 @@ func (c *conn) write(ctx context.Context, msg Message) (int64, error) {
 	return c.stream.Write(ctx, msg)
 }
 
-// Go implemens Conn.
+// Go implements Conn.
 func (c *conn) Go(ctx context.Context, handler Handler) {
 	go c.run(ctx, handler)
 }
@@ -176,17 +245,17 @@ func (c *conn) run(ctx context.Context, handler Handler) {
 	}
 }
 
-// Close implemens Conn.
+// Close implements Conn.
 func (c *conn) Close() error {
 	return c.stream.Close()
 }
 
-// Done implemens Conn.
+// Done implements Conn.
 func (c *conn) Done() <-chan struct{} {
 	return c.done
 }
 
-// Err implemens Conn.
+// Err implements Conn.
 func (c *conn) Err() error {
 	if err := c.err.Load(); err != nil {
 		return err.(error)

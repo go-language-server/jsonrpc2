@@ -60,10 +60,6 @@ test:  ## Runs package test including race condition.
 	$(call target)
 	@CGO_ENABLED=${CGO_ENABLED} ${GO_TEST} ${GO_TEST_FLAGS} -run=${GO_TEST_FUNC} $(strip ${GO_FLAGS}) ${GO_TEST_PKGS}
 
-.PHONY: test/gojay
-test/gojay: GO_BUILDTAGS+=gojay
-test/gojay: test
-
 .PHONY: bench
 bench:  ## Take a package benchmark.
 	$(call target)
@@ -75,9 +71,6 @@ coverage: CGO_ENABLED=1
 coverage:  ## Takes packages test coverage.
 	$(call target)
 	@CGO_ENABLED=${CGO_ENABLED} ${GO_TEST} ${GO_TEST_FLAGS} -covermode=atomic -coverpkg=${PKG}/... -coverprofile=coverage.out $(strip ${GO_FLAGS}) ${GO_PKGS}
-
-coverage/gojay: GO_BUILDTAGS+=gojay
-coverage/gojay: coverage
 
 
 ##@ fmt, lint

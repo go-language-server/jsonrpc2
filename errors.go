@@ -6,6 +6,8 @@ package jsonrpc2
 import (
 	"errors"
 	"fmt"
+
+	json "github.com/goccy/go-json"
 )
 
 // Error represents a JSON-RPC error.
@@ -18,7 +20,7 @@ type Error struct {
 
 	// Data a Primitive or Structured value that contains additional
 	// information about the error. Can be omitted.
-	Data *RawMessage `json:"data,omitempty"`
+	Data *json.RawMessage `json:"data,omitempty"`
 }
 
 // compile time check whether the Error implements error interface.

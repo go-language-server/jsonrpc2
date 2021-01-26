@@ -33,7 +33,7 @@ type Request interface {
 	// Method is a string containing the method name to invoke.
 	Method() string
 	// Params is either a struct or an array with the parameters of the method.
-	Params() RawMessage
+	Params() json.RawMessage
 
 	// jsonrpc2Request is used to make the set of request implementations closed.
 	jsonrpc2Request()
@@ -46,7 +46,7 @@ type Call struct {
 	// Method is a string containing the method name to invoke.
 	method string
 	// Params is either a struct or an array with the parameters of the method.
-	params RawMessage
+	params json.RawMessage
 	// id of this request, used to tie the Response back to the request.
 	id ID
 }
@@ -73,7 +73,7 @@ func NewCall(id ID, method string, params interface{}) (*Call, error) {
 func (r *Call) Method() string { return r.method }
 
 // Params implements Request.
-func (r *Call) Params() RawMessage { return r.params }
+func (r *Call) Params() json.RawMessage { return r.params }
 
 // ID implements Request.
 func (r *Call) ID() ID { return r.id }
@@ -120,7 +120,7 @@ func (r *Call) UnmarshalJSON(data []byte) error {
 // It will have the same ID as the call it is a response to.
 type Response struct {
 	// result is the content of the response.
-	result RawMessage
+	result json.RawMessage
 	// err is set only if the call failed.
 	err error
 	// ID of the request this is a response to.
@@ -146,7 +146,7 @@ func NewResponse(id ID, result interface{}, err error) (*Response, error) {
 }
 
 // Result returns the Response result.
-func (r *Response) Result() RawMessage { return r.result }
+func (r *Response) Result() json.RawMessage { return r.result }
 
 // Err returns the Response error.
 func (r *Response) Err() error { return r.err }
@@ -217,7 +217,7 @@ type Notification struct {
 	// Method is a string containing the method name to invoke.
 	method string
 
-	params RawMessage
+	params json.RawMessage
 }
 
 // compile time check whether the Response implements a json.Marshaler and json.Unmarshaler interfaces.
@@ -241,7 +241,7 @@ func NewNotification(method string, params interface{}) (*Notification, error) {
 func (r *Notification) Method() string { return r.method }
 
 // Params implements Request.
-func (r *Notification) Params() RawMessage { return r.params }
+func (r *Notification) Params() json.RawMessage { return r.params }
 
 // jsonrpc2Message implements Message.
 func (r *Notification) jsonrpc2Message() {}
@@ -273,4 +273,60 @@ func (r *Notification) UnmarshalJSON(data []byte) error {
 		r.params = *req.Params
 	}
 	return nil
+}
+
+// DecodeMessage decodes data to Message.
+func DecodeMessage(data []byte) (Message, error) {
+	msg := combined{}
+	if err := json.UnmarshalNoEscape(data, &msg); err != nil {
+		return nil, fmt.Errorf("unmarshaling jsonrpc message: %w", err)
+	}
+
+	if msg.Method == "" {
+		// no method, should be a response
+		if msg.ID == nil {
+			return nil, ErrInvalidRequest
+		}
+		resp := &Response{
+			id: *msg.ID,
+		}
+		if msg.Error != nil {
+			resp.err = msg.Error
+		}
+		if msg.Result != nil {
+			resp.result = *msg.Result
+		}
+		return resp, nil
+	}
+
+	// has a method, must be a request
+	if msg.ID == nil {
+		// request with no ID is a notify
+		notify := &Notification{
+			method: msg.Method,
+		}
+		if msg.Params != nil {
+			notify.params = *msg.Params
+		}
+		return notify, nil
+	}
+
+	// request with an ID, must be a call
+	req := &Call{
+		method: msg.Method,
+		id:     *msg.ID,
+	}
+	if msg.Params != nil {
+		req.params = *msg.Params
+	}
+	return req, nil
+}
+
+// marshalInterface marshal obj to json.RawMessage.
+func marshalInterface(obj interface{}) (json.RawMessage, error) {
+	data, err := json.MarshalNoEscape(obj)
+	if err != nil {
+		return json.RawMessage{}, fmt.Errorf("failed to marshal json: %w", err)
+	}
+	return json.RawMessage(data), nil
 }
