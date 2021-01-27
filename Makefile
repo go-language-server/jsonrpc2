@@ -1,4 +1,4 @@
-# ----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # global
 
 .DEFAULT_GOAL := test
@@ -6,30 +6,30 @@ comma := ,
 empty :=
 space := $(empty) $(empty)
 
-# ----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # go
 
 GO_PATH ?= $(shell go env GOPATH)
 GO_OS ?= $(shell go env GOOS)
 GO_ARCH ?= $(shell go env GOARCH)
-TOOLS_BIN=${CURDIR}/tools/bin
 
 PKG := $(subst $(GO_PATH)/src/,,$(CURDIR))
-GO_PKGS := $(shell go list ./... | grep -v -e '.pb.go')
-GO_TEST_PKGS := $(shell go list -f='{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
+CGO_ENABLED ?= 0
+GO_BUILDTAGS=osusergo netgo static
+GO_LDFLAGS=-s -w "-extldflags=-static"
+GO_FLAGS ?= -tags='$(subst $(space),$(comma),${GO_BUILDTAGS})' -ldflags='${GO_LDFLAGS}' -installsuffix=netgo
 
-export GOTESTSUM_FORMAT=standard-verbose
+GO_PKGS := $(shell go list ./... | grep -v -e '.pb.go')
 GO_TEST ?= ${TOOLS_BIN}/gotestsum --
+GO_TEST_PKGS ?= $(shell go list -f='{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 GO_TEST_FUNC ?= .
 GO_TEST_FLAGS ?= -race -count=1
 GO_BENCH_FUNC ?= .
 GO_BENCH_FLAGS ?= -benchmem
 GO_LINT_FLAGS ?=
 
-CGO_ENABLED ?= 0
-GO_BUILDTAGS=osusergo netgo static
-GO_LDFLAGS=-s -w "-extldflags=-static"
-GO_FLAGS ?= -tags='$(subst $(space),$(comma),${GO_BUILDTAGS})' -ldflags='${GO_LDFLAGS}' -installsuffix=netgo
+TOOLS := $(shell cd tools; go list -f '{{ join .Imports " " }}' -tags=tools)
+TOOLS_BIN := ${CURDIR}/tools/bin
 
 # Set build environment
 JOBS := $(shell getconf _NPROCESSORS_CONF)
@@ -40,20 +40,22 @@ ifeq ($(CIRCLECI),true)
 	JOBS := $(shell echo $$(($$(cat /sys/fs/cgroup/cpu/cpu.shares) / 1024)))
 endif
 
-# ----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # defines
 
 define target
 @printf "+ $(patsubst ,$@,$(1))\\n" >&2
 endef
 
-# ----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # target
 
 ##@ test, bench, coverage
 
+export GOTESTSUM_FORMAT=standard-verbose
+
 .PHONY: test
-test: ${TOOLS_BIN}/gotestsum
+test: tools/gotestsum
 test: CGO_ENABLED=1
 test: GO_FLAGS=-tags='$(subst ${space},${comma},${GO_BUILDTAGS})'
 test:  ## Runs package test including race condition.
@@ -66,7 +68,7 @@ bench:  ## Take a package benchmark.
 	@CGO_ENABLED=${CGO_ENABLED} ${GO_TEST} -run='^$$' -bench=${GO_BENCH_FUNC} -benchmem $(strip ${GO_FLAGS}) ${GO_TEST_PKGS}
 
 .PHONY: coverage
-coverage: ${TOOLS_BIN}/gotestsum
+coverage: tools/gotestsum
 coverage: CGO_ENABLED=1
 coverage:  ## Takes packages test coverage.
 	$(call target)
@@ -75,17 +77,17 @@ coverage:  ## Takes packages test coverage.
 
 ##@ fmt, lint
 
+.PHONY: lint
+lint: fmt lint/golangci-lint  ## Run all linters.
+
 .PHONY: fmt
-fmt: ${TOOLS_BIN}/gofumpt ${TOOLS_BIN}/gofumports
+fmt: tools/gofumpt tools/gofumports
 fmt: ## Run gofumpt and gofumports.
 	find . -iname "*.go" -not -path "./vendor/**" | xargs -P ${JOBS} ${TOOLS_BIN}/gofumpt -s -extra -w
-	find . -iname "*.go" -not -path "./vendor/**" | xargs -P ${JOBS} ${TOOLS_BIN}/gofumports -local=${PKG},$(subst /jsonrpc2,,$(PKG)) -w
-
-.PHONY: lint
-lint: lint/golangci-lint  ## Run all linters.
+	find . -iname "*.go" -not -path "./vendor/**" | xargs -P ${JOBS} ${TOOLS_BIN}/gofumports -local=${PKG},$(subst /protocol,,$(PKG)) -w
 
 .PHONY: lint/golangci-lint
-lint/golangci-lint: ${TOOLS_BIN}/golangci-lint .golangci.yml  ## Run golangci-lint.
+lint/golangci-lint: tools/golangci-lint .golangci.yml  ## Run golangci-lint.
 	$(call target)
 	@${TOOLS_BIN}/golangci-lint -j ${JOBS} run $(strip ${GO_LINT_FLAGS}) ./...
 
@@ -93,13 +95,13 @@ lint/golangci-lint: ${TOOLS_BIN}/golangci-lint .golangci.yml  ## Run golangci-li
 ##@ tools
 
 .PHONY: tools
-tools: ${TOOLS_BIN}/''  ## Install tools
-tools/%:  ## install an individual dependent tool
+tools: tools/''  ## Install tools
 
-${TOOLS_BIN}/%:
+tools/%:  ## install an individual dependent tool
+tools/%: ${CURDIR}/tools/go.mod ${CURDIR}/tools/go.sum
 	@cd tools; \
-	  for t in $$(go list -f '{{ join .Imports " " }}' -tags=tools); do \
-			if [ $$(basename $$t) = '$*' ]; then \
+	  for t in ${TOOLS}; do \
+			if [ -z '$*' ] || [ $$(basename $$t) = '$*' ]; then \
 				echo "Install $$t ..."; \
 				GOBIN=${TOOLS_BIN} CGO_ENABLED=0 go install -v -mod=mod ${GO_FLAGS} "$${t}"; \
 			fi \
