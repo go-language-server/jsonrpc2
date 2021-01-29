@@ -1,3 +1,6 @@
+codecov:
+  allow_coverage_offsets: true
+
 coverage:
   precision: 1
   round: down
