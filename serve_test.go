@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 // SPDX-License-Identifier: BSD-3-Clause
 
-package jsonrpc2
+package jsonrpc2_test
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"go.lsp.dev/jsonrpc2"
 )
 
 func TestIdleTimeout(t *testing.T) {
@@ -30,8 +32,7 @@ func TestIdleTimeout(t *testing.T) {
 		return conn
 	}
 
-	server := HandlerServer(MethodNotFoundHandler)
-	// connTimer := &fakeTimer{c: make(chan time.Time, 1)}
+	server := jsonrpc2.HandlerServer(jsonrpc2.MethodNotFoundHandler)
 	var (
 		runErr error
 		wg     sync.WaitGroup
@@ -39,7 +40,7 @@ func TestIdleTimeout(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runErr = Serve(ctx, ln, server, 100*time.Millisecond)
+		runErr = jsonrpc2.Serve(ctx, ln, server, 100*time.Millisecond)
 	}()
 
 	// Exercise some connection/disconnection patterns, and then assert that when
@@ -53,7 +54,7 @@ func TestIdleTimeout(t *testing.T) {
 
 	wg.Wait()
 
-	if !errors.Is(runErr, ErrIdleTimeout) {
-		t.Errorf("run() returned error %v, want %v", runErr, ErrIdleTimeout)
+	if !errors.Is(runErr, jsonrpc2.ErrIdleTimeout) {
+		t.Errorf("run() returned error %v, want %v", runErr, jsonrpc2.ErrIdleTimeout)
 	}
 }
