@@ -191,18 +191,13 @@ issues:
       linters:
         - errcheck
     # future use
-    - path: jsonrpc2.go
-      linters:
-        - deadcode
-        - unused
-        - varcheck
-      text: "`(reqWaiting|reqDone)` is unused"
-    # future use
-    - linters:
-        - deadcode
-        - unused
-        - varcheck
+    - path: wire.go
       text: "`(codeServerErrorStart|codeServerErrorEnd)` is unused"
     # goroutine
     - path: handler.go
       text: "Error return value of `handler` is not checked"
+    # TODO(zchee): investigate why fail
+    - path: wire_test.go
+      text: "TestIDEncode's subtests should call t.Parallel"
+      linters:
+        - tparallel
