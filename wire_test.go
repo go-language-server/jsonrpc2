@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: BSD-3-Clause
 // SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
+// SPDX-License-Identifier: BSD-3-Clause
 
 package jsonrpc2_test
 
@@ -44,16 +44,16 @@ var wireIDTestData = []struct {
 func TestIDFormat(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range wireIDTestData {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
+	for _, tt := range wireIDTestData {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := fmt.Sprint(test.id); got != test.plain {
-				t.Errorf("got %s expected %s", got, test.plain)
+			if got := fmt.Sprint(tt.id); got != tt.plain {
+				t.Errorf("got %s expected %s", got, tt.plain)
 			}
-			if got := fmt.Sprintf("%q", test.id); got != test.quoted {
-				t.Errorf("got %s want %s", got, test.quoted)
+			if got := fmt.Sprintf("%q", tt.id); got != tt.quoted {
+				t.Errorf("got %s want %s", got, tt.quoted)
 			}
 		})
 	}
@@ -62,16 +62,14 @@ func TestIDFormat(t *testing.T) {
 func TestIDEncode(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range wireIDTestData {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			data, err := json.MarshalNoEscape(&test.id)
+	for _, tt := range wireIDTestData {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.MarshalNoEscape(&tt.id)
 			if err != nil {
 				t.Fatal(err)
 			}
-			checkJSON(t, data, test.encoded)
+			checkJSON(t, data, tt.encoded)
 		})
 	}
 }
@@ -79,22 +77,22 @@ func TestIDEncode(t *testing.T) {
 func TestIDDecode(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range wireIDTestData {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
+	for _, tt := range wireIDTestData {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var got jsonrpc2.ID
-			if err := json.Unmarshal(test.encoded, &got); err != nil {
+			var got *jsonrpc2.ID
+			if err := json.UnmarshalNoEscape(tt.encoded, &got); err != nil {
 				t.Fatal(err)
 			}
 
 			if reflect.ValueOf(&got).IsZero() {
-				t.Fatalf("got nil want %s", test.id)
+				t.Fatalf("got nil want %s", tt.id)
 			}
 
-			if got != test.id {
-				t.Fatalf("got %s want %s", got, test.id)
+			if *got != tt.id {
+				t.Fatalf("got %s want %s", got, tt.id)
 			}
 		})
 	}

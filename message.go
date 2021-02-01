@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: BSD-3-Clause
 // SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
+// SPDX-License-Identifier: BSD-3-Clause
 
 package jsonrpc2
 
@@ -51,8 +51,9 @@ type Call struct {
 	id ID
 }
 
-// compile time check whether the Request implements a json.Marshaler and json.Unmarshaler interfaces.
+// make sure a Call implements the Request, json.Marshaler and json.Unmarshaler and interfaces.
 var (
+	_ Request          = (*Call)(nil)
 	_ json.Marshaler   = (*Call)(nil)
 	_ json.Unmarshaler = (*Call)(nil)
 )
@@ -69,27 +70,27 @@ func NewCall(id ID, method string, params interface{}) (*Call, error) {
 	return req, merr
 }
 
+// ID returns the current call id.
+func (c *Call) ID() ID { return c.id }
+
 // Method implements Request.
-func (r *Call) Method() string { return r.method }
+func (c *Call) Method() string { return c.method }
 
 // Params implements Request.
-func (r *Call) Params() json.RawMessage { return r.params }
+func (c *Call) Params() json.RawMessage { return c.params }
 
-// ID implements Request.
-func (r *Call) ID() ID { return r.id }
-
-// jsonrpc2Message implements Message.
-func (r *Call) jsonrpc2Message() {}
+// jsonrpc2Message implements Request.
+func (Call) jsonrpc2Message() {}
 
 // jsonrpc2Request implements Request.
-func (r *Call) jsonrpc2Request() {}
+func (Call) jsonrpc2Request() {}
 
 // MarshalJSON implements json.Marshaler.
-func (r *Call) MarshalJSON() ([]byte, error) {
+func (c Call) MarshalJSON() ([]byte, error) {
 	req := wireRequest{
-		Method: r.method,
-		Params: &r.params,
-		ID:     &r.id,
+		Method: c.method,
+		Params: &c.params,
+		ID:     &c.id,
 	}
 	data, err := stdjson.Marshal(req)
 	if err != nil {
@@ -100,18 +101,20 @@ func (r *Call) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (r *Call) UnmarshalJSON(data []byte) error {
-	req := wireRequest{}
-	if err := stdjson.Unmarshal(data, &req); err != nil {
+func (c *Call) UnmarshalJSON(data []byte) error {
+	var req wireRequest
+	if err := json.UnmarshalNoEscape(data, &req); err != nil {
 		return fmt.Errorf("unmarshaling call: %w", err)
 	}
-	r.method = req.Method
+
+	c.method = req.Method
 	if req.Params != nil {
-		r.params = *req.Params
+		c.params = *req.Params
 	}
 	if req.ID != nil {
-		r.id = *req.ID
+		c.id = *req.ID
 	}
+
 	return nil
 }
 
@@ -127,8 +130,9 @@ type Response struct {
 	id ID
 }
 
-// compile time check whether the Response implements a json.Marshaler and json.Unmarshaler interfaces.
+// make sure a Response implements the Message, json.Marshaler and json.Unmarshaler and interfaces.
 var (
+	_ Message          = (*Response)(nil)
 	_ json.Marshaler   = (*Response)(nil)
 	_ json.Unmarshaler = (*Response)(nil)
 )
@@ -145,20 +149,20 @@ func NewResponse(id ID, result interface{}, err error) (*Response, error) {
 	return resp, merr
 }
 
+// ID returns the current response id.
+func (r *Response) ID() ID { return r.id }
+
 // Result returns the Response result.
 func (r *Response) Result() json.RawMessage { return r.result }
 
 // Err returns the Response error.
 func (r *Response) Err() error { return r.err }
 
-// ID implements Request.
-func (r *Response) ID() ID { return r.id }
-
 // jsonrpc2Message implements Message.
 func (r *Response) jsonrpc2Message() {}
 
 // MarshalJSON implements json.Marshaler.
-func (r *Response) MarshalJSON() ([]byte, error) {
+func (r Response) MarshalJSON() ([]byte, error) {
 	resp := &wireResponse{
 		Error: toError(r.err),
 		ID:    &r.id,
@@ -171,15 +175,17 @@ func (r *Response) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return data, fmt.Errorf("marshaling notification: %w", err)
 	}
+
 	return data, nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (r *Response) UnmarshalJSON(data []byte) error {
-	resp := wireResponse{}
-	if err := stdjson.Unmarshal(data, &resp); err != nil {
+	var resp wireResponse
+	if err := json.UnmarshalNoEscape(data, &resp); err != nil {
 		return fmt.Errorf("unmarshaling jsonrpc response: %w", err)
 	}
+
 	if resp.Result != nil {
 		r.result = *resp.Result
 	}
@@ -189,6 +195,7 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	if resp.ID != nil {
 		r.id = *resp.ID
 	}
+
 	return nil
 }
 
@@ -197,17 +204,20 @@ func toError(err error) *Error {
 		// no error, the response is complete
 		return nil
 	}
+
 	var wrapped *Error
 	if errors.As(err, &wrapped) {
 		// already a wire error, just use it
 		return wrapped
 	}
+
 	result := &Error{Message: err.Error()}
 	if errors.As(err, &wrapped) {
 		// if we wrapped a wire error, keep the code from the wrapped error
 		// but the message from the outer error
 		result.Code = wrapped.Code
 	}
+
 	return result
 }
 
@@ -220,8 +230,9 @@ type Notification struct {
 	params json.RawMessage
 }
 
-// compile time check whether the Response implements a json.Marshaler and json.Unmarshaler interfaces.
+// make sure a Notification implements the Request, json.Marshaler and json.Unmarshaler and interfaces.
 var (
+	_ Request          = (*Notification)(nil)
 	_ json.Marshaler   = (*Notification)(nil)
 	_ json.Unmarshaler = (*Notification)(nil)
 )
@@ -238,46 +249,49 @@ func NewNotification(method string, params interface{}) (*Notification, error) {
 }
 
 // Method implements Request.
-func (r *Notification) Method() string { return r.method }
+func (n *Notification) Method() string { return n.method }
 
 // Params implements Request.
-func (r *Notification) Params() json.RawMessage { return r.params }
+func (n *Notification) Params() json.RawMessage { return n.params }
 
-// jsonrpc2Message implements Message.
-func (r *Notification) jsonrpc2Message() {}
+// jsonrpc2Message implements Request.
+func (Notification) jsonrpc2Message() {}
 
 // jsonrpc2Request implements Request.
-func (r *Notification) jsonrpc2Request() {}
+func (Notification) jsonrpc2Request() {}
 
 // MarshalJSON implements json.Marshaler.
-func (r *Notification) MarshalJSON() ([]byte, error) {
+func (n Notification) MarshalJSON() ([]byte, error) {
 	req := wireRequest{
-		Method: r.method,
-		Params: &r.params,
+		Method: n.method,
+		Params: &n.params,
 	}
 	data, err := stdjson.Marshal(req)
 	if err != nil {
 		return data, fmt.Errorf("marshaling notification: %w", err)
 	}
+
 	return data, nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (r *Notification) UnmarshalJSON(data []byte) error {
-	req := wireRequest{}
-	if err := stdjson.Unmarshal(data, &req); err != nil {
+func (n *Notification) UnmarshalJSON(data []byte) error {
+	var req wireRequest
+	if err := json.UnmarshalNoEscape(data, &req); err != nil {
 		return fmt.Errorf("unmarshaling notification: %w", err)
 	}
-	r.method = req.Method
+
+	n.method = req.Method
 	if req.Params != nil {
-		r.params = *req.Params
+		n.params = *req.Params
 	}
+
 	return nil
 }
 
 // DecodeMessage decodes data to Message.
 func DecodeMessage(data []byte) (Message, error) {
-	msg := combined{}
+	var msg combined
 	if err := json.UnmarshalNoEscape(data, &msg); err != nil {
 		return nil, fmt.Errorf("unmarshaling jsonrpc message: %w", err)
 	}
@@ -287,6 +301,7 @@ func DecodeMessage(data []byte) (Message, error) {
 		if msg.ID == nil {
 			return nil, ErrInvalidRequest
 		}
+
 		resp := &Response{
 			id: *msg.ID,
 		}
@@ -296,6 +311,7 @@ func DecodeMessage(data []byte) (Message, error) {
 		if msg.Result != nil {
 			resp.result = *msg.Result
 		}
+
 		return resp, nil
 	}
 
@@ -308,18 +324,20 @@ func DecodeMessage(data []byte) (Message, error) {
 		if msg.Params != nil {
 			notify.params = *msg.Params
 		}
+
 		return notify, nil
 	}
 
 	// request with an ID, must be a call
-	req := &Call{
+	call := &Call{
 		method: msg.Method,
 		id:     *msg.ID,
 	}
 	if msg.Params != nil {
-		req.params = *msg.Params
+		call.params = *msg.Params
 	}
-	return req, nil
+
+	return call, nil
 }
 
 // marshalInterface marshal obj to json.RawMessage.

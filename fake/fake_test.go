@@ -1,4 +1,4 @@
-// Copyright 2020 The Go Language Server Authors.
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 // SPDX-License-Identifier: BSD-3-Clause
 
 package fake_test
@@ -25,18 +25,26 @@ func TestTestServer(t *testing.T) {
 	defer cancel()
 
 	server := jsonrpc2.HandlerServer(fakeHandler)
-	tcp := fake.NewTCPServer(ctx, server, nil)
-	defer tcp.Close()
 
-	tests := []struct {
-		name      string
+	tcpTS := fake.NewTCPServer(ctx, server, nil)
+	defer tcpTS.Close()
+
+	pipeTS := fake.NewPipeServer(ctx, server, nil)
+	defer pipeTS.Close()
+
+	tests := map[string]struct {
 		connector fake.Connector
 	}{
-		{"tcp", tcp},
+		"tcp": {
+			connector: tcpTS,
+		},
+		"pipe": {
+			connector: pipeTS,
+		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			conn := test.connector.Connect(ctx)
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			conn := tt.connector.Connect(ctx)
 			conn.Go(ctx, jsonrpc2.MethodNotFoundHandler)
 
 			var got msg

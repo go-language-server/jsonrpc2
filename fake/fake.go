@@ -1,4 +1,4 @@
-// Copyright 2020 The Go Language Server Authors.
+// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
 // SPDX-License-Identifier: BSD-3-Clause
 
 // Package fake provides utilities for running tests against a remote LSP server.
@@ -24,7 +24,7 @@ type Connector interface {
 // This is a convenience, so that callers don't have to worry about closing each
 // connection.
 type connList struct {
-	mu    sync.RWMutex
+	mu    sync.Mutex
 	conns []jsonrpc2.Conn
 }
 
@@ -34,14 +34,17 @@ func (l *connList) add(conn jsonrpc2.Conn) {
 	l.mu.Unlock()
 }
 
+// Close closes conns.
 func (l *connList) Close() error {
 	l.mu.Lock()
+
 	var errmsgs []string
 	for _, conn := range l.conns {
 		if err := conn.Close(); err != nil {
 			errmsgs = append(errmsgs, err.Error())
 		}
 	}
+
 	l.mu.Unlock()
 
 	if len(errmsgs) > 0 {
@@ -72,19 +75,19 @@ func NewTCPServer(ctx context.Context, server jsonrpc2.StreamServer, framer json
 	if err != nil {
 		panic(fmt.Sprintf("servertest: failed to listen: %v", err))
 	}
+
 	if framer == nil {
 		framer = jsonrpc2.NewStream
 	}
 
 	go jsonrpc2.Serve(ctx, ln, server, 0)
 
-	s := &TCPServer{
+	return &TCPServer{
 		connList: &connList{},
 		Addr:     ln.Addr().String(),
 		ln:       ln,
 		framer:   framer,
 	}
-	return s
 }
 
 // Connect dials the test server and returns a jsonrpc2 Connection that is ready for use.
@@ -103,6 +106,7 @@ func (s *TCPServer) Connect(context.Context) jsonrpc2.Conn {
 // PipeServer is a test server that handles connections over io.Pipes.
 type PipeServer struct {
 	*connList
+
 	server jsonrpc2.StreamServer
 	framer jsonrpc2.Framer
 }
@@ -112,7 +116,12 @@ func NewPipeServer(_ context.Context, server jsonrpc2.StreamServer, framer jsonr
 	if framer == nil {
 		framer = jsonrpc2.NewRawStream
 	}
-	return &PipeServer{server: server, framer: framer, connList: &connList{}}
+
+	return &PipeServer{
+		connList: &connList{},
+		server:   server,
+		framer:   framer,
+	}
 }
 
 // Connect creates new io.Pipes and binds them to the underlying StreamServer.
@@ -122,7 +131,6 @@ func (s *PipeServer) Connect(ctx context.Context) jsonrpc2.Conn {
 	serverStream := s.framer(sPipe)
 	serverConn := jsonrpc2.NewConn(serverStream)
 	s.add(serverConn)
-
 	go s.server.ServeStream(ctx, serverConn)
 
 	clientStream := s.framer(cPipe)
