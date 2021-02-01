@@ -92,7 +92,7 @@ lint/golangci-lint: tools/bin/golangci-lint .golangci.yml  ## Run golangci-lint.
 ##@ tools
 
 .PHONY: tools
-tools: tools/''  ## Install tools
+tools: tools/bin/''  ## Install tools
 
 tools/%: tools/bin/%  ## install an individual dependent tool
 
