@@ -6,36 +6,63 @@ orbs:
 
 jobs:
   test:
+    parameters:
+      go-version:
+        type: string
     executor:
       name: golang/linux
-      version: "1.15-buster"
+      version: "<< parameters.go-version >>"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: large
     steps:
       - checkout
-      - golang/gomod
       - run:
           name: Check versions
           command: |
             go version
             go env
+      - restore_cache:
+          name: Restore Go modules cache
+          key: 'gomod-<< parameters.go-version >>-{{ checksum "go.mod" }}-{{ checksum "go.sum" }}'
+      - run:
+          name: Download Go module dependencies
+          command: |
+            go mod download
+      - save_cache:
+          name: Save Go modules cache
+          key: 'gomod-<< parameters.go-version >>-{{ checksum "go.mod" }}-{{ checksum "go.sum" }}'
+          paths:
+            - /go/pkg/mod/cache
+      - run:
+          name: Run go mod vendor
+          command: |
+            go mod vendor
       - run:
           name: Test and collect coverages
-          command: |
-            make tools
-            mkdir -p /tmp/test-results
-            make test
           environment:
-            GOTESTSUM_JSONFILE: "/tmp/test-results/unit-test.xml"
+            # https://github.com/gotestyourself/gotestsum#format
+            GOTESTSUM_FORMAT: standard-verbose
+            # https://github.com/gotestyourself/gotestsum#junit-xml
+            GOTESTSUM_JUNITFILE: /tmp/test-results/tests.xml
+            # https://github.com/gotestyourself/gotestsum#finding-and-skipping-slow-tests
+            GOTESTSUM_JSONFILE: /tmp/test-artifacts/tests.json
+          command: |
+            mkdir -p /tmp/test-results /tmp/test-artifacts
+            make coverage
       - codecov/upload:
           file: "coverage.out"
       - store_test_results:
           path: /tmp/test-results
+      - store_artifacts:
+          path: /tmp/test-artifacts
 
   lint:
+    parameters:
+      go-version:
+        type: string
     executor:
       name: golang/linux
-      version: "1.15-buster"
+      version: "<< parameters.go-version >>"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: large
     steps:
@@ -47,14 +74,10 @@ jobs:
             go version
             go env
       - run:
-          name: Run fmt for sources
-          command: |
-            make fmt
-            git add -N . && git diff --exit-code
-      - run:
-          name: Run lint for sources
+          name: Run fmt and lint for sources
           command: |
             make lint
+            git add -N . && git diff --exit-code
 
 workflows:
   version: 2
@@ -62,5 +85,12 @@ workflows:
     jobs:
       - test:
           context: org-global
+          matrix:
+            parameters:
+              go-version: ["1.15-buster", "1.16-rc-buster"]
+
       - lint:
           context: org-global
+          matrix:
+            parameters:
+              go-version: ["1.15-buster"]
