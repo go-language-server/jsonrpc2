@@ -65,6 +65,8 @@ func TestIDEncode(t *testing.T) {
 	for _, tt := range wireIDTestData {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			data, err := json.MarshalNoEscape(&tt.id)
 			if err != nil {
 				t.Fatal(err)
