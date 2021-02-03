@@ -22,7 +22,7 @@ jobs:
       name: golang/linux
       version: "<< parameters.go-version >>"
     working_directory: /go/src/go.lsp.dev/jsonrpc2
-    resource_class: large
+    resource_class: xlarge
     steps:
       - checkout
       - run:
