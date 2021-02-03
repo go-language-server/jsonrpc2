@@ -34,10 +34,6 @@ TOOLS_BIN := ${CURDIR}/tools/bin
 
 # Set build environment
 JOBS := $(shell getconf _NPROCESSORS_CONF)
-ifeq ($(CIRCLECI),true)
-	# https://circleci.com/changelog#container-cgroup-limits-now-visible-inside-the-docker-executor
-	JOBS := $(shell echo $$(($$(cat /sys/fs/cgroup/cpu/cpu.shares) / 1024)))
-endif
 
 # -----------------------------------------------------------------------------
 # defines

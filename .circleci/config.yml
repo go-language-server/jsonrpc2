@@ -4,13 +4,78 @@ orbs:
   golang: cci-orb/golang@volatile
   codecov: codecov/codecov@1.1.3
 
+command_vars:
+  - cache_key: &cache_key gomod-<< parameters.go-version >>-{{ checksum "go.mod" }}-{{ checksum "go.sum" }}
+  - cache_tools_key: &cache_tools_key tools-<< parameters.go-version >>-{{ checksum "tools/go.mod" }}-{{ checksum "tools/go.sum" }}
+
 commands:
-  parse_goflags:
+  restore_dependencies:
+    parameters:
+      go-version:
+        type: string
+    steps:
+      - restore_cache:
+          name: "Restore module dependencies cache"
+          keys:
+            - *cache_key
+      - restore_cache:
+          name: "Restore dependencies tools"
+          keys:
+            - *cache_tools_key
+      - run:
+          name: "Download project modules"
+          command: |
+            go mod download
+
+  save_dependencies:
+    parameters:
+      go-version:
+        type: string
+    steps:
+      - save_cache:
+          name: "Save module cache"
+          key: *cache_key
+          paths:
+            - /go/pkg/mod/cache
+      - save_cache:
+          name: "Save dependencies tools"
+          key: *cache_tools_key
+          paths:
+            - /go/bin/
+      - run:
+          name: "go mod vendor"
+          command: |
+            go mod vendor
+
+  setup:
+    steps:
+      - checkout
+      - run:
+          name: Check versions
+          command: |
+            go version
+            go env
+      - run:
+          name: "Parse CPUs"
+          command: |
+            # https://circleci.com/changelog#container-cgroup-limits-now-visible-inside-the-docker-executor
+            CPUS="$(echo $(($(cat /sys/fs/cgroup/cpu/cpu.shares) / 1024)))"
+            echo "export CPUS=${CPUS}" >> $BASH_ENV
+
+  install_tools:
+    steps:
+      - run:
+          name: "Download project tool dependencies"
+          command: |
+            if [ -z $(find /go/bin/ -mindepth 1 -type f -executable | head -1) ]; then
+              make -j${CPUS} tools GOBIN=/go/bin
+            fi
+
+  set_goflags:
     steps:
       - run:
           name: "Parse CPUs"
           command: |
-            CPUS="$(make env/JOBS)"
             echo "export GOFLAGS='-p=${CPUS} -cpu=${CPUS}'" >> $BASH_ENV
 
 jobs:
@@ -26,47 +91,24 @@ jobs:
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: xlarge
     steps:
-      - checkout
+      - restore_dependencies:
+          go-version: << parameters.go-version >>
+      - install_tools
+      - save_dependencies:
+          go-version: << parameters.go-version >>
+      - set_goflags
       - run:
-          name: Check versions
-          command: |
-            go version
-            go env
-      - restore_cache:
-          name: Restore Go modules cache
-          key: 'gomod-<< parameters.go-version >>-{{ checksum "go.mod" }}-{{ checksum "go.sum" }}'
-      - run:
-          name: Download Go module dependencies
-          command: |
-            go mod download
-      - save_cache:
-          name: Save Go modules cache
-          key: 'gomod-<< parameters.go-version >>-{{ checksum "go.mod" }}-{{ checksum "go.sum" }}'
-          paths:
-            - /go/pkg/mod/cache
-      - run:
-          name: Run go mod vendor
-          command: |
-            go mod vendor
-      - parse_goflags
-      - run:
-          name: Test and collect coverages
+          name: Test and take a coverage
           environment:
-            # https://github.com/gotestyourself/gotestsum#format
             GOTESTSUM_FORMAT: standard-verbose
-            # https://github.com/gotestyourself/gotestsum#junit-xml
             GOTESTSUM_JUNITFILE: /tmp/test-results/tests.xml
-            # https://github.com/gotestyourself/gotestsum#finding-and-skipping-slow-tests
             GOTESTSUM_JSONFILE: /tmp/test-results/tests.json
           command: |
             mkdir -p /tmp/test-results
             make coverage
       - codecov/upload:
           file: "coverage.out"
-      - store_test_results:
-          path: /tmp/test-results
-      - store_artifacts:
-          path: /tmp/test-results
+          when: on_success
 
   lint:
     parameters:
@@ -80,13 +122,11 @@ jobs:
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: large
     steps:
-      - checkout
-      - golang/gomod
-      - run:
-          name: Check versions
-          command: |
-            go version
-            go env
+      - restore_dependencies:
+          go-version: << parameters.go-version >>
+      - install_tools
+      - save_dependencies:
+          go-version: << parameters.go-version >>
       - run:
           name: Run fmt and lint for sources
           command: |
@@ -102,9 +142,18 @@ workflows:
           matrix:
             parameters:
               go-version: ["1.15-buster", "1.16-rc-buster"]
+          pre-steps:
+            - setup
+          post-steps:
+            - store_test_results:
+                path: /tmp/test-results
+            - store_artifacts:
+                path: /tmp/test-results
 
       - lint:
           context: org-global
           matrix:
             parameters:
               go-version: ["1.15-buster"]
+          pre-steps:
+            - setup
