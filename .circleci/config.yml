@@ -18,9 +18,11 @@ jobs:
     parameters:
       go-version:
         type: string
-    executor:
-      name: golang/linux
-      version: "<< parameters.go-version >>"
+    docker:
+      - image: golang:<< parameters.go-version >>
+        auth:
+          username: $DOCKERHUB_USER
+          password: $DOCKERHUB_PASSWORD
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: xlarge
     steps:
@@ -70,9 +72,11 @@ jobs:
     parameters:
       go-version:
         type: string
-    executor:
-      name: golang/linux
-      version: "<< parameters.go-version >>"
+    docker:
+      - image: golang:<< parameters.go-version >>
+        auth:
+          username: $DOCKERHUB_USER
+          password: $DOCKERHUB_PASSWORD
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: large
     steps:
