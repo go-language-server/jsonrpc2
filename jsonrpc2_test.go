@@ -6,12 +6,13 @@ package jsonrpc2_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"path"
 	"reflect"
 	"testing"
 
-	json "github.com/goccy/go-json"
+	"github.com/segmentio/encoding/json"
 
 	"go.lsp.dev/jsonrpc2"
 )
@@ -121,7 +122,7 @@ func prepare(ctx context.Context, t *testing.T) (a, b jsonrpc2.Conn, done func()
 	return a, b, done
 }
 
-func run(ctx context.Context, nc net.Conn) jsonrpc2.Conn {
+func run(ctx context.Context, nc io.ReadWriteCloser) jsonrpc2.Conn {
 	stream := jsonrpc2.NewStream(nc)
 	conn := jsonrpc2.NewConn(stream)
 	conn.Go(ctx, testHandler())
@@ -140,21 +141,21 @@ func testHandler() jsonrpc2.Handler {
 
 		case methodOneString:
 			var v string
-			if err := json.UnmarshalNoEscape(req.Params(), &v); err != nil {
+			if err := json.Unmarshal(req.Params(), &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, "got:"+v, nil)
 
 		case methodOneNumber:
 			var v int
-			if err := json.UnmarshalNoEscape(req.Params(), &v); err != nil {
+			if err := json.Unmarshal(req.Params(), &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, fmt.Sprintf("got:%d", v), nil)
 
 		case methodJoin:
 			var v []string
-			if err := json.UnmarshalNoEscape(req.Params(), &v); err != nil {
+			if err := json.Unmarshal(req.Params(), &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, path.Join(v...), nil)
