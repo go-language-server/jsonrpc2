@@ -76,13 +76,14 @@ lint: fmt lint/golangci-lint  ## Run all linters.
 
 .PHONY: fmt
 fmt: tools/bin/goimports tools/bin/gofumpt  ## Run goimports and gofumpt.
+	$(call target)
 	find . -iname "*.go" -not -path "./vendor/**" | xargs -P ${JOBS} ${TOOLS_BIN}/goimports -local=${PKG},$(subst /jsonrpc2,,$(PKG)) -w
 	find . -iname "*.go" -not -path "./vendor/**" | xargs -P ${JOBS} ${TOOLS_BIN}/gofumpt -s -extra -w
 
 .PHONY: lint/golangci-lint
 lint/golangci-lint: tools/bin/golangci-lint .golangci.yml  ## Run golangci-lint.
 	$(call target)
-	@${TOOLS_BIN}/golangci-lint -j ${JOBS} run $(strip ${GO_LINT_FLAGS}) ./...
+	${TOOLS_BIN}/golangci-lint -j ${JOBS} run $(strip ${GO_LINT_FLAGS}) ./...
 
 
 ##@ tools
