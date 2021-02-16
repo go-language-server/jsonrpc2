@@ -46,7 +46,7 @@ func (version) UnmarshalJSON(data []byte) error {
 // number form if the Name is the empty string.
 type ID struct {
 	name   string
-	number int64
+	number int32
 }
 
 // compile time check whether the ID implements a fmt.Formatter, json.Marshaler and json.Unmarshaler interfaces.
@@ -57,7 +57,7 @@ var (
 )
 
 // NewNumberID returns a new number request ID.
-func NewNumberID(v int64) ID { return ID{number: v} }
+func NewNumberID(v int32) ID { return ID{number: v} }
 
 // NewStringID returns a new string request ID.
 func NewStringID(v string) ID { return ID{name: v} }
