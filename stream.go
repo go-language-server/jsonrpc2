@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"strconv"
 	"strings"
 
@@ -38,7 +37,7 @@ const (
 //
 // It is responsible for the framing and encoding of messages into wire form.
 // NewRawStream and NewStream are implementations of a Framer.
-type Framer func(conn net.Conn) Stream
+type Framer func(conn io.ReadWriteCloser) Stream
 
 // Stream abstracts the transport mechanics from the JSON RPC protocol.
 //
@@ -61,15 +60,15 @@ type Stream interface {
 }
 
 type rawStream struct {
-	conn net.Conn
+	conn io.ReadWriteCloser
 	in   *json.Decoder
 }
 
-// NewRawStream returns a Stream built on top of a net.Conn.
+// NewRawStream returns a Stream built on top of a io.ReadWriteCloser.
 //
 // The messages are sent with no wrapping, and rely on json decode consistency
 // to determine message boundaries.
-func NewRawStream(conn net.Conn) Stream {
+func NewRawStream(conn io.ReadWriteCloser) Stream {
 	return &rawStream{
 		conn: conn,
 		in:   json.NewDecoder(conn),
@@ -120,15 +119,15 @@ func (s *rawStream) Close() error {
 }
 
 type stream struct {
-	conn net.Conn
+	conn io.ReadWriteCloser
 	in   *bufio.Reader
 }
 
-// NewStream returns a Stream built on top of a net.Conn.
+// NewStream returns a Stream built on top of a io.ReadWriteCloser.
 //
 // The messages are sent with HTTP content length and MIME type headers.
 // This is the format used by LSP and others.
-func NewStream(conn net.Conn) Stream {
+func NewStream(conn io.ReadWriteCloser) Stream {
 	return &stream{
 		conn: conn,
 		in:   bufio.NewReader(conn),
