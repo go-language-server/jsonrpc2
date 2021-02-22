@@ -9,7 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	json "github.com/goccy/go-json"
+	"github.com/segmentio/encoding/json"
 
 	"go.lsp.dev/pkg/event"
 	"go.lsp.dev/pkg/event/label"

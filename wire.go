@@ -6,7 +6,7 @@ package jsonrpc2
 import (
 	"fmt"
 
-	json "github.com/goccy/go-json"
+	"github.com/segmentio/encoding/json"
 )
 
 // Code is an int64 error code as defined in the JSON-RPC spec.
@@ -70,13 +70,13 @@ var (
 
 // MarshalJSON implements json.Marshaler.
 func (version) MarshalJSON() ([]byte, error) {
-	return json.MarshalNoEscape(Version)
+	return json.Marshal(Version)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (version) UnmarshalJSON(data []byte) error {
 	version := ""
-	if err := json.UnmarshalNoEscape(data, &version); err != nil {
+	if err := json.Unmarshal(data, &version); err != nil {
 		return fmt.Errorf("failed to Unmarshal: %w", err)
 	}
 	if version != Version {
@@ -128,18 +128,18 @@ func (id ID) Format(f fmt.State, r rune) {
 // MarshalJSON implements json.Marshaler.
 func (id *ID) MarshalJSON() ([]byte, error) {
 	if id.name != "" {
-		return json.MarshalNoEscape(id.name)
+		return json.Marshal(id.name)
 	}
-	return json.MarshalNoEscape(id.number)
+	return json.Marshal(id.number)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID{}
-	if err := json.UnmarshalNoEscape(data, &id.number); err == nil {
+	if err := json.Unmarshal(data, &id.number); err == nil {
 		return nil
 	}
-	return json.UnmarshalNoEscape(data, &id.name)
+	return json.Unmarshal(data, &id.name)
 }
 
 // wireRequest is sent to a server to represent a Call or Notify operaton.

@@ -6,12 +6,13 @@ package jsonrpc2
 import (
 	"bufio"
 	"context"
+	stdjson "encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
-	json "github.com/goccy/go-json"
+	"github.com/segmentio/encoding/json"
 )
 
 const (
@@ -61,7 +62,7 @@ type Stream interface {
 
 type rawStream struct {
 	conn io.ReadWriteCloser
-	in   *json.Decoder
+	in   *stdjson.Decoder
 }
 
 // NewRawStream returns a Stream built on top of a io.ReadWriteCloser.
@@ -71,7 +72,7 @@ type rawStream struct {
 func NewRawStream(conn io.ReadWriteCloser) Stream {
 	return &rawStream{
 		conn: conn,
-		in:   json.NewDecoder(conn),
+		in:   stdjson.NewDecoder(conn), // TODO(zchee): why test fail using segmentio json.Decoder?
 	}
 }
 
@@ -83,7 +84,7 @@ func (s *rawStream) Read(ctx context.Context) (Message, int64, error) {
 	default:
 	}
 
-	var raw json.RawMessage
+	var raw stdjson.RawMessage
 	if err := s.in.Decode(&raw); err != nil {
 		return nil, 0, fmt.Errorf("decoding raw message: %w", err)
 	}
@@ -100,7 +101,7 @@ func (s *rawStream) Write(ctx context.Context, msg Message) (int64, error) {
 	default:
 	}
 
-	data, err := json.MarshalNoEscape(msg)
+	data, err := json.Marshal(msg)
 	if err != nil {
 		return 0, fmt.Errorf("marshaling message: %w", err)
 	}
@@ -199,7 +200,7 @@ func (s *stream) Write(ctx context.Context, msg Message) (int64, error) {
 	default:
 	}
 
-	data, err := json.MarshalNoEscape(msg)
+	data, err := json.Marshal(msg)
 	if err != nil {
 		return 0, fmt.Errorf("marshaling message: %w", err)
 	}

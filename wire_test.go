@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	json "github.com/goccy/go-json"
+	"github.com/segmentio/encoding/json"
 
 	"go.lsp.dev/jsonrpc2"
 )
@@ -67,7 +67,7 @@ func TestIDEncode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.MarshalNoEscape(&tt.id)
+			data, err := json.Marshal(&tt.id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestIDDecode(t *testing.T) {
 			t.Parallel()
 
 			var got *jsonrpc2.ID
-			if err := json.UnmarshalNoEscape(tt.encoded, &got); err != nil {
+			if err := json.Unmarshal(tt.encoded, &got); err != nil {
 				t.Fatal(err)
 			}
 
@@ -103,7 +103,7 @@ func TestIDDecode(t *testing.T) {
 func TestErrorEncode(t *testing.T) {
 	t.Parallel()
 
-	b, err := json.MarshalNoEscape(jsonrpc2.NewError(0, ""))
+	b, err := json.Marshal(jsonrpc2.NewError(0, ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestErrorResponse(t *testing.T) {
 	// originally reported in #39719, this checks that result is not present if
 	// it is an error response
 	r, _ := jsonrpc2.NewResponse(jsonrpc2.NewNumberID(3), nil, fmt.Errorf("computing fix edits"))
-	data, err := json.MarshalNoEscape(r)
+	data, err := json.Marshal(r)
 	if err != nil {
 		t.Fatal(err)
 	}
