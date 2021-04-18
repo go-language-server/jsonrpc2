@@ -4,6 +4,7 @@
 package jsonrpc2_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -141,21 +142,27 @@ func testHandler() jsonrpc2.Handler {
 
 		case methodOneString:
 			var v string
-			if err := json.Unmarshal(req.Params(), &v); err != nil {
+			dec := json.NewDecoder(bytes.NewReader(req.Params()))
+			dec.ZeroCopy()
+			if err := dec.Decode(&v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, "got:"+v, nil)
 
 		case methodOneNumber:
 			var v int
-			if err := json.Unmarshal(req.Params(), &v); err != nil {
+			dec := json.NewDecoder(bytes.NewReader(req.Params()))
+			dec.ZeroCopy()
+			if err := dec.Decode(&v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, fmt.Sprintf("got:%d", v), nil)
 
 		case methodJoin:
 			var v []string
-			if err := json.Unmarshal(req.Params(), &v); err != nil {
+			dec := json.NewDecoder(bytes.NewReader(req.Params()))
+			dec.ZeroCopy()
+			if err := dec.Decode(&v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, path.Join(v...), nil)
