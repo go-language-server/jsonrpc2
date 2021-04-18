@@ -4,6 +4,7 @@
 package jsonrpc2
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -141,7 +142,9 @@ func (c *conn) Call(ctx context.Context, method string, params, result interface
 			return id, nil
 		}
 
-		if err := json.Unmarshal(resp.result, result); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(resp.result))
+		dec.ZeroCopy()
+		if err := dec.Decode(result); err != nil {
 			return id, fmt.Errorf("unmarshaling result: %w", err)
 		}
 

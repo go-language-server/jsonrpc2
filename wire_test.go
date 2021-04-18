@@ -85,7 +85,9 @@ func TestIDDecode(t *testing.T) {
 			t.Parallel()
 
 			var got *jsonrpc2.ID
-			if err := json.Unmarshal(tt.encoded, &got); err != nil {
+			dec := json.NewDecoder(bytes.NewReader(tt.encoded))
+			dec.ZeroCopy()
+			if err := dec.Decode(&got); err != nil {
 				t.Fatal(err)
 			}
 
