@@ -60,6 +60,8 @@ linters-settings:
   govet:
     enable-all: true
     check-shadowing: true
+    disable:
+      - fieldalignment
   depguard:
     list-type: blacklist
     include-go-root: true
@@ -110,6 +112,7 @@ linters:
     - paralleltest      # paralleltest detects missing usage of t.Parallel() method in your Go test
     - scopelint         # Scopelint checks for unpinned variables in go programs
     - sqlclosecheck     # Checks that sql.Rows and sql.Stmt are closed
+    - wrapcheck         # Checks that errors returned from external packages are wrapped TODO(zchee): enable
     - wsl               # Whitespace Linter
   enable:
     - asciicheck        # Simple linter to check that your code does not contain non-ASCII identifiers
@@ -136,10 +139,8 @@ linters:
     - govet             # Vet examines Go source code and reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
     - ifshort           # Checks that your code uses short syntax for if-statements whenever possible
     - ineffassign       # Detects when assignments to existing variables are not used
-    - interfacer        # Linter that suggests narrower interface types
     - lll               # Reports long lines
     - makezero          # Finds slice declarations with non-zero initial length
-    - maligned          # Tool to detect Go structs that would take less memory if their fields were sorted
     - misspell          # Finds commonly misspelled English words in comments
     - nakedret          # Finds naked returns in functions greater than a specified function length
     - nestif            # Reports deeply nested if statements
@@ -160,7 +161,6 @@ linters:
     - unused            # Checks Go code for unused constants, variables, functions and types
     - varcheck          # Finds unused global variables and constants
     - whitespace        # Tool for detection of leading and trailing whitespace
-    - wrapcheck         # Checks that errors returned from external packages are wrapped
 
 issues:
   max-same-issues: 0
