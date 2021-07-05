@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2021 The Go Language Server Authors
+// SPDX-FileCopyrightText: 2021 The Go Language Server Authors
 // SPDX-License-Identifier: BSD-3-Clause
 
 // Package fake provides utilities for running tests against a remote LSP server.
