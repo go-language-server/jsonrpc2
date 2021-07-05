@@ -114,12 +114,16 @@ clean:  ## Cleanups binaries and extra files in the package.
 ##@ miscellaneous
 
 .PHONY: todo
-TODO:  ## Print the all of (TODO|BUG|XXX|FIXME|NOTE) in packages.
+todo:  ## Print the all of (TODO|BUG|XXX|FIXME|NOTE) in packages.
 	@grep -E '(TODO|BUG|XXX|FIXME)(\(.+\):|:)' $(shell find . -type f -name '*.go' -and -not -iwholename '*vendor*')
 
 .PHONY: env/%
 env/%: ## Print the value of MAKEFILE_VARIABLE. Use `make env/GO_FLAGS` or etc.
 	@echo $($*)
+
+.PHONY: nolint
+nolint:  ## Print the all of //nolint:... pragma in packages.
+	@rg -t go -C 3 -e '//nolint.+' --follow --hidden --glob='!vendor' --glob='!internal'
 
 
 ##@ help

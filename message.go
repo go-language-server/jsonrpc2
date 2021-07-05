@@ -11,211 +11,169 @@ import (
 	"github.com/segmentio/encoding/json"
 )
 
-// Message is the interface to all JSON-RPC message types.
+// This file contains the go forms of the wire specification.
+// see http://www.jsonrpc.org/specification for details
+
+// Version represents a JSON-RPC version.
+const Version = "2.0"
+
+// payload has all the fields of both Request and Response.
+//
+// It can decode this and then work out which it is.
+type payload struct {
+	VersionTag string          `json:"jsonrpc"`
+	ID         interface{}     `json:"id,omitempty"`
+	Error      *Error          `json:"error,omitempty"`
+	Method     string          `json:"method,omitempty"`
+	Params     json.RawMessage `json:"params,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+}
+
+// ID is a Request identifier.
+type ID struct {
+	value interface{}
+}
+
+// StringID creates a new string request identifier.
+func StringID(s string) ID {
+	return ID{value: s}
+}
+
+// Int64ID creates a new integer request identifier.
+func Int64ID(i int64) ID {
+	return ID{value: i}
+}
+
+// IsValid reports whether the ID is a valid identifier.
+//
+// The default value for ID will return false.
+func (id ID) IsValid() bool {
+	return id.value != nil
+}
+
+// Raw returns the underlying value of the ID.
+func (id ID) Raw() interface{} {
+	return id.value
+}
+
+// Message is the interface to all jsonrpc2 message types.
 //
 // They share no common functionality, but are a closed set of concrete types
 // that are allowed to implement this interface.
 //
-// The message types are *Call, *Response and *Notification.
+// The message types are Request and Response.
 type Message interface {
-	// jsonrpc2Message is used to make the set of message implementations a
-	// closed set.
-	jsonrpc2Message()
+	// marshal builds the wire form from the API form.
+	//
+	// It is private, which makes the set of Message implementations closed.
+	marshal(msg *payload)
 }
 
-// Request is the shared interface to jsonrpc2 messages that request
-// a method be invoked.
-//
-// The request types are a closed set of *Call and *Notification.
-type Request interface {
-	Message
+// Request is a Message sent to a peer to request behavior.
+// If it has an ID it is a call, otherwise it is a notification.
+type Request struct {
+	// ID of this request, used to tie the Response back to the request.
+	// This will be nil for notifications.
+	ID ID
 
 	// Method is a string containing the method name to invoke.
-	Method() string
-	// Params is either a struct or an array with the parameters of the method.
-	Params() json.RawMessage
+	Method string
 
-	// jsonrpc2Request is used to make the set of request implementations closed.
-	jsonrpc2Request()
+	// Params is either a struct or an array with the parameters of the method.
+	Params json.RawMessage
 }
 
-// Call is a request that expects a response.
-//
-// The response will have a matching ID.
-type Call struct {
-	// Method is a string containing the method name to invoke.
-	method string
-	// Params is either a struct or an array with the parameters of the method.
-	params json.RawMessage
-	// id of this request, used to tie the Response back to the request.
-	id ID
+// IsCall reports whether the request is call.
+func (req *Request) IsCall() bool {
+	return req.ID.IsValid()
 }
 
-// make sure a Call implements the Request, json.Marshaler and json.Unmarshaler and interfaces.
-var (
-	_ Request          = (*Call)(nil)
-	_ json.Marshaler   = (*Call)(nil)
-	_ json.Unmarshaler = (*Call)(nil)
-)
+// marshal implements Message.marshal.
+func (req *Request) marshal(msg *payload) {
+	msg.ID = req.ID.value
+	msg.Method = req.Method
+	msg.Params = req.Params
+}
 
-// NewCall constructs a new Call message for the supplied ID, method and
-// parameters.
-func NewCall(id ID, method string, params interface{}) (*Call, error) {
+// NewNotification constructs a new Notification message for the supplied
+// method and parameters.
+func NewNotification(method string, params interface{}) (*Request, error) {
 	p, merr := marshalInterface(params)
-	req := &Call{
-		id:     id,
-		method: method,
-		params: p,
+
+	req := &Request{
+		Method: method,
+		Params: p,
 	}
+
 	return req, merr
 }
 
-// ID returns the current call id.
-func (c *Call) ID() ID { return c.id }
+// NewRequest constructs a new Call message for the supplied ID, method and
+// parameters.
+func NewRequest(id ID, method string, params interface{}) (*Request, error) {
+	p, merr := marshalInterface(params)
 
-// Method implements Request.
-func (c *Call) Method() string { return c.method }
-
-// Params implements Request.
-func (c *Call) Params() json.RawMessage { return c.params }
-
-// jsonrpc2Message implements Request.
-func (Call) jsonrpc2Message() {}
-
-// jsonrpc2Request implements Request.
-func (Call) jsonrpc2Request() {}
-
-// MarshalJSON implements json.Marshaler.
-func (c Call) MarshalJSON() ([]byte, error) {
-	req := wireRequest{
-		Method: c.method,
-		Params: &c.params,
-		ID:     &c.id,
-	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		return data, fmt.Errorf("marshaling call: %w", err)
+	req := &Request{
+		ID:     id,
+		Method: method,
+		Params: p,
 	}
 
-	return data, nil
+	return req, merr
 }
 
-// UnmarshalJSON implements json.Unmarshaler.
-func (c *Call) UnmarshalJSON(data []byte) error {
-	var req wireRequest
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&req); err != nil {
-		return fmt.Errorf("unmarshaling call: %w", err)
-	}
-
-	c.method = req.Method
-	if req.Params != nil {
-		c.params = *req.Params
-	}
-	if req.ID != nil {
-		c.id = *req.ID
-	}
-
-	return nil
-}
-
-// Response is a reply to a Request.
-//
+// Response is a Message used as a reply to a call Request.
 // It will have the same ID as the call it is a response to.
 type Response struct {
-	// result is the content of the response.
-	result json.RawMessage
-	// err is set only if the call failed.
-	err error
 	// ID of the request this is a response to.
-	id ID
+	ID ID
+
+	// Error is set only if the call failed.
+	Error error
+
+	// Result is the content of the response.
+	Result json.RawMessage
 }
 
-// make sure a Response implements the Message, json.Marshaler and json.Unmarshaler and interfaces.
-var (
-	_ Message          = (*Response)(nil)
-	_ json.Marshaler   = (*Response)(nil)
-	_ json.Unmarshaler = (*Response)(nil)
-)
-
 // NewResponse constructs a new Response message that is a reply to the
-// supplied. If err is set result may be ignored.
+// supplied.
+//
+// If err is set result may be ignored.
 func NewResponse(id ID, result interface{}, err error) (*Response, error) {
 	r, merr := marshalInterface(result)
+
 	resp := &Response{
-		id:     id,
-		result: r,
-		err:    err,
+		ID:     id,
+		Result: r,
+		Error:  err,
 	}
+
 	return resp, merr
 }
 
-// ID returns the current response id.
-func (r *Response) ID() ID { return r.id }
-
-// Result returns the Response result.
-func (r *Response) Result() json.RawMessage { return r.result }
-
-// Err returns the Response error.
-func (r *Response) Err() error { return r.err }
-
-// jsonrpc2Message implements Message.
-func (r *Response) jsonrpc2Message() {}
-
-// MarshalJSON implements json.Marshaler.
-func (r Response) MarshalJSON() ([]byte, error) {
-	resp := &wireResponse{
-		Error: toError(r.err),
-		ID:    &r.id,
-	}
-	if resp.Error == nil {
-		resp.Result = &r.result
-	}
-
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return data, fmt.Errorf("marshaling notification: %w", err)
-	}
-
-	return data, nil
+// marshal implements Message.marshal.
+func (resp *Response) marshal(msg *payload) {
+	msg.ID = resp.ID.value
+	msg.Error = toError(resp.Error)
+	msg.Result = resp.Result
 }
 
-// UnmarshalJSON implements json.Unmarshaler.
-func (r *Response) UnmarshalJSON(data []byte) error {
-	var resp wireResponse
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&resp); err != nil {
-		return fmt.Errorf("unmarshaling jsonrpc response: %w", err)
-	}
-
-	if resp.Result != nil {
-		r.result = *resp.Result
-	}
-	if resp.Error != nil {
-		r.err = resp.Error
-	}
-	if resp.ID != nil {
-		r.id = *resp.ID
-	}
-
-	return nil
-}
-
+// toError converts err to Error type.
 func toError(err error) *Error {
 	if err == nil {
-		// no error, the response is complete
+		// no error, the response is complete.
 		return nil
 	}
 
 	var wrapped *Error
 	if errors.As(err, &wrapped) {
-		// already a wire error, just use it
+		// already a wire error, just use it.
 		return wrapped
 	}
 
-	result := &Error{Message: err.Error()}
+	result := &Error{
+		Message: err.Error(),
+	}
 	if errors.As(err, &wrapped) {
 		// if we wrapped a wire error, keep the code from the wrapped error
 		// but the message from the outer error
@@ -225,134 +183,86 @@ func toError(err error) *Error {
 	return result
 }
 
-// Notification is a request for which a response cannot occur, and as such
-// it has not ID.
-type Notification struct {
-	// Method is a string containing the method name to invoke.
-	method string
-
-	params json.RawMessage
-}
-
-// make sure a Notification implements the Request, json.Marshaler and json.Unmarshaler and interfaces.
-var (
-	_ Request          = (*Notification)(nil)
-	_ json.Marshaler   = (*Notification)(nil)
-	_ json.Unmarshaler = (*Notification)(nil)
-)
-
-// NewNotification constructs a new Notification message for the supplied
-// method and parameters.
-func NewNotification(method string, params interface{}) (*Notification, error) {
-	p, merr := marshalInterface(params)
-	notify := &Notification{
-		method: method,
-		params: p,
+// EncodeMessage encodes msg to byts slice.
+func EncodeMessage(msg Message) ([]byte, error) {
+	m := payload{
+		VersionTag: Version,
 	}
-	return notify, merr
-}
+	msg.marshal(&m)
 
-// Method implements Request.
-func (n *Notification) Method() string { return n.method }
-
-// Params implements Request.
-func (n *Notification) Params() json.RawMessage { return n.params }
-
-// jsonrpc2Message implements Request.
-func (Notification) jsonrpc2Message() {}
-
-// jsonrpc2Request implements Request.
-func (Notification) jsonrpc2Request() {}
-
-// MarshalJSON implements json.Marshaler.
-func (n Notification) MarshalJSON() ([]byte, error) {
-	req := wireRequest{
-		Method: n.method,
-		Params: &n.params,
-	}
-	data, err := json.Marshal(req)
+	data, err := json.Marshal(&m)
 	if err != nil {
-		return data, fmt.Errorf("marshaling notification: %w", err)
+		return nil, fmt.Errorf("marshaling jsonrpc message: %w", err)
 	}
 
 	return data, nil
 }
 
-// UnmarshalJSON implements json.Unmarshaler.
-func (n *Notification) UnmarshalJSON(data []byte) error {
-	var req wireRequest
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&req); err != nil {
-		return fmt.Errorf("unmarshaling notification: %w", err)
-	}
-
-	n.method = req.Method
-	if req.Params != nil {
-		n.params = *req.Params
-	}
-
-	return nil
-}
-
-// DecodeMessage decodes data to Message.
+// DecodeMessage deecodse byts slice to Message.
 func DecodeMessage(data []byte) (Message, error) {
-	var msg combined
+	var msg payload
+
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.ZeroCopy()
 	if err := dec.Decode(&msg); err != nil {
 		return nil, fmt.Errorf("unmarshaling jsonrpc message: %w", err)
 	}
 
-	if msg.Method == "" {
-		// no method, should be a response
-		if msg.ID == nil {
-			return nil, ErrInvalidRequest
-		}
-
-		resp := &Response{
-			id: *msg.ID,
-		}
-		if msg.Error != nil {
-			resp.err = msg.Error
-		}
-		if msg.Result != nil {
-			resp.result = *msg.Result
-		}
-
-		return resp, nil
+	if msg.VersionTag != Version {
+		return nil, fmt.Errorf("invalid message version tag %s expected %s", msg.VersionTag, Version)
 	}
 
-	// has a method, must be a request
-	if msg.ID == nil {
-		// request with no ID is a notify
-		notify := &Notification{
-			method: msg.Method,
-		}
-		if msg.Params != nil {
-			notify.params = *msg.Params
-		}
-
-		return notify, nil
+	id := ID{}
+	switch v := msg.ID.(type) {
+	case nil:
+		// nothing to do
+	case float64:
+		// coerce the id type to int64 if it is float64, the spec does not allow fractional parts
+		id = Int64ID(int64(v))
+	case int64:
+		id = Int64ID(v)
+	case string:
+		id = StringID(v)
+	default:
+		return nil, fmt.Errorf("invalid message id type <%[1]T>%[1]v", v)
 	}
 
-	// request with an ID, must be a call
-	call := &Call{
-		method: msg.Method,
-		id:     *msg.ID,
-	}
-	if msg.Params != nil {
-		call.params = *msg.Params
+	if msg.Method != "" {
+		// has a method, must be a call
+		return &Request{
+			Method: msg.Method,
+			ID:     id,
+			Params: msg.Params,
+		}, nil
 	}
 
-	return call, nil
+	// no method, should be a response
+	if !id.IsValid() {
+		return nil, ErrInvalidRequest
+	}
+
+	resp := &Response{
+		ID:     id,
+		Result: msg.Result,
+	}
+
+	// we have to check if msg.Error is nil to avoid a typed error
+	if msg.Error != nil {
+		resp.Error = msg.Error
+	}
+
+	return resp, nil
 }
 
-// marshalInterface marshal obj to json.RawMessage.
 func marshalInterface(obj interface{}) (json.RawMessage, error) {
+	if obj == nil {
+		return nil, nil
+	}
+
 	data, err := json.Marshal(obj)
 	if err != nil {
-		return json.RawMessage{}, fmt.Errorf("failed to marshal json: %w", err)
+		return nil, fmt.Errorf("failed to marshal json: %w", err)
 	}
+
 	return json.RawMessage(data), nil
 }

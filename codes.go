@@ -3,6 +3,10 @@
 
 package jsonrpc2
 
+// This file contains the Go forms of the JSON-RPC specification.
+//
+// See http://www.jsonrpc.org/specification for details.
+
 // Code is an error code as defined in the JSON-RPC spec.
 type Code int32
 
@@ -24,7 +28,7 @@ const (
 	// InternalError is the internal JSON-RPC error.
 	InternalError Code = -32603
 
-	// JSONRPCReservedErrorRangeStart is the start range of JSON RPC reserved error codes.
+	// JSONRPCReservedErrorRangeStart is the start range of JSON-RPC reserved error codes.
 	//
 	// It doesn't denote a real error code. No LSP error codes should
 	// be defined between the start and end range. For backwards
@@ -58,29 +62,32 @@ const (
 	CodeServerErrorEnd = JSONRPCReservedErrorRangeEnd
 )
 
-// This file contains the Go forms of the wire specification.
-//
-// See http://www.jsonrpc.org/specification for details.
-//
 // list of JSON-RPC errors.
 var (
 	// ErrUnknown should be used for all non coded errors.
-	ErrUnknown = NewError(UnknownError, "JSON-RPC unknown error")
+	ErrUnknown = NewError(UnknownError, "JSON RPC unknown error")
 
 	// ErrParse is used when invalid JSON was received by the server.
-	ErrParse = NewError(ParseError, "JSON-RPC parse error")
+	ErrParse = NewError(ParseError, "JSON RPC parse error")
 
 	// ErrInvalidRequest is used when the JSON sent is not a valid Request object.
-	ErrInvalidRequest = NewError(InvalidRequest, "JSON-RPC invalid request")
+	ErrInvalidRequest = NewError(InvalidRequest, "JSON RPC invalid request")
 
 	// ErrMethodNotFound should be returned by the handler when the method does
 	// not exist / is not available.
-	ErrMethodNotFound = NewError(MethodNotFound, "JSON-RPC method not found")
+	ErrMethodNotFound = NewError(MethodNotFound, "JSON RPC method not found")
 
 	// ErrInvalidParams should be returned by the handler when method
 	// parameter(s) were invalid.
-	ErrInvalidParams = NewError(InvalidParams, "JSON-RPC invalid params")
+	ErrInvalidParams = NewError(InvalidParams, "JSON RPC invalid params")
 
-	// ErrInternal is not currently returned but defined for completeness.
-	ErrInternal = NewError(InternalError, "JSON-RPC internal error")
+	// ErrInternal indicates a failure to process a call correctly.
+	ErrInternal = NewError(InternalError, "JSON RPC internal error")
+
+	// The following errors are not part of the json specification, but
+	// compliant extensions specific to this implementation.
+
+	// ErrServerOverloaded is returned when a message was refused due to a
+	// server being temporarily unable to accept any new messages.
+	ErrServerOverloaded = NewError(-32000, "JSON RPC overloaded")
 )

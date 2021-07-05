@@ -10,18 +10,26 @@ coverage:
 
   status:
     project:
-      default:
+      default: false
+      linux:
         target: auto
         threshold: 1%
         if_ci_failed: error
         if_not_found: success
+        flags:
+          - linux-1.16
+          - linux-1.17-rc
     patch:
-      default:
+      default: false
+      linux:
         only_pulls: true
         target: 50%
         threshold: 10%
         if_ci_failed: error
         if_not_found: failure
+        flags:
+          - linux-1.16
+          - linux-1.17-rc
     changes:
       default:
         if_ci_failed: error
@@ -30,9 +38,20 @@ coverage:
         branches:
           - main
 
+flags:
+  linux-1.16:
+    paths:
+      - /
+    carryforward: true
+  linux-1.17-rc:
+    paths:
+      - /
+    carryforward: true
+
 comment:
   behavior: default
   show_carryforward_flags: true
+  require_changes: true
 
 github_checks:
   annotations: true
