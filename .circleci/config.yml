@@ -2,7 +2,6 @@ version: 2.1
 
 orbs:
   golang: cci-orb/golang@volatile
-  codecov: codecov/codecov@1.1.4
 
 command_vars:
   - cache_key: &cache_key gomod-<< parameters.go-version >>-{{ checksum "go.mod" }}-{{ checksum "go.sum" }}
@@ -88,6 +87,8 @@ jobs:
         auth:
           username: $DOCKERHUB_USER
           password: $DOCKERHUB_PASSWORD
+        environment:
+          CODOCOV_VERSION: v0.1.0_5313
     working_directory: /go/src/go.lsp.dev/jsonrpc2
     resource_class: xlarge
     steps:
@@ -106,9 +107,13 @@ jobs:
           command: |
             mkdir -p /tmp/test-results
             make coverage
-      - codecov/upload:
-          file: "coverage.out"
+      - run:
+          name: Upload coverage result to Codecov
           when: on_success
+          command: |
+            curl -sLO https://github.com/codecov/uploader/releases/download/${CODOCOV_VERSION}/codecov-linux
+            chmod +x codecov-linux
+            ./codecov-linux --file coverage.out
 
   lint:
     parameters:
