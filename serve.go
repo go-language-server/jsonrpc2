@@ -11,8 +11,6 @@ import (
 	"net"
 	"os"
 	"time"
-
-	"go.lsp.dev/pkg/event"
 )
 
 // NOTE: This file provides an experimental API for serving multiple remote
@@ -114,10 +112,9 @@ func Serve(ctx context.Context, ln net.Listener, server StreamServer, idleTimeou
 		case err := <-doneListening:
 			return err
 
-		case err := <-closedConns:
-			if !isClosingError(err) {
-				event.Error(ctx, "closed a connection", err)
-			}
+		case <-closedConns:
+			// if !isClosingError(err) {
+			// }
 
 			activeConns--
 			if activeConns == 0 {

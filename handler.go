@@ -7,8 +7,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	"go.lsp.dev/pkg/event"
 )
 
 // Handler is invoked to handle incoming requests.
@@ -111,13 +109,9 @@ func AsyncHandler(handler Handler) (h Handler) {
 			return innerReply(ctx, result, err)
 		}
 
-		_, queueDone := event.Start(ctx, "queued")
 		go func() {
 			<-waitForPrevious
-			queueDone()
-			if err := handler(ctx, reply, req); err != nil {
-				event.Error(ctx, "jsonrpc2 async message delivery failed", err)
-			}
+			handler(ctx, reply, req)
 		}()
 		return nil
 	})
