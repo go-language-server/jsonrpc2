@@ -151,7 +151,7 @@ func (c *conn) Notify(ctx context.Context, method string, params interface{}) (e
 	return err
 }
 
-func (c *conn) replier(req Message, spanDone func()) Replier {
+func (c *conn) replier(req Message) Replier {
 	return func(ctx context.Context, result interface{}, err error) error {
 		call, ok := req.(*Call)
 		if !ok {
@@ -173,9 +173,9 @@ func (c *conn) replier(req Message, spanDone func()) Replier {
 	}
 }
 
-func (c *conn) write(ctx context.Context, msg Message) (n int64, err error) {
+func (c *conn) write(ctx context.Context, msg Message) (int64, error) {
 	c.writeMu.Lock()
-	n, err = c.stream.Write(ctx, msg)
+	n, err := c.stream.Write(ctx, msg)
 	c.writeMu.Unlock()
 	if err != nil {
 		return 0, fmt.Errorf("write to stream: %w", err)
@@ -203,7 +203,9 @@ func (c *conn) run(ctx context.Context, handler Handler) {
 
 		switch msg := msg.(type) {
 		case Request:
-			handler(ctx, c.replier(msg, func() {}), msg)
+			if err := handler(ctx, c.replier(msg), msg); err != nil {
+				c.fail(err)
+			}
 
 		case *Response:
 			// If method is not set, this should be a response, in which case we must

@@ -111,7 +111,7 @@ func AsyncHandler(handler Handler) (h Handler) {
 
 		go func() {
 			<-waitForPrevious
-			handler(ctx, reply, req)
+			_ = handler(ctx, reply, req)
 		}()
 		return nil
 	})
