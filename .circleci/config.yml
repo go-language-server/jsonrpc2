@@ -146,7 +146,7 @@ workflows:
           context: org-global
           matrix:
             parameters:
-              go-version: ["1.16-buster"]
+              go-version: ["1.17-bullseye"]
           pre-steps:
             - setup
           post-steps:
@@ -159,6 +159,6 @@ workflows:
           context: org-global
           matrix:
             parameters:
-              go-version: ["1.16-buster"]
+              go-version: ["1.17-bullseye"]
           pre-steps:
             - setup
