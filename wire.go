@@ -4,9 +4,10 @@
 package jsonrpc2
 
 import (
+	"encoding/json"
 	"fmt"
 
-	"github.com/segmentio/encoding/json"
+	"github.com/bytedance/sonic"
 )
 
 // Version represents a JSON-RPC version.
@@ -25,13 +26,13 @@ var (
 
 // MarshalJSON implements json.Marshaler.
 func (version) MarshalJSON() ([]byte, error) {
-	return json.Marshal(Version)
+	return sonic.Marshal(Version)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (version) UnmarshalJSON(data []byte) error {
 	version := ""
-	if err := json.Unmarshal(data, &version); err != nil {
+	if err := sonic.Unmarshal(data, &version); err != nil {
 		return fmt.Errorf("failed to Unmarshal: %w", err)
 	}
 	if version != Version {
@@ -83,18 +84,18 @@ func (id ID) Format(f fmt.State, r rune) {
 // MarshalJSON implements json.Marshaler.
 func (id *ID) MarshalJSON() ([]byte, error) {
 	if id.name != "" {
-		return json.Marshal(id.name)
+		return sonic.Marshal(id.name)
 	}
-	return json.Marshal(id.number)
+	return sonic.Marshal(id.number)
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (id *ID) UnmarshalJSON(data []byte) error {
 	*id = ID{}
-	if err := json.Unmarshal(data, &id.number); err == nil {
+	if err := sonic.Unmarshal(data, &id.number); err == nil {
 		return nil
 	}
-	return json.Unmarshal(data, &id.name)
+	return sonic.Unmarshal(data, &id.name)
 }
 
 // wireRequest is sent to a server to represent a Call or Notify operaton.

@@ -4,7 +4,6 @@
 package jsonrpc2_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -13,7 +12,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/segmentio/encoding/json"
+	"github.com/bytedance/sonic"
 
 	"go.lsp.dev/jsonrpc2"
 )
@@ -133,36 +132,32 @@ func run(ctx context.Context, nc io.ReadWriteCloser) jsonrpc2.Conn {
 
 func testHandler() jsonrpc2.Handler {
 	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		params := req.Params()
+
 		switch req.Method() {
 		case methodNoArgs:
-			if len(req.Params()) > 0 {
+			if len(params) > 0 {
 				return reply(ctx, nil, fmt.Errorf("expected no params: %w", jsonrpc2.ErrInvalidParams))
 			}
 			return reply(ctx, true, nil)
 
 		case methodOneString:
 			var v string
-			dec := json.NewDecoder(bytes.NewReader(req.Params()))
-			dec.ZeroCopy()
-			if err := dec.Decode(&v); err != nil {
+			if err := sonic.Unmarshal(params, &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, "got:"+v, nil)
 
 		case methodOneNumber:
 			var v int
-			dec := json.NewDecoder(bytes.NewReader(req.Params()))
-			dec.ZeroCopy()
-			if err := dec.Decode(&v); err != nil {
+			if err := sonic.Unmarshal(params, &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, fmt.Sprintf("got:%d", v), nil)
 
 		case methodJoin:
 			var v []string
-			dec := json.NewDecoder(bytes.NewReader(req.Params()))
-			dec.ZeroCopy()
-			if err := dec.Decode(&v); err != nil {
+			if err := sonic.Unmarshal(params, &v); err != nil {
 				return reply(ctx, nil, fmt.Errorf("%s: %w", jsonrpc2.ErrParse, err))
 			}
 			return reply(ctx, path.Join(v...), nil)

@@ -4,11 +4,11 @@
 package jsonrpc2
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/segmentio/encoding/json"
+	"github.com/bytedance/sonic"
 )
 
 // Message is the interface to all JSON-RPC message types.
@@ -92,7 +92,7 @@ func (c Call) MarshalJSON() ([]byte, error) {
 		Params: &c.params,
 		ID:     &c.id,
 	}
-	data, err := json.Marshal(req)
+	data, err := sonic.Marshal(req)
 	if err != nil {
 		return data, fmt.Errorf("marshaling call: %w", err)
 	}
@@ -103,9 +103,7 @@ func (c Call) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler.
 func (c *Call) UnmarshalJSON(data []byte) error {
 	var req wireRequest
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&req); err != nil {
+	if err := sonic.Unmarshal(data, &req); err != nil {
 		return fmt.Errorf("unmarshaling call: %w", err)
 	}
 
@@ -173,7 +171,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 		resp.Result = &r.result
 	}
 
-	data, err := json.Marshal(resp)
+	data, err := sonic.Marshal(resp)
 	if err != nil {
 		return data, fmt.Errorf("marshaling notification: %w", err)
 	}
@@ -184,9 +182,7 @@ func (r Response) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler.
 func (r *Response) UnmarshalJSON(data []byte) error {
 	var resp wireResponse
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&resp); err != nil {
+	if err := sonic.Unmarshal(data, &resp); err != nil {
 		return fmt.Errorf("unmarshaling jsonrpc response: %w", err)
 	}
 
@@ -270,7 +266,7 @@ func (n Notification) MarshalJSON() ([]byte, error) {
 		Method: n.method,
 		Params: &n.params,
 	}
-	data, err := json.Marshal(req)
+	data, err := sonic.Marshal(req)
 	if err != nil {
 		return data, fmt.Errorf("marshaling notification: %w", err)
 	}
@@ -281,9 +277,7 @@ func (n Notification) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler.
 func (n *Notification) UnmarshalJSON(data []byte) error {
 	var req wireRequest
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&req); err != nil {
+	if err := sonic.Unmarshal(data, &req); err != nil {
 		return fmt.Errorf("unmarshaling notification: %w", err)
 	}
 
@@ -298,9 +292,7 @@ func (n *Notification) UnmarshalJSON(data []byte) error {
 // DecodeMessage decodes data to Message.
 func DecodeMessage(data []byte) (Message, error) {
 	var msg combined
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.ZeroCopy()
-	if err := dec.Decode(&msg); err != nil {
+	if err := sonic.Unmarshal(data, &msg); err != nil {
 		return nil, fmt.Errorf("unmarshaling jsonrpc message: %w", err)
 	}
 
@@ -350,7 +342,7 @@ func DecodeMessage(data []byte) (Message, error) {
 
 // marshalInterface marshal obj to json.RawMessage.
 func marshalInterface(obj interface{}) (json.RawMessage, error) {
-	data, err := json.Marshal(obj)
+	data, err := sonic.Marshal(obj)
 	if err != nil {
 		return json.RawMessage{}, fmt.Errorf("failed to marshal json: %w", err)
 	}

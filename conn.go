@@ -4,13 +4,12 @@
 package jsonrpc2
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
-	"github.com/segmentio/encoding/json"
+	"github.com/bytedance/sonic"
 )
 
 // Conn is the common interface to jsonrpc clients and servers.
@@ -126,9 +125,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result interface
 			return id, nil
 		}
 
-		dec := json.NewDecoder(bytes.NewReader(resp.result))
-		dec.ZeroCopy()
-		if err := dec.Decode(result); err != nil {
+		if err := sonic.Unmarshal(resp.result, result); err != nil {
 			return id, fmt.Errorf("unmarshaling result: %w", err)
 		}
 

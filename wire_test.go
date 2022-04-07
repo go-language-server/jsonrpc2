@@ -4,12 +4,12 @@
 package jsonrpc2_test
 
 import (
-	"bytes"
 	"fmt"
 	"reflect"
 	"testing"
+	_ "unsafe"
 
-	"github.com/segmentio/encoding/json"
+	json "github.com/bytedance/sonic"
 
 	"go.lsp.dev/jsonrpc2"
 )
@@ -85,9 +85,7 @@ func TestIDDecode(t *testing.T) {
 			t.Parallel()
 
 			var got *jsonrpc2.ID
-			dec := json.NewDecoder(bytes.NewReader(tt.encoded))
-			dec.ZeroCopy()
-			if err := dec.Decode(&got); err != nil {
+			if err := json.Unmarshal(tt.encoded, &got); err != nil {
 				t.Fatal(err)
 			}
 
@@ -141,17 +139,20 @@ func checkJSON(t *testing.T, got, want []byte) {
 	t.Helper()
 
 	// compare the compact form, to allow for formatting differences
-	g := &bytes.Buffer{}
-	if err := json.Compact(g, got); err != nil {
+	b := []byte{}
+	if err := compact(&b, got); err != nil {
 		t.Fatal(err)
 	}
 
-	w := &bytes.Buffer{}
-	if err := json.Compact(w, want); err != nil {
+	w := []byte{}
+	if err := compact(&w, want); err != nil {
 		t.Fatal(err)
 	}
 
-	if g.String() != w.String() {
-		t.Fatalf("Got:\n%s\nWant:\n%s", g, w)
+	if string(b) != string(w) {
+		t.Fatalf("Got:\n%s\nWant:\n%s", b, w)
 	}
 }
+
+//go:linkname compact github.com/bytedance/sonic/encoder.compact
+func compact(p *[]byte, v []byte) error

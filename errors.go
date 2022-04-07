@@ -4,10 +4,9 @@
 package jsonrpc2
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/segmentio/encoding/json"
 )
 
 // Error represents a JSON-RPC error.
