@@ -2,7 +2,266 @@
 
 [![CircleCI][circleci-badge]][circleci] [![pkg.go.dev][pkg.go.dev-badge]][pkg.go.dev] [![Go module][module-badge]][module] [![codecov.io][codecov-badge]][codecov] [![GA][ga-badge]][ga]
 
-Package jsonrpc2 is an implementation of the JSON-RPC 2 specification for Go.
+Package `jsonrpc2` is a fast, allocation-conscious implementation of the
+[JSON-RPC 2.0](https://www.jsonrpc.org/specification) wire protocol for Go,
+designed for Language Server Protocol (LSP) and Model Context Protocol (MCP)
+style transports.
+
+## Overview
+
+The library is built around a reflection-free wire core plus pluggable framing,
+a swappable payload codec, and a bidirectional connection state machine:
+
+- **Reflection-free envelope.** Message envelopes are encoded by appending
+  directly into a pooled byte buffer and decoded with a single-pass span
+  scanner, so the hot path performs no reflection and copies each payload at most
+  once. Reflection is confined to the user payload (`params` / `result`) and only
+  through a swappable codec.
+- **Symmetric peer connection.** A `Conn` is a bidirectional peer that can both
+  issue and answer calls, notifications, responses, and errors — the shape LSP
+  requires.
+- **Batch, cancellation, graceful shutdown.** JSON-RPC 2.0 batch arrays,
+  per-request cancellation, and idle-detecting graceful close are all supported.
+- **Two wire framings and a pluggable codec.** Newline-delimited JSON (MCP
+  stdio) and LSP `Content-Length` header framing; the payload codec defaults to
+  `encoding/json/v2` and can be swapped for opt-in `sonic` or `goccy` codecs.
+
+## Install
+
+```sh
+go get go.lsp.dev/jsonrpc2
+```
+
+The module requires Go 1.26 or later. The importable core depends only on
+[`github.com/go-json-experiment/json`](https://github.com/go-json-experiment/json)
+(encoding/json/v2); no assembly, JIT, or heavy transitive dependencies enter the
+core module graph.
+
+## Quickstart
+
+### Client: issue a call
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net"
+
+	"go.lsp.dev/jsonrpc2"
+)
+
+func main() {
+	ctx := context.Background()
+
+	nc, err := net.Dial("tcp", "127.0.0.1:4389")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// NewStream uses the LSP Content-Length header framing by default.
+	conn := jsonrpc2.NewConn(jsonrpc2.NewStream(nc))
+	conn.Go(ctx, jsonrpc2.MethodNotFoundHandler)
+	defer conn.Close()
+
+	type hoverParams struct {
+		URI  string `json:"uri"`
+		Line int    `json:"line"`
+	}
+	type hoverResult struct {
+		Contents string `json:"contents"`
+	}
+
+	var res hoverResult
+	if _, err := conn.Call(ctx, "textDocument/hover",
+		hoverParams{URI: "file:///a.go", Line: 12}, &res); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("hover: %s", res.Contents)
+
+	// Notifications are fire-and-forget: no id, no response.
+	if err := conn.Notify(ctx, "textDocument/didSave", hoverParams{URI: "file:///a.go"}); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+### Server: HandlerServer + Serve
+
+A `Handler` answers each incoming request by calling `reply` exactly once for a
+call. `HandlerServer` adapts a `Handler` into a `StreamServer`, and `Serve`
+accepts connections from a `net.Listener`, driving each on its own goroutine.
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net"
+
+	"go.lsp.dev/jsonrpc2"
+)
+
+func handler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	switch req.Method() {
+	case "textDocument/hover":
+		// Decode params, do work, reply with a typed result.
+		return reply(ctx, map[string]string{"contents": "hello"}, nil)
+	default:
+		// Answer unknown calls with the standard error.
+		return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+	}
+}
+
+func main() {
+	ctx := context.Background()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:4389")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	server := jsonrpc2.HandlerServer(handler)
+
+	// idleTimeout = 0 means "serve until ctx is canceled or accept fails".
+	if err := jsonrpc2.Serve(ctx, ln, server, 0); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+`ListenAndServe(ctx, network, addr, server, idleTimeout)` is a convenience that
+creates the listener for you (and removes the socket file for a `unix` network).
+
+A request handler runs inline on the read goroutine by default, so handlers
+observe requests in wire order. A handler that needs to overlap later requests
+(a long-running call, or a server that calls back into the same connection) must
+release itself with `jsonrpc2.Async(ctx)` or be wrapped with
+`jsonrpc2.AsyncHandler`. `jsonrpc2.CancelHandler` adds cancellation by request
+id.
+
+## Framing options
+
+A `Stream` adapts a byte transport (`io.ReadWriteCloser`) to message reads and
+writes. Two framings are provided:
+
+| Constructor | Framing | Compatible with |
+|-------------|---------|-----------------|
+| `NewStream` / `NewHeaderStream` | `Content-Length` header block then body | LSP, gopls |
+| `NewNDJSONStream` / `NewRawStream` | one JSON value per line (`\n`-delimited) | MCP stdio transport |
+
+```go
+// LSP header framing (the gopls-compatible default).
+conn := jsonrpc2.NewConn(jsonrpc2.NewStream(rwc))
+
+// Newline-delimited JSON framing (MCP-compatible).
+conn := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(rwc))
+```
+
+Both framings write each message with a single `Write` (header and body, or
+payload and its newline, are composed into one pooled buffer), avoiding the
+two-syscall-per-message pattern.
+
+## Pluggable codec
+
+The envelope is never routed through a codec; only the user payload (`params`
+and `result`) is. The payload `Codec` is swappable per connection and defaults to
+`encoding/json/v2`:
+
+```go
+// Default: encoding/json/v2 (pure Go, all platforms, no JIT/asm).
+conn := jsonrpc2.NewConn(stream)
+
+// Opt-in faster codecs live in separate modules so their dependencies never
+// enter the core module graph:
+import sonic "go.lsp.dev/jsonrpc2/codec/sonic"
+conn := jsonrpc2.NewConn(stream, jsonrpc2.WithCodec(sonic.Codec{}))
+
+import goccy "go.lsp.dev/jsonrpc2/codec/goccy"
+conn := jsonrpc2.NewConn(stream, jsonrpc2.WithCodec(goccy.Codec{}))
+```
+
+A `RawMessage` passed as params/result, or decoded into a `*RawMessage`, bypasses
+the codec entirely and is carried verbatim.
+
+## Performance
+
+`jsonrpc2` is benchmarked head-to-head against
+[`github.com/creachadair/jrpc2`](https://github.com/creachadair/jrpc2) and the
+Model Context Protocol Go SDK's `jsonrpc2`, using the harness in
+[`internal/benchmark`](./internal/benchmark). The harness holds the transport
+constant per comparison, isolates rival dependencies in a separate module, and
+asserts (via `go-cmp`) that all three decoders extract the same method and params
+from identical input, so the comparison measures equivalent work.
+
+Lower is better; the winner is per row. The **`amd64`** table is the source of
+the "fastest" claim and was measured directly; the `arm64` table is a secondary
+developer baseline.
+
+### Headline: void round-trip (nil params) — amd64 (claim arch, measured)
+
+`linux/amd64`, Intel Xeon Platinum 8481C (GCE c3, 44 vCPU), Debian 13, Go 1.26.4,
+`benchstat` over `-count=10`:
+
+| Library | ns/op | B/op | allocs/op | vs ours |
+|---------|------:|-----:|----------:|---------|
+| **jsonrpc2 (ours)** | **~4780** | **585** | **12** | — (fastest) |
+| jrpc2 | ~12330 | 4480 | 100 | 2.6× slower, 8.3× allocs |
+| mcp | ~44220 | 100919 | 46 | 9.3× slower |
+
+### Same, on `arm64` (Apple M3 Max, secondary baseline)
+
+| Library | ns/op | B/op | allocs/op |
+|---------|------:|-----:|----------:|
+| **jsonrpc2 (ours)** | **~3270** | **584** | **12** |
+| jrpc2 | ~7990 | 4469 | 100 |
+| mcp | ~22500 | 100550 | 46 |
+
+### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
+
+| Input | ours ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs |
+|-------|----------------------|-----------------------|---------------------|
+| Minimal | **175 / 88 / 2** | 3228 / 1504 / 31 (18.4×) | 7127 / 33032 / 8 (40.7×) |
+| Medium | **399 / 192 / 3** | 5189 / 1781 / 36 | 9041 / 33147 / 9 |
+| Batch | **1857 / 1008 / 25** | 17290 / 7256 / 144 (9.3×) | n/a |
+
+`Encode` is **85 ns / 112 B / 1 alloc** for `ours` vs `mcp` 898 ns / 289 B / 3
+(10.6×); `jrpc2` exposes no single-message encoder.
+
+### Caveats (read before quoting these numbers)
+
+These caveats are load-bearing; the benchmark is reported honestly rather than to
+flatter the library.
+
+- **The `fastest` claim is anchored to `amd64` and has been measured.** The amd64
+  headline above was measured directly on an Intel Xeon 8481C server (Debian 13,
+  Go 1.26.4, `-count=10`); `ours` wins every apples-to-apples workload there, with
+  the same allocation counts as arm64. CircleCI also runs the `internal/benchmark`
+  comparison on `amd64`/linux (the CI `bench` job), so the figures are reproducible
+  on every push. The `arm64` tables are a secondary developer baseline.
+- **Batch rows are excluded from the "lowest-cost on every workload" claim.** The
+  batch mechanics differ by library — `jrpc2` issues a true single
+  batch request/response, `mcp` bursts N concurrent independent calls, and `ours`
+  hand-frames the JSON-RPC array — so the batch numbers are **not** an
+  apples-to-apples protocol comparison even though `ours` posts the lowest
+  figures there too.
+- **A documented standalone-decode allocation floor.** `DecodeMessage` and
+  `ParseRequests` sit at a 2–4 alloc/op floor (message struct + copied
+  method/params, plus the public slice shape for `ParseRequests`) because their
+  returned `RawMessage` must own its bytes and never alias a pooled buffer. The
+  `≤ 1 alloc/op` decode target is therefore documented as infeasible for the
+  standalone API without breaking ownership or the public return types; the
+  connection's round-trip decode is a separate, decisively winning path.
+
+The full methodology, the `native` vs `common` transport families, the
+per-workload tables, the optimization log, and the honest AC status are in
+[`internal/benchmark/RESULTS.md`](./internal/benchmark/RESULTS.md).
+
+## License
+
+BSD-3-Clause. See [LICENSE](./LICENSE).
 
 
 <!-- badge links -->
