@@ -149,20 +149,6 @@ func (bc *batchCollector) finish(ctx context.Context) {
 	}
 }
 
-// failAfterWrite records a connection failure that must be published only after
-// the collected batch response has been written. This lets panic/error responses
-// reach the peer before the stream is closed.
-func (bc *batchCollector) failAfterWrite(err error) {
-	if err == nil {
-		return
-	}
-	bc.mu.Lock()
-	if bc.failErr == nil {
-		bc.failErr = err
-	}
-	bc.mu.Unlock()
-}
-
 // add records one call member's encoded response and flushes the batch once the
 // final member has replied and enqueuing is complete.
 func (bc *batchCollector) add(ctx context.Context, resp responseWire) {

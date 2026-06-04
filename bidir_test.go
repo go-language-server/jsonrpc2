@@ -49,11 +49,9 @@ func TestBidirectionalServerInitiatedCall(t *testing.T) {
 	})
 
 	// B serves "ask" by releasing the read loop with Async, calling back to A's
-	// "answer", and replying with a value derived from A's result. b is assigned
-	// before b.Go so the handler closure observes the assigned value; the handler
-	// only runs after Go starts the read loop.
-	var b Conn
-	b = NewConn(eb.stream)
+	// "answer", and replying with a value derived from A's result. The handler
+	// closure observes b only after Go starts the read loop.
+	b := NewConn(eb.stream)
 	b.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
 		if req.Method() != "ask" {
 			return MethodNotFoundHandler(ctx, reply, req)
@@ -118,8 +116,7 @@ func TestServerInitiatedNotificationFromHandlerWithoutAsync(t *testing.T) {
 	})
 
 	// B serves "ask" by notifying A back (no Async needed) and then replying.
-	var b Conn
-	b = NewConn(eb.stream)
+	b := NewConn(eb.stream)
 	b.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
 		if req.Method() != "ask" {
 			return MethodNotFoundHandler(ctx, reply, req)
@@ -184,8 +181,7 @@ func TestGoroutineLeakBidirectional(t *testing.T) {
 			return MethodNotFoundHandler(ctx, reply, req)
 		})
 
-		var b Conn
-		b = NewConn(eb.stream)
+		b := NewConn(eb.stream)
 		b.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
 			if req.Method() != "ask" {
 				return MethodNotFoundHandler(ctx, reply, req)

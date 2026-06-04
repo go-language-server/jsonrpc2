@@ -282,9 +282,3 @@ func callID(req Request) (id ID, isCall bool) {
 	}
 	return ID{}, false
 }
-
-// idOf returns the id of req, or the zero ID for a non-call.
-func idOf(req Request) ID {
-	id, _ := callID(req)
-	return id
-}

@@ -85,7 +85,6 @@ func TestBatchMixedCallsAndNotifications(t *testing.T) {
 		{name: "ndjson", framer: NewNDJSONStream},
 		{name: "header", framer: NewHeaderStream},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			peer, server := newBatchServer(t, tc.framer, batchHandler)
@@ -129,7 +128,6 @@ func TestBatchAllNotificationsNoResponse(t *testing.T) {
 		{name: "ndjson", framer: NewNDJSONStream},
 		{name: "header", framer: NewHeaderStream},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			peer, server := newBatchServer(t, tc.framer, batchHandler)
@@ -161,7 +159,6 @@ func TestBatchMalformedElement(t *testing.T) {
 		{name: "ndjson", framer: NewNDJSONStream},
 		{name: "header", framer: NewHeaderStream},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			peer, server := newBatchServer(t, tc.framer, batchHandler)
@@ -227,7 +224,6 @@ func TestBatchEmptyArray(t *testing.T) {
 		{name: "ndjson", framer: NewNDJSONStream},
 		{name: "header", framer: NewHeaderStream},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			peer, server := newBatchServer(t, tc.framer, batchHandler)
