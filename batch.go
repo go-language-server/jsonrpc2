@@ -104,9 +104,10 @@ func (c *conn) dispatch(ctx context.Context, handler Handler, req Request, msgs 
 type batchCollector struct {
 	c        *conn
 	mu       sync.Mutex
-	bodies   [][]byte // encoded response envelopes, one per call member
-	pending  int      // call members not yet replied
-	released bool     // the dispatch loop has finished enqueuing members
+	resps    []responseWire // response envelopes, one per call member
+	pending  int            // call members not yet replied
+	released bool           // the dispatch loop has finished enqueuing members
+	failErr  error          // connection failure to publish after the batch is written
 }
 
 // dispatchBatch parses, validates, and handles each member of a batch, then
@@ -124,7 +125,7 @@ func (c *conn) dispatchBatch(ctx context.Context, handler Handler, msgs []Reques
 
 	bc := &batchCollector{c: c, pending: calls}
 	if calls > 0 {
-		bc.bodies = make([][]byte, 0, calls)
+		bc.resps = make([]responseWire, 0, calls)
 	}
 
 	for _, req := range msgs {
@@ -140,31 +141,45 @@ func (c *conn) dispatchBatch(ctx context.Context, handler Handler, msgs []Reques
 func (bc *batchCollector) finish(ctx context.Context) {
 	bc.mu.Lock()
 	bc.released = true
-	flush := bc.pending == 0 && len(bc.bodies) > 0
-	bodies := bc.bodies
+	flush := bc.pending == 0 && len(bc.resps) > 0
+	resps := bc.resps
 	bc.mu.Unlock()
 	if flush {
-		bc.write(ctx, bodies)
+		bc.write(ctx, resps)
 	}
+}
+
+// failAfterWrite records a connection failure that must be published only after
+// the collected batch response has been written. This lets panic/error responses
+// reach the peer before the stream is closed.
+func (bc *batchCollector) failAfterWrite(err error) {
+	if err == nil {
+		return
+	}
+	bc.mu.Lock()
+	if bc.failErr == nil {
+		bc.failErr = err
+	}
+	bc.mu.Unlock()
 }
 
 // add records one call member's encoded response and flushes the batch once the
 // final member has replied and enqueuing is complete.
-func (bc *batchCollector) add(ctx context.Context, body []byte) {
+func (bc *batchCollector) add(ctx context.Context, resp responseWire) {
 	bc.mu.Lock()
-	bc.bodies = append(bc.bodies, body)
+	bc.resps = append(bc.resps, resp)
 	bc.pending--
 	flush := bc.released && bc.pending == 0
-	bodies := bc.bodies
+	resps := bc.resps
 	bc.mu.Unlock()
 	if flush {
-		bc.write(ctx, bodies)
+		bc.write(ctx, resps)
 	}
 }
 
 // write joins the response envelopes into one JSON array and emits it as a
 // single frame.
-func (bc *batchCollector) write(ctx context.Context, bodies [][]byte) {
+func (bc *batchCollector) write(ctx context.Context, resps []responseWire) {
 	fs, ok := bc.c.stream.(frameStream)
 	if !ok {
 		return
@@ -178,28 +193,25 @@ func (bc *batchCollector) write(ctx context.Context, bodies [][]byte) {
 		return
 	}
 
-	buf := make([]byte, 0, batchBufSize(bodies))
+	buf := make([]byte, 0, 2)
 	buf = append(buf, '[')
-	for i, body := range bodies {
+	for i, resp := range resps {
 		if i > 0 {
 			buf = append(buf, ',')
 		}
-		buf = append(buf, body...)
+		buf = appendMessage(buf, resp)
 	}
 	buf = append(buf, ']')
 
 	_, err := fs.WriteFrame(ctx, buf)
 	bc.c.afterWrite(ctx, err)
-}
 
-// batchBufSize sums the response body lengths plus the array brackets and commas
-// so the batch buffer is allocated once at the right size.
-func batchBufSize(bodies [][]byte) int {
-	n := 2 // the surrounding brackets
-	for _, b := range bodies {
-		n += len(b) + 1 // body plus a separating comma (one extra is harmless)
+	bc.mu.Lock()
+	failErr := bc.failErr
+	bc.mu.Unlock()
+	if failErr != nil {
+		bc.c.fail(failErr)
 	}
-	return n
 }
 
 // parseBatch parses a batch array into its request members and reports whether

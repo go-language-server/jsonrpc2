@@ -75,59 +75,87 @@ type rpcClient interface {
 	Close() error
 }
 
+// framedStream is the raw framed surface used by the ours adapter's batch path.
+// It matches the built-in framers as well as the benchmark-local direct transport.
+type framedStream interface {
+	jsonrpc2.Stream
+	ReadFrame(context.Context) ([]byte, int64, error)
+	WriteFrame(context.Context, []byte) (int64, error)
+}
+
 // ---------------------------------------------------------------------------
 // ours adapter
 // ---------------------------------------------------------------------------
 
-// oursAdapter drives go.lsp.dev/jsonrpc2 over a net.Pipe with NDJSON framing,
-// for both the native and common transport families (ours has no in-memory
-// channel transport, so net.Pipe is its fastest in-memory option).
+// oursAdapter drives go.lsp.dev/jsonrpc2 over a configurable framed transport.
 //
-// ours exposes no public batch-send on Conn, so the adapter keeps a second,
-// dedicated net.Pipe transport for Batch: a real ours server connection answers
-// the members while the client side hand-frames the request array and reads the
-// single response-array frame. The dedicated transport is built once and reused
-// across batches so per-batch timing excludes connection setup.
+// The adapter reuses a second framed transport for Batch so the benchmark can
+// measure the batch path without paying connection setup on every iteration.
+// The batch side always speaks raw frames (WriteFrame/ReadFrame) so the same
+// implementation works for NDJSON, header, and the benchmark-local direct
+// transport.
 type oursAdapter struct {
-	client jsonrpc2.Conn
-	server jsonrpc2.Conn
-
-	// batch transport, persistent across Batch calls.
+	client      jsonrpc2.Conn
+	server      jsonrpc2.Conn
 	batchServer jsonrpc2.Conn
-	batchConn   net.Conn      // client side of the dedicated batch pipe
-	batchW      *bufio.Writer // client-side writer over batchConn
-	batchR      *bufio.Reader // client-side reader over batchConn
+	batchClient framedStream
 }
 
 // newOursAdapter builds an ours client/server pair over a fresh net.Pipe with
 // NDJSON framing and verifies a void round-trip. It also wires the dedicated
 // batch transport used by Batch.
 func newOursAdapter(ctx context.Context) (*oursAdapter, error) {
-	ca, cb := net.Pipe()
-	client := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(ca))
-	server := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(cb))
+	return newOursAdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
+		ca, cb := net.Pipe()
+		return jsonrpc2.NewNDJSONStream(ca), jsonrpc2.NewNDJSONStream(cb)
+	})
+}
+
+// newOursHeaderAdapter builds an ours adapter that uses the LSP header framing
+// on both the main and batch transports.
+func newOursHeaderAdapter(ctx context.Context) (*oursAdapter, error) {
+	return newOursAdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
+		ca, cb := net.Pipe()
+		return jsonrpc2.NewHeaderStream(ca), jsonrpc2.NewHeaderStream(cb)
+	})
+}
+
+// newOursDirectAdapter builds an ours adapter over the benchmark-local direct
+// transport. The transport bypasses net.Pipe while still exercising the same
+// jsonrpc2 Conn and batch code paths.
+func newOursDirectAdapter(ctx context.Context) (*oursAdapter, error) {
+	return newOursAdapterWithPair(ctx, newDirectStreamPair)
+}
+
+func newOursAdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Stream, jsonrpc2.Stream)) (*oursAdapter, error) {
+	ca, cb := pair()
+	client := jsonrpc2.NewConn(ca)
+	server := jsonrpc2.NewConn(cb)
 
 	client.Go(ctx, jsonrpc2.MethodNotFoundHandler)
 	server.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		return reply(ctx, nil, nil)
 	})
 
-	// Dedicated batch transport: a real ours server on one end, a raw byte client
-	// on the other so the adapter can hand-frame the batch array and read the
-	// response array directly.
-	bca, bcb := net.Pipe()
-	batchServer := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(bcb))
+	bca, bcb := pair()
+	batchServer := jsonrpc2.NewConn(bcb)
 	batchServer.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		return reply(ctx, nil, nil)
 	})
+
+	batchClient, ok := bca.(framedStream)
+	if !ok {
+		_ = client.Close()
+		_ = server.Close()
+		_ = batchServer.Close()
+		return nil, fmt.Errorf("batch transport %T does not support framed batch writes", bca)
+	}
 
 	a := &oursAdapter{
 		client:      client,
 		server:      server,
 		batchServer: batchServer,
-		batchConn:   bca,
-		batchW:      bufio.NewWriter(bca),
-		batchR:      bufio.NewReader(bca),
+		batchClient: batchClient,
 	}
 	if err := sanityCheck(ctx, a); err != nil {
 		_ = a.Close()
@@ -149,11 +177,7 @@ func (a *oursAdapter) Notify(ctx context.Context, method string, params []byte) 
 }
 
 // Batch sends n void calls as a single JSON-RPC batch array directly through
-// the dedicated batch transport and reads the single response-array frame. ours
-// has no public batch-send on Conn, so the request array is framed by hand and
-// the response array is counted by its top-level objects (the response side has
-// no public decoder for a response array, so the array shape is validated by
-// counting members rather than fully decoding each).
+// the dedicated batch transport and reads the single response-array frame.
 func (a *oursAdapter) Batch(ctx context.Context, n int) error {
 	frame := make([]byte, 0, 48*n+2)
 	frame = append(frame, '[')
@@ -165,18 +189,15 @@ func (a *oursAdapter) Batch(ctx context.Context, n int) error {
 		frame = appendInt(frame, int64(i+1))
 		frame = append(frame, '}')
 	}
-	frame = append(frame, ']', '\n')
+	frame = append(frame, ']')
 
-	if _, err := a.batchW.Write(frame); err != nil {
-		return err
-	}
-	if err := a.batchW.Flush(); err != nil {
+	if _, err := a.batchClient.WriteFrame(ctx, frame); err != nil {
 		return err
 	}
 
 	// Read the single response-array frame (one NDJSON line) and verify it holds
 	// n response objects.
-	line, err := a.batchR.ReadBytes('\n')
+	line, _, err := a.batchClient.ReadFrame(ctx)
 	if err != nil {
 		return err
 	}
@@ -191,7 +212,7 @@ func (a *oursAdapter) Close() error {
 	<-a.client.Done()
 	errs := a.server.Close()
 	<-a.server.Done()
-	_ = a.batchConn.Close()
+	_ = a.batchClient.Close()
 	_ = a.batchServer.Close()
 	<-a.batchServer.Done()
 	if errc != nil {

@@ -4,59 +4,62 @@
 package jsonrpc2
 
 import (
-	"bufio"
 	"context"
-	"io"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
-// batchPeer drives one side of an ndjson connection by hand so a test can write a
+// batchPeer drives one side of a framed connection by hand so a test can write a
 // raw batch frame and read the raw response frame, bypassing the high-level Conn
 // on the test side while exercising the real Conn dispatch on the server side.
 type batchPeer struct {
-	conn net.Conn
-	in   *bufio.Reader
+	stream Stream
+	fs     frameStream
 }
 
-func newBatchServer(t *testing.T, handler Handler) (*batchPeer, Conn) {
+func newBatchServer(t *testing.T, framer Framer, handler Handler) (*batchPeer, Conn) {
 	t.Helper()
 	ca, cb := net.Pipe()
-	server := NewConn(NewNDJSONStream(cb))
+	server := NewConn(framer(cb))
 	server.Go(t.Context(), handler)
-	return &batchPeer{conn: ca, in: bufio.NewReader(ca)}, server
+	peer := framer(ca)
+	fs, ok := peer.(frameStream)
+	if !ok {
+		t.Fatalf("framer %T does not implement frameStream", peer)
+	}
+	return &batchPeer{stream: peer, fs: fs}, server
 }
 
 func (p *batchPeer) writeFrame(t *testing.T, frame string) {
 	t.Helper()
-	if _, err := io.WriteString(p.conn, frame+"\n"); err != nil {
+	if _, err := p.fs.WriteFrame(t.Context(), []byte(frame)); err != nil {
 		t.Fatalf("write frame: %v", err)
 	}
 }
 
-// readFrame reads one ndjson frame, or returns ok=false if none arrives before
-// the deadline (used to assert that an all-notification batch yields nothing).
+// readFrame reads one raw framed batch response, or returns ok=false if none
+// arrives before the deadline (used to assert that an all-notification batch
+// yields nothing).
 func (p *batchPeer) readFrame(t *testing.T, timeout time.Duration) (string, bool) {
 	t.Helper()
 	type res struct {
-		line string
+		body []byte
 		err  error
 	}
 	ch := make(chan res, 1)
 	go func() {
-		line, err := p.in.ReadString('\n')
-		ch <- res{line, err}
+		body, _, err := p.fs.ReadFrame(t.Context())
+		ch <- res{body, err}
 	}()
 	select {
 	case r := <-ch:
-		if r.err != nil && r.line == "" {
+		if r.err != nil && len(r.body) == 0 {
 			t.Fatalf("read frame: %v", r.err)
 		}
-		return strings.TrimRight(r.line, "\n"), true
+		return string(r.body), true
 	case <-time.After(timeout):
 		return "", false
 	}
@@ -75,136 +78,188 @@ func batchHandler(ctx context.Context, reply Replier, req Request) error {
 
 func TestBatchMixedCallsAndNotifications(t *testing.T) {
 	t.Parallel()
-	peer, server := newBatchServer(t, batchHandler)
-	defer func() {
-		_ = server.Close()
-		<-server.Done()
-	}()
+	for _, tc := range []struct {
+		name   string
+		framer Framer
+	}{
+		{name: "ndjson", framer: NewNDJSONStream},
+		{name: "header", framer: NewHeaderStream},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			peer, server := newBatchServer(t, tc.framer, batchHandler)
+			defer func() {
+				_ = server.Close()
+				<-server.Done()
+				_ = peer.stream.Close()
+			}()
 
-	// Two calls (ids 1 and 3) and one notification (no id). Only the calls produce
-	// response members; the notification produces none.
-	frame := `[` +
-		`{"jsonrpc":"2.0","method":"sum","params":10,"id":1},` +
-		`{"jsonrpc":"2.0","method":"note","params":"x"},` +
-		`{"jsonrpc":"2.0","method":"sum","params":30,"id":3}` +
-		`]`
-	peer.writeFrame(t, frame)
+			// Two calls (ids 1 and 3) and one notification (no id). Only the calls
+			// produce response members; the notification produces none.
+			frame := `[` +
+				`{"jsonrpc":"2.0","method":"sum","params":10,"id":1},` +
+				`{"jsonrpc":"2.0","method":"note","params":"x"},` +
+				`{"jsonrpc":"2.0","method":"sum","params":30,"id":3}` +
+				`]`
+			peer.writeFrame(t, frame)
 
-	resp, ok := peer.readFrame(t, 2*time.Second)
-	if !ok {
-		t.Fatal("expected a batch response frame")
-	}
+			resp, ok := peer.readFrame(t, 2*time.Second)
+			if !ok {
+				t.Fatal("expected a batch response frame")
+			}
 
-	// The response is a JSON array; assert it is a batch of exactly the two call
-	// responses, with the notification absent.
-	got := decodeBatchResponses(t, resp)
-	want := map[int64]string{1: "10", 3: "30"}
-	if diff := gocmp.Diff(want, got); diff != "" {
-		t.Fatalf("batch response mismatch (-want +got):\n%s", diff)
+			// The response is a JSON array; assert it is a batch of exactly the two
+			// call responses, with the notification absent.
+			got := decodeBatchResponses(t, resp)
+			want := map[int64]string{1: "10", 3: "30"}
+			if diff := gocmp.Diff(want, got); diff != "" {
+				t.Fatalf("batch response mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
 func TestBatchAllNotificationsNoResponse(t *testing.T) {
 	t.Parallel()
-	peer, server := newBatchServer(t, batchHandler)
-	defer func() {
-		_ = server.Close()
-		<-server.Done()
-	}()
+	for _, tc := range []struct {
+		name   string
+		framer Framer
+	}{
+		{name: "ndjson", framer: NewNDJSONStream},
+		{name: "header", framer: NewHeaderStream},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			peer, server := newBatchServer(t, tc.framer, batchHandler)
+			defer func() {
+				_ = server.Close()
+				<-server.Done()
+				_ = peer.stream.Close()
+			}()
 
-	frame := `[` +
-		`{"jsonrpc":"2.0","method":"note","params":1},` +
-		`{"jsonrpc":"2.0","method":"note","params":2}` +
-		`]`
-	peer.writeFrame(t, frame)
+			frame := `[` +
+				`{"jsonrpc":"2.0","method":"note","params":1},` +
+				`{"jsonrpc":"2.0","method":"note","params":2}` +
+				`]`
+			peer.writeFrame(t, frame)
 
-	if _, ok := peer.readFrame(t, 300*time.Millisecond); ok {
-		t.Fatal("an all-notification batch must produce no response")
+			if _, ok := peer.readFrame(t, 300*time.Millisecond); ok {
+				t.Fatal("an all-notification batch must produce no response")
+			}
+		})
 	}
 }
 
 func TestBatchMalformedElement(t *testing.T) {
 	t.Parallel()
-	peer, server := newBatchServer(t, batchHandler)
-	defer func() {
-		_ = server.Close()
-		<-server.Done()
-	}()
+	for _, tc := range []struct {
+		name   string
+		framer Framer
+	}{
+		{name: "ndjson", framer: NewNDJSONStream},
+		{name: "header", framer: NewHeaderStream},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			peer, server := newBatchServer(t, tc.framer, batchHandler)
+			defer func() {
+				_ = server.Close()
+				<-server.Done()
+				_ = peer.stream.Close()
+			}()
 
-	// One valid call and one malformed member (missing method). The malformed
-	// member is answered with a null-id error response; the valid call is served.
-	frame := `[` +
-		`{"jsonrpc":"2.0","method":"sum","params":5,"id":1},` +
-		`{"jsonrpc":"2.0","id":2}` +
-		`]`
-	peer.writeFrame(t, frame)
+			// One valid call and one malformed member (missing method). The malformed
+			// member is answered with a null-id error response; the valid call is served.
+			frame := `[` +
+				`{"jsonrpc":"2.0","method":"sum","params":5,"id":1},` +
+				`{"jsonrpc":"2.0","id":2}` +
+				`]`
+			peer.writeFrame(t, frame)
 
-	resp, ok := peer.readFrame(t, 2*time.Second)
-	if !ok {
-		t.Fatal("expected a batch response frame")
-	}
+			resp, ok := peer.readFrame(t, 2*time.Second)
+			if !ok {
+				t.Fatal("expected a batch response frame")
+			}
 
-	msgs := splitArray(t, resp)
-	if len(msgs) != 2 {
-		t.Fatalf("want 2 response members, got %d: %s", len(msgs), resp)
-	}
-	var sawValid, sawError bool
-	for _, m := range msgs {
-		dm, derr := DecodeMessage([]byte(m))
-		if derr != nil {
-			t.Fatalf("decode member %q: %v", m, derr)
-		}
-		r := dm.(*Response)
-		if r.Err() != nil {
-			var we *Error
-			if !asError(r.Err(), &we) || we.Code != InvalidRequest {
-				t.Fatalf("malformed member: got %v want InvalidRequest", r.Err())
+			msgs := splitArray(t, resp)
+			if len(msgs) != 2 {
+				t.Fatalf("want 2 response members, got %d: %s", len(msgs), resp)
 			}
-			if r.ID().IsValid() {
-				t.Fatalf("malformed member must carry a null id, got %v", r.ID())
+			var sawValid, sawError bool
+			for _, m := range msgs {
+				dm, derr := DecodeMessage([]byte(m))
+				if derr != nil {
+					t.Fatalf("decode member %q: %v", m, derr)
+				}
+				r := dm.(*Response)
+				if r.Err() != nil {
+					var we *Error
+					if !asError(r.Err(), &we) || we.Code != InvalidRequest {
+						t.Fatalf("malformed member: got %v want InvalidRequest", r.Err())
+					}
+					if r.ID().IsValid() {
+						t.Fatalf("malformed member must carry a null id, got %v", r.ID())
+					}
+					sawError = true
+				} else {
+					if n, _ := r.ID().Number(); n != 1 {
+						t.Fatalf("valid member id: got %v want 1", r.ID())
+					}
+					sawValid = true
+				}
 			}
-			sawError = true
-		} else {
-			if n, _ := r.ID().Number(); n != 1 {
-				t.Fatalf("valid member id: got %v want 1", r.ID())
+			if !sawValid || !sawError {
+				t.Fatalf("want one valid and one error member; valid=%v error=%v", sawValid, sawError)
 			}
-			sawValid = true
-		}
-	}
-	if !sawValid || !sawError {
-		t.Fatalf("want one valid and one error member; valid=%v error=%v", sawValid, sawError)
+		})
 	}
 }
 
 func TestBatchEmptyArray(t *testing.T) {
 	t.Parallel()
-	peer, server := newBatchServer(t, batchHandler)
-	defer func() {
-		_ = server.Close()
-		<-server.Done()
-	}()
+	for _, tc := range []struct {
+		name   string
+		framer Framer
+	}{
+		{name: "ndjson", framer: NewNDJSONStream},
+		{name: "header", framer: NewHeaderStream},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			peer, server := newBatchServer(t, tc.framer, batchHandler)
+			defer func() {
+				_ = server.Close()
+				<-server.Done()
+				_ = peer.stream.Close()
+			}()
 
-	peer.writeFrame(t, `[]`)
-	resp, ok := peer.readFrame(t, 2*time.Second)
-	if !ok {
-		t.Fatal("an empty batch must produce a single error response")
-	}
-	// Per the specification, an empty batch is answered with a single,
-	// unbracketed Response object, not a one-element array.
-	if strings.HasPrefix(strings.TrimSpace(resp), "[") {
-		t.Fatalf("empty batch response must be a single object, got array: %s", resp)
-	}
-	dm, err := DecodeMessage([]byte(resp))
-	if err != nil {
-		t.Fatalf("decode empty-batch response %q: %v", resp, err)
-	}
-	r := dm.(*Response)
-	var we *Error
-	if !asError(r.Err(), &we) || we.Code != InvalidRequest {
-		t.Fatalf("empty batch: got %v want InvalidRequest", r.Err())
-	}
-	if r.ID().IsValid() {
-		t.Fatalf("empty batch response must carry a null id, got %v", r.ID())
+			peer.writeFrame(t, `[]`)
+			resp, ok := peer.readFrame(t, 2*time.Second)
+			if !ok {
+				t.Fatal("an empty batch must produce a single error response")
+			}
+			// Per the specification, an empty batch is answered with a single,
+			// unbracketed Response object, not a one-element array.
+			if len(resp) > 0 && resp[0] == '[' {
+				t.Fatalf("empty batch response must be a single object, got array: %s", resp)
+			}
+			dm, err := DecodeMessage([]byte(resp))
+			if err != nil {
+				t.Fatalf("decode empty-batch response %q: %v", resp, err)
+			}
+			r := dm.(*Response)
+			var we *Error
+			if !asError(r.Err(), &we) || we.Code != InvalidRequest {
+				t.Fatalf("empty batch: got %v want InvalidRequest", r.Err())
+			}
+			if r.ID().IsValid() {
+				t.Fatalf("empty batch response must carry a null id, got %v", r.ID())
+			}
+		})
 	}
 }
 

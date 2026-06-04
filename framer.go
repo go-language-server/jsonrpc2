@@ -160,18 +160,44 @@ func (s *headerStream) ReadFrame(ctx context.Context) ([]byte, int64, error) {
 	return body, int64(headerLen) + int64(length), nil
 }
 
-// Write implements [Stream]. It encodes msg, composes the Content-Length header
-// and body into a single pooled buffer, and emits them with one conn.Write.
+// Write implements [Stream]. It composes the Content-Length header and encoded
+// body directly into the stream's write buffer and emits them with one
+// conn.Write. This avoids the intermediate owned body allocation made by
+// EncodeMessage, while preserving the single-write framing guarantee.
 func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
 
-	data, err := EncodeMessage(msg)
-	if err != nil {
-		return 0, err
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	const (
+		contentLengthPrefix = "Content-Length: "
+		headerSuffix        = "\r\n\r\n"
+		headerReserve       = len(contentLengthPrefix) + 20 + len(headerSuffix)
+	)
+
+	buf := s.wbuf[:0]
+	if cap(buf) < headerReserve {
+		buf = make([]byte, headerReserve)
+	} else {
+		buf = buf[:headerReserve]
 	}
-	return s.WriteFrame(ctx, data)
+	bodyStart := len(buf)
+	buf = appendMessage(buf, msg)
+	bodyLen := len(buf) - bodyStart
+
+	header := append(buf[:0], contentLengthPrefix...)
+	header = appendUint(header, bodyLen)
+	header = append(header, headerSuffix...)
+	headerLen := len(header)
+	copy(buf[headerLen:], buf[bodyStart:])
+	buf = buf[:headerLen+bodyLen]
+	s.wbuf = buf
+
+	n, err := s.conn.Write(buf)
+	return int64(n), err
 }
 
 // WriteFrame implements the internal frameStream interface. It frames the

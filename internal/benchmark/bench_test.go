@@ -47,6 +47,31 @@ func allAdapters() []adapterFactory {
 	return append(nativeAdapters(), commonAdapters()...)
 }
 
+// benchmarkSingleAdapter runs a benchmark body against one adapter factory.
+// It is used for transport-specific ours-only benchmarks that do not compare
+// against the other libraries.
+func benchmarkSingleAdapter(b *testing.B, name string, make func(ctx context.Context) (rpcClient, error), body func(*testing.B, context.Context, rpcClient)) {
+	b.Run(name, func(b *testing.B) {
+		ctx := b.Context()
+		c, err := make(ctx)
+		if err != nil {
+			b.Fatalf("make adapter: %v", err)
+		}
+		defer c.Close()
+
+		b.ReportAllocs()
+		body(b, ctx, c)
+	})
+}
+
+func newOursHeaderRPCClient(ctx context.Context) (rpcClient, error) {
+	return newOursHeaderAdapter(ctx)
+}
+
+func newOursDirectRPCClient(ctx context.Context) (rpcClient, error) {
+	return newOursDirectAdapter(ctx)
+}
+
 // paramsSmall, paramsMedium, paramsLarge are identical pre-encoded JSON payloads
 // reused verbatim across every library, so the only variable is the library, not
 // the bytes on the wire. Sizes are approximately 50 B, 256 B, and 4 KiB.
@@ -210,6 +235,53 @@ func BenchmarkBatch(b *testing.B) {
 			})
 		}
 	}
+}
+
+// BenchmarkRoundTripVoidHeader measures the ours adapter over the header
+// transport, which is the package's default framing.
+func BenchmarkRoundTripVoidHeader(b *testing.B) {
+	benchmarkSingleAdapter(b, "ours/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+		for b.Loop() {
+			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
+				b.Fatalf("Call: %v", err)
+			}
+		}
+	})
+}
+
+// BenchmarkRoundTripVoidDirect measures the benchmark-local direct transport,
+// which bypasses net.Pipe while still exercising the same Conn and batch code.
+func BenchmarkRoundTripVoidDirect(b *testing.B) {
+	benchmarkSingleAdapter(b, "ours/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+		for b.Loop() {
+			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
+				b.Fatalf("Call: %v", err)
+			}
+		}
+	})
+}
+
+// BenchmarkBatchHeader measures batch handling over the header transport.
+func BenchmarkBatchHeader(b *testing.B) {
+	benchmarkSingleAdapter(b, "n16/ours/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+		for b.Loop() {
+			if err := c.Batch(ctx, 16); err != nil {
+				b.Fatalf("Batch: %v", err)
+			}
+		}
+	})
+}
+
+// BenchmarkBatchDirect measures batch handling over the benchmark-local direct
+// transport.
+func BenchmarkBatchDirect(b *testing.B) {
+	benchmarkSingleAdapter(b, "n16/ours/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+		for b.Loop() {
+			if err := c.Batch(ctx, 16); err != nil {
+				b.Fatalf("Batch: %v", err)
+			}
+		}
+	})
 }
 
 // decodeInputs mirror the jrpc2 BenchmarkParseRequests inputs so the pure-decode

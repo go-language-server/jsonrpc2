@@ -119,7 +119,7 @@ func TestBatchMemberWithoutReplyDoesNotHang(t *testing.T) {
 			return MethodNotFoundHandler(ctx, reply, req)
 		}
 	}
-	peer, server := newBatchServer(t, handler)
+	peer, server := newBatchServer(t, NewNDJSONStream, handler)
 	defer func() {
 		_ = server.Close()
 		<-server.Done()
