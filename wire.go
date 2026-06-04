@@ -6,6 +6,32 @@ package jsonrpc2
 // envelopePrefix is the shared, constant head of every JSON-RPC envelope.
 const envelopePrefix = `{"jsonrpc":"2.0"`
 
+// callWire, notificationWire, and responseWire are the internal, allocation-
+// free wire representations used by the connection hot path. They are value
+// types so callers can pass them through interfaces without forcing a heap
+// allocation, while the public *Call, *Notification, and *Response types remain
+// available for the external API and decode results.
+type callWire struct {
+	id     ID
+	method string
+	params RawMessage
+}
+
+type notificationWire struct {
+	method string
+	params RawMessage
+}
+
+type responseWire struct {
+	id     ID
+	result RawMessage
+	err    error
+}
+
+func (callWire) jsonrpc2Message()         {}
+func (notificationWire) jsonrpc2Message() {}
+func (responseWire) jsonrpc2Message()     {}
+
 // EncodeMessage encodes a [Message] into a freshly allocated JSON-RPC envelope.
 //
 // The envelope is built by appending directly into a pooled buffer with no
@@ -34,6 +60,12 @@ func appendMessage(dst []byte, msg Message) []byte {
 		return appendNotification(dst, m)
 	case *Response:
 		return appendResponse(dst, m)
+	case callWire:
+		return appendCallFields(dst, m.id, m.method, m.params)
+	case notificationWire:
+		return appendNotificationFields(dst, m.method, m.params)
+	case responseWire:
+		return appendResponseFields(dst, m.id, m.result, m.err)
 	default:
 		return dst
 	}
@@ -43,15 +75,19 @@ func appendMessage(dst []byte, msg Message) []byte {
 //
 //	{"jsonrpc":"2.0","method":<esc>,"params":<raw?>,"id":<id>}
 func appendCall(dst []byte, c *Call) []byte {
+	return appendCallFields(dst, c.id, c.method, c.params)
+}
+
+func appendCallFields(dst []byte, id ID, method string, params RawMessage) []byte {
 	dst = append(dst, envelopePrefix...)
 	dst = append(dst, `,"method":`...)
-	dst = appendQuotedString(dst, c.method)
-	if len(c.params) > 0 {
+	dst = appendQuotedString(dst, method)
+	if len(params) > 0 {
 		dst = append(dst, `,"params":`...)
-		dst = append(dst, c.params...)
+		dst = append(dst, params...)
 	}
 	dst = append(dst, `,"id":`...)
-	dst = c.id.appendID(dst)
+	dst = id.appendID(dst)
 	return append(dst, '}')
 }
 
@@ -59,12 +95,16 @@ func appendCall(dst []byte, c *Call) []byte {
 //
 //	{"jsonrpc":"2.0","method":<esc>,"params":<raw?>}
 func appendNotification(dst []byte, n *Notification) []byte {
+	return appendNotificationFields(dst, n.method, n.params)
+}
+
+func appendNotificationFields(dst []byte, method string, params RawMessage) []byte {
 	dst = append(dst, envelopePrefix...)
 	dst = append(dst, `,"method":`...)
-	dst = appendQuotedString(dst, n.method)
-	if len(n.params) > 0 {
+	dst = appendQuotedString(dst, method)
+	if len(params) > 0 {
 		dst = append(dst, `,"params":`...)
-		dst = append(dst, n.params...)
+		dst = append(dst, params...)
 	}
 	return append(dst, '}')
 }
@@ -77,17 +117,21 @@ func appendNotification(dst []byte, n *Notification) []byte {
 //	{"jsonrpc":"2.0","id":<id>,"result":<raw|null>}
 //	{"jsonrpc":"2.0","id":<id>,"error":{...}}
 func appendResponse(dst []byte, r *Response) []byte {
+	return appendResponseFields(dst, r.id, r.result, r.err)
+}
+
+func appendResponseFields(dst []byte, id ID, result RawMessage, err error) []byte {
 	dst = append(dst, envelopePrefix...)
 	dst = append(dst, `,"id":`...)
-	dst = r.id.appendID(dst)
-	if r.err != nil {
+	dst = id.appendID(dst)
+	if err != nil {
 		dst = append(dst, `,"error":`...)
-		dst = appendError(dst, toWireError(r.err))
+		dst = appendError(dst, toWireError(err))
 		return append(dst, '}')
 	}
 	dst = append(dst, `,"result":`...)
-	if len(r.result) > 0 {
-		dst = append(dst, r.result...)
+	if len(result) > 0 {
+		dst = append(dst, result...)
 	} else {
 		dst = append(dst, 'n', 'u', 'l', 'l')
 	}

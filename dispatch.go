@@ -23,9 +23,8 @@ func (c *conn) setupRequest(ctx context.Context, req Request, bc *batchCollector
 		return nil, true
 	}
 
-	ir = &incomingRequest{req: req, parent: ctx}
-
 	id, isCall := callID(req)
+	ir = &incomingRequest{req: req, parent: ctx, id: id, isCall: isCall}
 
 	// A Preempter, if configured, runs inline on the read goroutine before the
 	// request is queued for the handler. A request it handles (any error other
@@ -203,14 +202,18 @@ func (c *conn) replier(ir *incomingRequest, bc *batchCollector) (Replier, *repli
 	}, flag
 }
 
-// sendResponse marshals result (or err) into a [*Response] and either writes it
-// immediately or, for a batch member, hands its encoded form to the collector.
+// sendResponse marshals result (or err) into a response wire envelope and
+// either writes it immediately or, for a batch member, hands it to the
+// collector.
 func (c *conn) sendResponse(ctx context.Context, id ID, bc *batchCollector, result any, err error) error {
-	resp, rerr := c.newResponse(id, result, err)
-	if rerr != nil {
-		return rerr
+	resp := responseWire{id: id, err: err}
+	if err == nil {
+		raw, merr := marshalParams(c.codec, result)
+		if merr != nil {
+			return merr
+		}
+		resp.result = raw
 	}
-
 	// The id may be reused by the peer as soon as the response is sent, so drop it
 	// from the incoming map before writing.
 	c.updateInFlight(func(s *inFlightState) {
@@ -218,28 +221,10 @@ func (c *conn) sendResponse(ctx context.Context, id ID, bc *batchCollector, resu
 	})
 
 	if bc != nil {
-		body, eerr := EncodeMessage(resp)
-		if eerr != nil {
-			return eerr
-		}
-		bc.add(ctx, body)
+		bc.add(ctx, resp)
 		return nil
 	}
 	return c.write(ctx, resp)
-}
-
-// newResponse builds the response for a completed call: a success response when
-// err is nil, otherwise an error response. result is marshaled with the
-// connection's codec.
-func (c *conn) newResponse(id ID, result any, err error) (*Response, error) {
-	if err != nil {
-		return NewResponse(id, nil, err), nil
-	}
-	raw, merr := marshalParams(c.codec, result)
-	if merr != nil {
-		return nil, merr
-	}
-	return NewResponse(id, raw, nil), nil
 }
 
 // completeRequest answers req with an error without invoking the handler, used
@@ -254,10 +239,9 @@ func (c *conn) completeRequest(ctx context.Context, ir *incomingRequest, bc *bat
 // counter so the connection can progress toward idle.
 func (c *conn) afterHandle(ir *incomingRequest) {
 	ir.cancel()
-	_, isCall := callID(ir.req)
 	c.updateInFlight(func(s *inFlightState) {
-		if isCall {
-			delete(s.incomingByID, idOf(ir.req))
+		if ir.isCall {
+			delete(s.incomingByID, ir.id)
 		}
 		s.incoming--
 	})
@@ -267,13 +251,9 @@ func (c *conn) afterHandle(ir *incomingRequest) {
 // collecting it into the batch array. It does not touch the in-flight counters
 // because a malformed member is never registered as in-flight work.
 func (c *conn) writeInvalid(ctx context.Context, bc *batchCollector, err *Error) {
-	resp := NewResponse(ID{}, nil, err)
+	resp := responseWire{id: ID{}, err: err}
 	if bc != nil {
-		body, eerr := EncodeMessage(resp)
-		if eerr != nil {
-			return
-		}
-		bc.add(ctx, body)
+		bc.add(ctx, resp)
 		return
 	}
 	_ = c.write(ctx, resp)

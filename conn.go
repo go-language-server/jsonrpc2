@@ -152,7 +152,7 @@ type inFlightState struct {
 	closer   io.Closer
 	closeErr error
 
-	outgoingCalls map[ID]*waiter // outstanding outgoing calls, keyed by id
+	outgoingCalls outgoingCallSlots // outstanding generated numeric calls
 
 	incoming     int                     // incoming requests not yet fully processed
 	incomingByID map[ID]*incomingRequest // outstanding incoming calls, keyed by id
@@ -161,7 +161,7 @@ type inFlightState struct {
 // idle reports whether no work is in flight. The read goroutine may still be
 // running, but nothing else is operating on behalf of the connection.
 func (s *inFlightState) idle() bool {
-	return len(s.outgoingCalls) == 0 && s.incoming == 0
+	return s.outgoingCalls.Len() == 0 && s.incoming == 0
 }
 
 // shuttingDown reports the error that should reject new work, or nil. It wraps
@@ -179,15 +179,14 @@ func (s *inFlightState) shuttingDown(errClosing error) error {
 	return nil
 }
 
-// waiter is the rendezvous for one outgoing call. It is registered in
-// outgoingCalls before the call is written and retired (exactly once) by
-// whichever of the read goroutine or the canceling Call wins the lock-guarded
-// removal from the map. waiters are pooled; a waiter is only returned to the
-// pool after it has been removed from the map, so the peer can never deliver to
-// a recycled waiter.
+// waiter is the rendezvous for one outgoing call. It is registered in the
+// numeric outgoing call slots before the call is written and retired (exactly
+// once) by whichever of the read goroutine or the canceling Call wins the
+// lock-guarded removal. waiters are pooled; a waiter is only returned to the
+// pool after it has been removed from the slots, so the peer can never deliver
+// to a recycled waiter.
 type waiter struct {
-	response *Response
-	ready    chan *Response // buffered, capacity 1
+	ready chan *Response // buffered, capacity 1
 }
 
 // waiterPool recycles waiters to cut a per-call allocation.
@@ -197,11 +196,7 @@ var waiterPool = sync.Pool{
 	},
 }
 
-func getWaiter() *waiter {
-	w := waiterPool.Get().(*waiter)
-	w.response = nil
-	return w
-}
+func getWaiter() *waiter { return waiterPool.Get().(*waiter) }
 
 func putWaiter(w *waiter) {
 	// Drain a delivered-but-unread response so the channel is empty for reuse.
@@ -228,6 +223,8 @@ type incomingRequest struct {
 	req    Request
 	parent context.Context
 	rel    *releaser // the request's release token, returned for asyncKey{}
+	id     ID
+	isCall bool
 
 	mu         sync.Mutex
 	canceled   bool               // cancel was called before realCtx existed
@@ -347,7 +344,6 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 	if err != nil {
 		return id, fmt.Errorf("jsonrpc2: marshaling call parameters: %w", err)
 	}
-	call := NewCall(id, method, raw)
 
 	w := getWaiter()
 
@@ -356,17 +352,14 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 		if shutErr = s.shuttingDown(ErrClientClosing); shutErr != nil {
 			return
 		}
-		if s.outgoingCalls == nil {
-			s.outgoingCalls = make(map[ID]*waiter)
-		}
-		s.outgoingCalls[id] = w
+		s.outgoingCalls.Add(id, w)
 	})
 	if shutErr != nil {
 		putWaiter(w)
 		return id, shutErr
 	}
 
-	if err := c.write(ctx, call); err != nil {
+	if err := c.write(ctx, callWire{id: id, method: method, params: raw}); err != nil {
 		// The write failed, so the peer will never answer. If we win the removal we
 		// own the waiter; otherwise the read goroutine retired it on a read-side
 		// failure and is committed to delivering once, so wait before pooling.
@@ -382,7 +375,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 	select {
 	case resp := <-w.ready:
 		// The read goroutine delivered the response and removed the waiter from the
-		// map, so we own it again.
+		// slot table, so we own it again.
 		putWaiter(w)
 		if resp.err != nil {
 			return id, resp.err
@@ -395,7 +388,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 	case <-ctx.Done():
 		// The caller gave up. If we win the lock-guarded removal we own the waiter
 		// and the read goroutine will never deliver to it. Otherwise the read
-		// goroutine already removed it from the map and is committed to delivering
+		// goroutine already removed it from the slots and is committed to delivering
 		// exactly once, so wait for that delivery before pooling the waiter; pooling
 		// it early would let a reused waiter receive this call's late response.
 		if c.retireCall(id) {
@@ -408,16 +401,13 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 	}
 }
 
-// retireCall removes the outgoing call id from the map if it is still present,
-// reporting whether this call performed the removal. It is the lock-guarded
-// hand-off that makes waiter pooling safe: only the goroutine that removes the
-// entry owns the waiter afterwards.
+// retireCall removes the outgoing call id from the numeric slots if it is still
+// present, reporting whether this call performed the removal. It is the
+// lock-guarded hand-off that makes waiter pooling safe: only the goroutine that
+// removes the entry owns the waiter afterwards.
 func (c *conn) retireCall(id ID) (removed bool) {
 	c.updateInFlight(func(s *inFlightState) {
-		if _, ok := s.outgoingCalls[id]; ok {
-			delete(s.outgoingCalls, id)
-			removed = true
-		}
+		_, removed = s.outgoingCalls.Take(id)
 	})
 	return removed
 }
@@ -437,7 +427,7 @@ func (c *conn) Notify(ctx context.Context, method string, params any) error {
 		return shutErr
 	}
 
-	return c.write(ctx, NewNotification(method, raw))
+	return c.write(ctx, notificationWire{method: method, params: raw})
 }
 
 // write sends msg on the stream after checking that the connection is not
@@ -527,20 +517,16 @@ func (c *conn) readIncoming(ctx context.Context, handler Handler) {
 		s.readErr = err
 		// With the reader stopped, outstanding outgoing calls can never be
 		// answered; retire them with the terminating error.
-		for id, w := range s.outgoingCalls {
-			delete(s.outgoingCalls, id)
+		s.outgoingCalls.Drain(func(id ID, w *waiter) {
 			w.deliver(&Response{id: id, err: err})
-		}
+		})
 	})
 }
 
-// deliver records the response on the waiter and signals it. The ready channel
-// has capacity one and the waiter is delivered to exactly once (guarded by the
-// outgoingCalls map), so the send never blocks.
-func (w *waiter) deliver(resp *Response) {
-	w.response = resp
-	w.ready <- resp
-}
+// deliver signals the waiter with resp. The ready channel has capacity one and
+// the waiter is delivered to exactly once (guarded by the outgoing call slots),
+// so the send never blocks.
+func (w *waiter) deliver(resp *Response) { w.ready <- resp }
 
 // deliverResponse routes an incoming response to its waiting call. The lookup
 // and removal happen together under the state lock so that the canceling Call
@@ -548,10 +534,7 @@ func (w *waiter) deliver(resp *Response) {
 func (c *conn) deliverResponse(resp *Response) {
 	var w *waiter
 	c.updateInFlight(func(s *inFlightState) {
-		if cw, ok := s.outgoingCalls[resp.id]; ok {
-			delete(s.outgoingCalls, resp.id)
-			w = cw
-		}
+		w, _ = s.outgoingCalls.Take(resp.id)
 	})
 	if w != nil {
 		w.deliver(resp)
@@ -597,10 +580,10 @@ func (c *conn) Err() error {
 	var err error
 	c.updateInFlight(func(s *inFlightState) {
 		switch {
-		case s.readErr != nil && !errors.Is(s.readErr, io.EOF):
-			err = s.readErr
 		case s.writeErr != nil:
 			err = s.writeErr
+		case s.readErr != nil && !errors.Is(s.readErr, io.EOF):
+			err = s.readErr
 		default:
 			err = s.closeErr
 		}

@@ -288,6 +288,78 @@ func TestClientContextCancelStopsWaiting(t *testing.T) {
 	}
 }
 
+func TestCanceledCallLateResponseDoesNotReachLaterCall(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	ea, eb := memTransport(NewNDJSONStream)(t)
+	client := NewConn(ea.stream)
+
+	slowStarted := make(chan struct{})
+	slowRelease := make(chan struct{})
+	slowReplied := make(chan error, 1)
+	server := NewConn(eb.stream)
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+		switch req.Method() {
+		case "slow":
+			close(slowStarted)
+			<-slowRelease
+			err := reply(ctx, "late", nil)
+			slowReplied <- err
+			return err
+		case "fast":
+			return reply(ctx, "fast", nil)
+		default:
+			return reply(ctx, nil, ErrMethodNotFound)
+		}
+	}))
+	defer closeBoth(t, client, server)
+
+	callCtx, cancel := context.WithCancel(ctx)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := client.Call(callCtx, "slow", nil, nil)
+		errc <- err
+	}()
+
+	<-slowStarted
+	cancel()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled Call error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled Call did not return")
+	}
+
+	var got string
+	if _, err := client.Call(ctx, "fast", nil, &got); err != nil {
+		t.Fatalf("second Call: %v", err)
+	}
+	if got != "fast" {
+		t.Fatalf("second Call result = %q, want fast", got)
+	}
+
+	close(slowRelease)
+	select {
+	case err := <-slowReplied:
+		if err != nil {
+			t.Fatalf("late reply: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("late reply did not flush")
+	}
+
+	got = ""
+	if _, err := client.Call(ctx, "fast", nil, &got); err != nil {
+		t.Fatalf("third Call after late response: %v", err)
+	}
+	if got != "fast" {
+		t.Fatalf("third Call result = %q, want fast", got)
+	}
+}
+
 func TestGracefulClose(t *testing.T) {
 	t.Parallel()
 	for name, newTransport := range transports() {
