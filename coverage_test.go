@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -194,7 +193,7 @@ func TestListenAndServe(t *testing.T) {
 		"success: unix socket": {
 			network: "unix",
 			addr: func(t *testing.T) string {
-				return filepath.Join(t.TempDir(), "lasrv.sock")
+				return unixSocketAddr(t, "lasrv.sock")
 			},
 		},
 	}

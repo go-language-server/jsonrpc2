@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
@@ -56,7 +55,7 @@ func TestServeRoundTrip(t *testing.T) {
 		"success: unix socket": {
 			network: "unix",
 			addr: func(t *testing.T) string {
-				return filepath.Join(t.TempDir(), "jsonrpc2.sock")
+				return unixSocketAddr(t, "jsonrpc2.sock")
 			},
 		},
 	}
