@@ -1,0 +1,12 @@
+This directory contains a verbatim copy of the JSON-RPC 2.0 implementation from
+the Model Context Protocol Go SDK, version v1.6.1:
+
+    github.com/modelcontextprotocol/go-sdk@v1.6.1/internal/jsonrpc2
+    github.com/modelcontextprotocol/go-sdk@v1.6.1/internal/json (-> ./internaljson)
+
+It is copied here solely to enable an apples-to-apples performance comparison in
+the benchmark harness. The original package lives under an internal/ path and is
+therefore not importable, so vendoring the source is the only way to benchmark it
+faithfully. The only modification is rewriting the internal/json import path to the
+local ./internaljson copy. The original MIT-style license headers are preserved on
+each file; see the upstream LICENSE at github.com/modelcontextprotocol/go-sdk.
