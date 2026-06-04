@@ -1,157 +1,127 @@
-// SPDX-FileCopyrightText: 2021 The Go Language Server Authors
+// Copyright 2026 The Go Language Server Authors. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-package jsonrpc2_test
+package jsonrpc2
 
 import (
-	"bytes"
-	"fmt"
-	"reflect"
 	"testing"
 
-	"github.com/segmentio/encoding/json"
-
-	"go.lsp.dev/jsonrpc2"
+	gocmp "github.com/google/go-cmp/cmp"
 )
 
-var wireIDTestData = []struct {
-	name    string
-	id      jsonrpc2.ID
-	encoded []byte
-	plain   string
-	quoted  string
-}{
-	{
-		name:    `empty`,
-		encoded: []byte(`0`),
-		plain:   `0`,
-		quoted:  `#0`,
-	}, {
-		name:    `number`,
-		id:      jsonrpc2.NewNumberID(43),
-		encoded: []byte(`43`),
-		plain:   `43`,
-		quoted:  `#43`,
-	}, {
-		name:    `string`,
-		id:      jsonrpc2.NewStringID("life"),
-		encoded: []byte(`"life"`),
-		plain:   `life`,
-		quoted:  `"life"`,
-	},
-}
-
-func TestIDFormat(t *testing.T) {
+func TestEncodeMessage_Golden(t *testing.T) {
 	t.Parallel()
 
-	for _, tt := range wireIDTestData {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := fmt.Sprint(tt.id); got != tt.plain {
-				t.Errorf("got %s expected %s", got, tt.plain)
-			}
-			if got := fmt.Sprintf("%q", tt.id); got != tt.quoted {
-				t.Errorf("got %s want %s", got, tt.quoted)
-			}
-		})
-	}
-}
-
-func TestIDEncode(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range wireIDTestData {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			data, err := json.Marshal(&tt.id)
-			if err != nil {
-				t.Fatal(err)
-			}
-			checkJSON(t, data, tt.encoded)
-		})
-	}
-}
-
-func TestIDDecode(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range wireIDTestData {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var got *jsonrpc2.ID
-			dec := json.NewDecoder(bytes.NewReader(tt.encoded))
-			dec.ZeroCopy()
-			if err := dec.Decode(&got); err != nil {
-				t.Fatal(err)
-			}
-
-			if reflect.ValueOf(&got).IsZero() {
-				t.Fatalf("got nil want %s", tt.id)
-			}
-
-			if *got != tt.id {
-				t.Fatalf("got %s want %s", got, tt.id)
-			}
-		})
-	}
-}
-
-func TestErrorEncode(t *testing.T) {
-	t.Parallel()
-
-	b, err := json.Marshal(jsonrpc2.NewError(0, ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	checkJSON(t, b, []byte(`{
-		"code": 0,
-		"message": ""
-	}`))
-}
-
-func TestErrorResponse(t *testing.T) {
-	t.Parallel()
-
-	// originally reported in #39719, this checks that result is not present if
-	// it is an error response
-	r, _ := jsonrpc2.NewResponse(jsonrpc2.NewNumberID(3), nil, fmt.Errorf("computing fix edits"))
-	data, err := json.Marshal(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	checkJSON(t, data, []byte(`{
-		"jsonrpc":"2.0",
-		"error":{
-			"code":0,
-			"message":"computing fix edits"
+	tests := map[string]struct {
+		msg  Message
+		want string
+	}{
+		"success: call with object params": {
+			msg:  NewCall(NewNumberID(1), "sum", RawMessage(`{"a":1,"b":2}`)),
+			want: `{"jsonrpc":"2.0","method":"sum","params":{"a":1,"b":2},"id":1}`,
 		},
-		"id":3
-	}`))
+		"success: call with array params and string id": {
+			msg:  NewCall(NewStringID("abc"), "subtract", RawMessage(`[42,23]`)),
+			want: `{"jsonrpc":"2.0","method":"subtract","params":[42,23],"id":"abc"}`,
+		},
+		"success: call without params": {
+			msg:  NewCall(NewNumberID(2), "ping", nil),
+			want: `{"jsonrpc":"2.0","method":"ping","id":2}`,
+		},
+		"success: call with empty-but-non-nil params omits params": {
+			msg:  NewCall(NewNumberID(2), "ping", RawMessage{}),
+			want: `{"jsonrpc":"2.0","method":"ping","id":2}`,
+		},
+		"success: call with method needing escape": {
+			msg:  NewCall(NewNumberID(3), "a/b\nc", nil),
+			want: `{"jsonrpc":"2.0","method":"a/b\nc","id":3}`,
+		},
+		"success: notification without params omits id": {
+			msg:  NewNotification("update", nil),
+			want: `{"jsonrpc":"2.0","method":"update"}`,
+		},
+		"success: notification with params": {
+			msg:  NewNotification("notify", RawMessage(`[1,2,3]`)),
+			want: `{"jsonrpc":"2.0","method":"notify","params":[1,2,3]}`,
+		},
+		"success: notification with empty-but-non-nil params omits params": {
+			msg:  NewNotification("update", RawMessage{}),
+			want: `{"jsonrpc":"2.0","method":"update"}`,
+		},
+		"success: success response with result": {
+			msg:  NewResponse(NewNumberID(4), RawMessage(`19`), nil),
+			want: `{"jsonrpc":"2.0","id":4,"result":19}`,
+		},
+		"success: success response with null result preserved": {
+			msg:  NewResponse(NewNumberID(5), RawMessage(`null`), nil),
+			want: `{"jsonrpc":"2.0","id":5,"result":null}`,
+		},
+		"success: success response with empty result defaults to null": {
+			msg:  NewResponse(NewNumberID(6), nil, nil),
+			want: `{"jsonrpc":"2.0","id":6,"result":null}`,
+		},
+		"success: success response with empty-but-non-nil result defaults to null": {
+			msg:  NewResponse(NewNumberID(6), RawMessage{}, nil),
+			want: `{"jsonrpc":"2.0","id":6,"result":null}`,
+		},
+		"success: error response with null id": {
+			msg:  NewResponse(ID{}, nil, NewError(ParseError, "parse error")),
+			want: `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`,
+		},
+		"success: error response with data": {
+			msg: NewResponse(NewNumberID(7), nil, &Error{
+				Code:    InvalidParams,
+				Message: "invalid params",
+				Data:    RawMessage(`{"detail":"x"}`),
+			}),
+			want: `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"invalid params","data":{"detail":"x"}}}`,
+		},
+		"success: error response with empty-but-non-nil data omits data": {
+			msg: NewResponse(NewNumberID(7), nil, &Error{
+				Code:    InvalidParams,
+				Message: "invalid params",
+				Data:    RawMessage{},
+			}),
+			want: `{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"invalid params"}}`,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := EncodeMessage(tt.msg)
+			if err != nil {
+				t.Fatalf("EncodeMessage error: %v", err)
+			}
+			if diff := gocmp.Diff(tt.want, string(got)); diff != "" {
+				t.Errorf("EncodeMessage mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
-func checkJSON(t *testing.T, got, want []byte) {
-	t.Helper()
+func TestEncodeMessage_OwnsBuffer(t *testing.T) {
+	t.Parallel()
 
-	// compare the compact form, to allow for formatting differences
-	g := &bytes.Buffer{}
-	if err := json.Compact(g, got); err != nil {
-		t.Fatal(err)
+	// Encoding twice must not return aliased buffers, and the pool must not let
+	// one result corrupt another.
+	a, err := EncodeMessage(NewCall(NewNumberID(1), "a", RawMessage(`[1]`)))
+	if err != nil {
+		t.Fatalf("EncodeMessage error: %v", err)
 	}
-
-	w := &bytes.Buffer{}
-	if err := json.Compact(w, want); err != nil {
-		t.Fatal(err)
+	b, err := EncodeMessage(NewCall(NewNumberID(2), "b", RawMessage(`[2]`)))
+	if err != nil {
+		t.Fatalf("EncodeMessage error: %v", err)
 	}
-
-	if g.String() != w.String() {
-		t.Fatalf("Got:\n%s\nWant:\n%s", g, w)
+	want := `{"jsonrpc":"2.0","method":"a","params":[1],"id":1}`
+	if string(a) != want {
+		t.Errorf("first result corrupted: got %q want %q", a, want)
+	}
+	for i := range a {
+		a[i] = 'x'
+	}
+	if string(b) != `{"jsonrpc":"2.0","method":"b","params":[2],"id":2}` {
+		t.Errorf("second result aliases first: %q", b)
 	}
 }

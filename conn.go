@@ -1,245 +1,625 @@
-// SPDX-FileCopyrightText: 2021 The Go Language Server Authors
+// Copyright 2026 The Go Language Server Authors. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 package jsonrpc2
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
 	"sync"
 	"sync/atomic"
-
-	"github.com/segmentio/encoding/json"
+	"time"
 )
 
-// Conn is the common interface to jsonrpc clients and servers.
+// Conn is the common interface to JSON-RPC clients and servers.
 //
-// Conn is bidirectional; it does not have a designated server or client end.
-// It manages the jsonrpc2 protocol, connecting responses back to their calls.
+// Conn is bidirectional: it has no designated server or client end. It manages
+// the JSON-RPC 2.0 protocol on top of a [Stream], correlating responses back to
+// the calls that produced them and dispatching incoming requests to a
+// [Handler].
+//
+// A Conn is created with [NewConn] and driven by a single read goroutine that
+// is started by [Conn.Go]. The same Conn may be used concurrently for outgoing
+// [Conn.Call] and [Conn.Notify] from many goroutines.
 type Conn interface {
-	// Call invokes the target method and waits for a response.
+	// Call invokes method on the peer and waits for the response.
 	//
-	// The params will be marshaled to JSON before sending over the wire, and will
-	// be handed to the method invoked.
+	// params is marshaled with the connection's [Codec] before being sent; a nil
+	// params sends no parameters. The response result is unmarshaled into result,
+	// which may be nil to discard it. The returned [ID] is unique to this
+	// connection and is the id under which the call was sent.
 	//
-	// The response will be unmarshaled from JSON into the result.
-	//
-	// The id returned will be unique from this connection, and can be used for
-	// logging or tracking.
-	Call(ctx context.Context, method string, params, result interface{}) (ID, error)
+	// Call returns the error response sent by the peer, the local marshaling or
+	// write error, or ctx.Err() if ctx is canceled before the response arrives.
+	Call(ctx context.Context, method string, params, result any) (ID, error)
 
-	// Notify invokes the target method but does not wait for a response.
+	// Notify invokes method on the peer without waiting for a response.
 	//
-	// The params will be marshaled to JSON before sending over the wire, and will
-	// be handed to the method invoked.
-	Notify(ctx context.Context, method string, params interface{}) error
+	// params is marshaled with the connection's [Codec]; a nil params sends no
+	// parameters.
+	Notify(ctx context.Context, method string, params any) error
 
-	// Go starts a goroutine to handle the connection.
+	// Go starts the connection's read goroutine, dispatching incoming requests to
+	// handler. It must be called exactly once per Conn and returns immediately;
+	// block on [Conn.Done] to wait for the connection to terminate.
 	//
-	// It must be called exactly once for each Conn. It returns immediately.
-	// Must block on Done() to wait for the connection to shut down.
+	// By default a request handler runs inline on the read goroutine, so handlers
+	// observe requests in wire order and the next message is not read until the
+	// current handler replies. A handler that wants to overlap later requests
+	// (for example a long-running call, or a server that issues calls back to the
+	// peer) must release itself with [Async] or be wrapped with [AsyncHandler];
+	// otherwise a handler that issues a server-initiated [Conn.Call] back into
+	// this same connection deadlocks the read goroutine, because the response to
+	// that call cannot be read while the read goroutine is blocked running the
+	// handler. A server-initiated [Conn.Notify] needs no release, since it never
+	// waits for a response. See [Handler] for the full reentrancy contract.
 	//
-	// This is a temporary measure, this should be started automatically in the
-	// future.
+	// [Conn.Close] is the authoritative teardown. Canceling ctx is observed only
+	// between frames: the read loop checks ctx before it starts the next frame, so
+	// a cancellation requests a graceful stop at the next frame boundary, but a
+	// reader already blocked mid-frame (waiting on the peer) is not interrupted by
+	// ctx-cancel. Close, by contrast, closes the underlying stream and so unblocks
+	// a reader parked in the middle of a frame. To guarantee prompt termination,
+	// call Close rather than relying on ctx cancellation. A termination caused by
+	// canceling ctx is treated as a clean shutdown and is not reported by
+	// [Conn.Err].
 	Go(ctx context.Context, handler Handler)
 
-	// Close closes the connection and it's underlying stream.
-	//
-	// It does not wait for the close to complete, use the Done() channel for
-	// that.
+	// Close stops accepting new work, waits for in-flight calls and handlers to
+	// drain, closes the underlying stream, and blocks until the connection has
+	// fully terminated (the read goroutine has exited). It reports the stream's
+	// close error. After Close returns, [Conn.Done] is already closed.
 	Close() error
 
-	// Done returns a channel that will be closed when the processing goroutine
-	// has terminated, which will happen if Close() is called or an underlying
-	// stream is closed.
+	// Done returns a channel that is closed when the connection has fully
+	// terminated: the read goroutine has exited and all in-flight work has
+	// drained.
 	Done() <-chan struct{}
 
-	// Err returns an error if there was one from within the processing goroutine.
-	//
-	// If err returns non nil, the connection will be already closed or closing.
+	// Err reports the error that terminated the connection, or nil if it was
+	// closed cleanly. A clean end of stream ([io.EOF]) is reported as nil.
 	Err() error
 }
 
+// Option configures a [Conn] created by [NewConn].
+type Option func(*conn)
+
+// WithCodec sets the [Codec] used to marshal call params and unmarshal call
+// results on the connection. When unset the connection uses [DefaultCodec].
+func WithCodec(c Codec) Option {
+	return func(cn *conn) {
+		if c != nil {
+			cn.codec = c
+		}
+	}
+}
+
+// WithPreempter sets the [Preempter] consulted for every incoming request before
+// it is dispatched to the handler. The preempter runs inline on the read
+// goroutine; a request it handles (by returning a result and an error other than
+// [ErrNotHandled]) is answered immediately and never reaches the handler.
+func WithPreempter(p Preempter) Option {
+	return func(cn *conn) {
+		cn.preempter = p
+	}
+}
+
+// NewConn creates a connection over stream. The connection does not start
+// reading until [Conn.Go] is called.
+func NewConn(stream Stream, opts ...Option) Conn {
+	c := &conn{
+		stream: stream,
+		codec:  DefaultCodec,
+		done:   make(chan struct{}),
+	}
+	c.state.closer = stream
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// conn is the concrete [Conn]. Its in-flight state is funneled through
+// updateInFlight under a single mutex, so that idle detection, shutdown, and
+// write-error propagation observe a consistent view.
 type conn struct {
-	seq       int32                 // access atomically
-	writeMu   sync.Mutex            // protects writes to the stream
-	stream    Stream                // supplied stream
-	pendingMu sync.Mutex            // protects the pending map
-	pending   map[ID]chan *Response // holds the pending response channel with the ID as the key.
+	seq atomic.Int64 // last allocated outgoing call id
 
-	done chan struct{} // closed when done
-	err  atomic.Value  // holds run error
+	stream    Stream
+	codec     Codec
+	preempter Preempter // optional, consulted before the handler
+
+	stateMu sync.Mutex
+	state   inFlightState // mutated only inside updateInFlight
+	done    chan struct{} // closed when the connection is fully terminated
 }
 
-// NewConn creates a new connection object around the supplied stream.
-func NewConn(s Stream) Conn {
-	conn := &conn{
-		stream:  s,
-		pending: make(map[ID]chan *Response),
-		done:    make(chan struct{}),
+// inFlightState records the in-flight calls and requests of a [conn]. It is the
+// single source of truth for idle detection and shutdown and is mutated only
+// inside conn.updateInFlight while holding conn.stateMu.
+type inFlightState struct {
+	connClosing bool  // Close has been called
+	reading     bool  // the read goroutine is running
+	readErr     error // set when the read goroutine exits
+	writeErr    error // set when a write fails for a non-canceled reason
+
+	// closer shuts down the stream. It is invoked once, when the connection is
+	// idle and shutting down, then set to nil and its result recorded in closeErr.
+	closer   io.Closer
+	closeErr error
+
+	outgoingCalls map[ID]*waiter // outstanding outgoing calls, keyed by id
+
+	incoming     int                     // incoming requests not yet fully processed
+	incomingByID map[ID]*incomingRequest // outstanding incoming calls, keyed by id
+}
+
+// idle reports whether no work is in flight. The read goroutine may still be
+// running, but nothing else is operating on behalf of the connection.
+func (s *inFlightState) idle() bool {
+	return len(s.outgoingCalls) == 0 && s.incoming == 0
+}
+
+// shuttingDown reports the error that should reject new work, or nil. It wraps
+// errClosing with the read or write error when the stream itself has broken.
+func (s *inFlightState) shuttingDown(errClosing error) error {
+	if s.connClosing {
+		return errClosing
 	}
-	return conn
-}
-
-// Call implements Conn.
-func (c *conn) Call(ctx context.Context, method string, params, result interface{}) (id ID, err error) {
-	// generate a new request identifier
-	id = NewNumberID(atomic.AddInt32(&c.seq, 1))
-	call, err := NewCall(id, method, params)
-	if err != nil {
-		return id, fmt.Errorf("marshaling call parameters: %w", err)
+	if s.readErr != nil {
+		return fmt.Errorf("%w: %w", errClosing, s.readErr)
 	}
-
-	// We have to add ourselves to the pending map before we send, otherwise we
-	// are racing the response. Also add a buffer to rchan, so that if we get a
-	// wire response between the time this call is cancelled and id is deleted
-	// from c.pending, the send to rchan will not block.
-	rchan := make(chan *Response, 1)
-
-	c.pendingMu.Lock()
-	c.pending[id] = rchan
-	c.pendingMu.Unlock()
-
-	defer func() {
-		c.pendingMu.Lock()
-		delete(c.pending, id)
-		c.pendingMu.Unlock()
-	}()
-
-	// now we are ready to send
-	_, err = c.write(ctx, call)
-	if err != nil {
-		// sending failed, we will never get a response, so don't leave it pending
-		return id, err
-	}
-
-	// now wait for the response
-	select {
-	case resp := <-rchan:
-		// is it an error response?
-		if resp.err != nil {
-			return id, resp.err
-		}
-
-		if result == nil || len(resp.result) == 0 {
-			return id, nil
-		}
-
-		dec := json.NewDecoder(bytes.NewReader(resp.result))
-		dec.ZeroCopy()
-		if err := dec.Decode(result); err != nil {
-			return id, fmt.Errorf("unmarshaling result: %w", err)
-		}
-
-		return id, nil
-
-	case <-ctx.Done():
-		return id, ctx.Err()
-	}
-}
-
-// Notify implements Conn.
-func (c *conn) Notify(ctx context.Context, method string, params interface{}) (err error) {
-	notify, err := NewNotification(method, params)
-	if err != nil {
-		return fmt.Errorf("marshaling notify parameters: %w", err)
-	}
-
-	_, err = c.write(ctx, notify)
-
-	return err
-}
-
-func (c *conn) replier(req Message) Replier {
-	return func(ctx context.Context, result interface{}, err error) error {
-		call, ok := req.(*Call)
-		if !ok {
-			// request was a notify, no need to respond
-			return nil
-		}
-
-		response, err := NewResponse(call.id, result, err)
-		if err != nil {
-			return err
-		}
-
-		_, err = c.write(ctx, response)
-		if err != nil {
-			// TODO(iancottrell): if a stream write fails, we really need to shut down the whole stream
-			return err
-		}
-		return nil
-	}
-}
-
-func (c *conn) write(ctx context.Context, msg Message) (int64, error) {
-	c.writeMu.Lock()
-	n, err := c.stream.Write(ctx, msg)
-	c.writeMu.Unlock()
-	if err != nil {
-		return 0, fmt.Errorf("write to stream: %w", err)
-	}
-
-	return n, nil
-}
-
-// Go implements Conn.
-func (c *conn) Go(ctx context.Context, handler Handler) {
-	go c.run(ctx, handler)
-}
-
-func (c *conn) run(ctx context.Context, handler Handler) {
-	defer close(c.done)
-
-	for {
-		// get the next message
-		msg, _, err := c.stream.Read(ctx)
-		if err != nil {
-			// The stream failed, we cannot continue.
-			c.fail(err)
-			return
-		}
-
-		switch msg := msg.(type) {
-		case Request:
-			if err := handler(ctx, c.replier(msg), msg); err != nil {
-				c.fail(err)
-			}
-
-		case *Response:
-			// If method is not set, this should be a response, in which case we must
-			// have an id to send the response back to the caller.
-			c.pendingMu.Lock()
-			rchan, ok := c.pending[msg.id]
-			c.pendingMu.Unlock()
-			if ok {
-				rchan <- msg
-			}
-		}
-	}
-}
-
-// Close implements Conn.
-func (c *conn) Close() error {
-	return c.stream.Close()
-}
-
-// Done implements Conn.
-func (c *conn) Done() <-chan struct{} {
-	return c.done
-}
-
-// Err implements Conn.
-func (c *conn) Err() error {
-	if err := c.err.Load(); err != nil {
-		return err.(error)
+	if s.writeErr != nil {
+		return fmt.Errorf("%w: %w", errClosing, s.writeErr)
 	}
 	return nil
 }
 
-// fail sets a failure condition on the stream and closes it.
-func (c *conn) fail(err error) {
-	c.err.Store(err)
-	c.stream.Close()
+// waiter is the rendezvous for one outgoing call. It is registered in
+// outgoingCalls before the call is written and retired (exactly once) by
+// whichever of the read goroutine or the canceling Call wins the lock-guarded
+// removal from the map. waiters are pooled; a waiter is only returned to the
+// pool after it has been removed from the map, so the peer can never deliver to
+// a recycled waiter.
+type waiter struct {
+	response *Response
+	ready    chan *Response // buffered, capacity 1
+}
+
+// waiterPool recycles waiters to cut a per-call allocation.
+var waiterPool = sync.Pool{
+	New: func() any {
+		return &waiter{ready: make(chan *Response, 1)}
+	},
+}
+
+func getWaiter() *waiter {
+	w := waiterPool.Get().(*waiter)
+	w.response = nil
+	return w
+}
+
+func putWaiter(w *waiter) {
+	// Drain a delivered-but-unread response so the channel is empty for reuse.
+	select {
+	case <-w.ready:
+	default:
+	}
+	waiterPool.Put(w)
+}
+
+// incomingRequest tracks an incoming request while it is handled. It is itself
+// the per-request [context.Context] passed to the handler: cancellation (by the
+// read loop on completion, or by write-error propagation) reaches the handler
+// through this value, and it carries the parent's deadline and values.
+//
+// Folding the request context into incomingRequest removes the per-request
+// context.WithCancel allocation (the cancelCtx struct plus its CancelFunc
+// closure) from the dispatch hot path. The real cancellation machinery is
+// created lazily, only the first time Done is observed, by delegating to a
+// stdlib context.WithCancel(parent); a handler that never inspects Done (the
+// common void path) pays nothing. Deadline and Value delegate to the parent
+// without locking so they stay allocation-free.
+type incomingRequest struct {
+	req    Request
+	parent context.Context
+	rel    *releaser // the request's release token, returned for asyncKey{}
+
+	mu         sync.Mutex
+	canceled   bool               // cancel was called before realCtx existed
+	realCtx    context.Context    // lazily created on first Done
+	realCancel context.CancelFunc // cancels realCtx; nil until realCtx is created
+}
+
+// compile-time check that *incomingRequest satisfies context.Context.
+var _ context.Context = (*incomingRequest)(nil)
+
+// Deadline implements [context.Context] by delegating to the parent.
+func (ir *incomingRequest) Deadline() (deadline time.Time, ok bool) {
+	return ir.parent.Deadline()
+}
+
+// Value implements [context.Context]. It returns the request's [releaser] for
+// the internal asyncKey so that [Async] can release the request without a
+// separate context.WithValue wrapper allocation on the dispatch hot path; every
+// other key delegates to the parent. It is kept lock-free because the
+// synchronous dispatch path may read context values.
+func (ir *incomingRequest) Value(key any) any {
+	if _, ok := key.(asyncKey); ok && ir.rel != nil {
+		return ir.rel
+	}
+	return ir.parent.Value(key)
+}
+
+// Done implements [context.Context]. The cancellation channel is created lazily
+// the first time it is requested by delegating to a stdlib
+// context.WithCancel(parent), so a handler that never selects on Done (the void
+// hot path) never forces the allocation. A cancel that arrived before the first
+// Done is replayed onto the freshly created context.
+func (ir *incomingRequest) Done() <-chan struct{} {
+	ir.mu.Lock()
+	defer ir.mu.Unlock()
+	if ir.realCtx == nil {
+		ir.realCtx, ir.realCancel = context.WithCancel(ir.parent)
+		if ir.canceled {
+			ir.realCancel()
+		}
+	}
+	return ir.realCtx.Done()
+}
+
+// Err implements [context.Context]. When the cancellation channel has been
+// materialized it reports the delegate's error; otherwise it reports
+// context.Canceled if cancel was already called, and finally falls back to the
+// parent's error so a parent deadline or cancellation is visible even when Done
+// was never observed.
+func (ir *incomingRequest) Err() error {
+	ir.mu.Lock()
+	defer ir.mu.Unlock()
+	switch {
+	case ir.realCtx != nil:
+		return ir.realCtx.Err()
+	case ir.canceled:
+		return context.Canceled
+	default:
+		return ir.parent.Err()
+	}
+}
+
+// cancel cancels the request context. If the cancellation channel has not yet
+// been materialized, the cancellation is recorded and replayed when Done first
+// creates it. cancel is idempotent and safe for concurrent use; it is invoked by
+// the read loop when the request completes and by write-error propagation.
+func (ir *incomingRequest) cancel() {
+	ir.mu.Lock()
+	canceler := ir.realCancel
+	ir.canceled = true
+	ir.mu.Unlock()
+	if canceler != nil {
+		canceler()
+	}
+}
+
+// updateInFlight runs f under stateMu to mutate the in-flight state, then closes
+// the stream and the done channel if the connection has become idle while
+// shutting down. All state mutation goes through here so that idle detection and
+// shutdown observe a consistent view; f must not block (it may only do
+// non-blocking channel operations) and must not re-enter updateInFlight.
+func (c *conn) updateInFlight(f func(s *inFlightState)) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	s := &c.state
+	f(s)
+
+	select {
+	case <-c.done:
+		// Already fully done; f must not have re-introduced work.
+		return
+	default:
+	}
+
+	if s.idle() && s.shuttingDown(ErrServerClosing) != nil {
+		if s.closer != nil {
+			s.closeErr = s.closer.Close()
+			s.closer = nil
+		}
+		if !s.reading {
+			// The read goroutine has stopped (or never started) and nothing is in
+			// flight: the connection is fully terminated.
+			close(c.done)
+		}
+		// Otherwise the read goroutine is still blocked in Read; closing the stream
+		// above unblocks it, and its exit will run updateInFlight again with
+		// reading=false to close done.
+	}
+}
+
+// Call implements [Conn].
+func (c *conn) Call(ctx context.Context, method string, params, result any) (ID, error) {
+	id := NewNumberID(c.seq.Add(1))
+
+	raw, err := marshalParams(c.codec, params)
+	if err != nil {
+		return id, fmt.Errorf("jsonrpc2: marshaling call parameters: %w", err)
+	}
+	call := NewCall(id, method, raw)
+
+	w := getWaiter()
+
+	var shutErr error
+	c.updateInFlight(func(s *inFlightState) {
+		if shutErr = s.shuttingDown(ErrClientClosing); shutErr != nil {
+			return
+		}
+		if s.outgoingCalls == nil {
+			s.outgoingCalls = make(map[ID]*waiter)
+		}
+		s.outgoingCalls[id] = w
+	})
+	if shutErr != nil {
+		putWaiter(w)
+		return id, shutErr
+	}
+
+	if err := c.write(ctx, call); err != nil {
+		// The write failed, so the peer will never answer. If we win the removal we
+		// own the waiter; otherwise the read goroutine retired it on a read-side
+		// failure and is committed to delivering once, so wait before pooling.
+		if c.retireCall(id) {
+			putWaiter(w)
+		} else {
+			<-w.ready
+			putWaiter(w)
+		}
+		return id, err
+	}
+
+	select {
+	case resp := <-w.ready:
+		// The read goroutine delivered the response and removed the waiter from the
+		// map, so we own it again.
+		putWaiter(w)
+		if resp.err != nil {
+			return id, resp.err
+		}
+		if err := unmarshalResult(c.codec, resp.result, result); err != nil {
+			return id, fmt.Errorf("jsonrpc2: unmarshaling result: %w", err)
+		}
+		return id, nil
+
+	case <-ctx.Done():
+		// The caller gave up. If we win the lock-guarded removal we own the waiter
+		// and the read goroutine will never deliver to it. Otherwise the read
+		// goroutine already removed it from the map and is committed to delivering
+		// exactly once, so wait for that delivery before pooling the waiter; pooling
+		// it early would let a reused waiter receive this call's late response.
+		if c.retireCall(id) {
+			putWaiter(w)
+		} else {
+			<-w.ready
+			putWaiter(w)
+		}
+		return id, ctx.Err()
+	}
+}
+
+// retireCall removes the outgoing call id from the map if it is still present,
+// reporting whether this call performed the removal. It is the lock-guarded
+// hand-off that makes waiter pooling safe: only the goroutine that removes the
+// entry owns the waiter afterwards.
+func (c *conn) retireCall(id ID) (removed bool) {
+	c.updateInFlight(func(s *inFlightState) {
+		if _, ok := s.outgoingCalls[id]; ok {
+			delete(s.outgoingCalls, id)
+			removed = true
+		}
+	})
+	return removed
+}
+
+// Notify implements [Conn].
+func (c *conn) Notify(ctx context.Context, method string, params any) error {
+	raw, err := marshalParams(c.codec, params)
+	if err != nil {
+		return fmt.Errorf("jsonrpc2: marshaling notify parameters: %w", err)
+	}
+
+	var shutErr error
+	c.updateInFlight(func(s *inFlightState) {
+		shutErr = s.shuttingDown(ErrClientClosing)
+	})
+	if shutErr != nil {
+		return shutErr
+	}
+
+	return c.write(ctx, NewNotification(method, raw))
+}
+
+// write sends msg on the stream after checking that the connection is not
+// shutting down, and propagates an unattributable write failure into the
+// in-flight state so that in-flight incoming calls are canceled.
+//
+// The [Stream] contract already serializes concurrent writers and emits each
+// frame contiguously, so write holds no additional lock across the I/O.
+func (c *conn) write(ctx context.Context, msg Message) error {
+	var shutErr error
+	c.updateInFlight(func(s *inFlightState) {
+		shutErr = s.shuttingDown(ErrServerClosing)
+	})
+	if shutErr != nil {
+		return shutErr
+	}
+
+	_, err := c.stream.Write(ctx, msg)
+	c.afterWrite(ctx, err)
+	return err
+}
+
+// afterWrite records a broken-writer error in the in-flight state. A failure
+// that cannot be attributed to context cancellation means the writer is broken;
+// since responses for incoming calls can no longer be delivered, those calls are
+// canceled so the connection can drain toward idle.
+func (c *conn) afterWrite(ctx context.Context, err error) {
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	c.updateInFlight(func(s *inFlightState) {
+		if s.writeErr == nil {
+			s.writeErr = err
+			for _, r := range s.incomingByID {
+				r.cancel()
+			}
+		}
+	})
+}
+
+// Go implements [Conn].
+func (c *conn) Go(ctx context.Context, handler Handler) {
+	c.updateInFlight(func(s *inFlightState) {
+		s.reading = true
+	})
+	go c.readIncoming(ctx, handler)
+}
+
+// readIncoming is the read goroutine. It reads frames from the stream,
+// correlates responses to waiters, and dispatches requests to the handler until
+// the stream returns an error.
+//
+// A single synchronous request is handled inline on this goroutine, so the
+// common path spawns no goroutine. When such an inline handler releases itself
+// with [Async], dispatch starts a fresh readIncoming goroutine to take over the
+// reader role and reports handedOff=true; this goroutine then returns
+// immediately, leaving the handler to finish concurrently and the successor
+// reader to own loop termination. The reader role is therefore held by exactly
+// one goroutine at a time, and the terminal cleanup below runs exactly once: on
+// the goroutine that breaks the loop on a read error, never on a handed-off one.
+func (c *conn) readIncoming(ctx context.Context, handler Handler) {
+	var err error
+	for {
+		var (
+			req   Request
+			msgs  []Request
+			resp  *Response
+			batch bool
+		)
+		req, msgs, resp, batch, err = c.readNext(ctx)
+		if err != nil {
+			break
+		}
+		if resp != nil {
+			c.deliverResponse(resp)
+			continue
+		}
+		if c.dispatch(ctx, handler, req, msgs, batch) {
+			// An inline handler released itself with Async; a successor reader has
+			// taken over and owns loop termination. Do not run the terminal cleanup.
+			return
+		}
+	}
+
+	c.updateInFlight(func(s *inFlightState) {
+		s.reading = false
+		s.readErr = err
+		// With the reader stopped, outstanding outgoing calls can never be
+		// answered; retire them with the terminating error.
+		for id, w := range s.outgoingCalls {
+			delete(s.outgoingCalls, id)
+			w.deliver(&Response{id: id, err: err})
+		}
+	})
+}
+
+// deliver records the response on the waiter and signals it. The ready channel
+// has capacity one and the waiter is delivered to exactly once (guarded by the
+// outgoingCalls map), so the send never blocks.
+func (w *waiter) deliver(resp *Response) {
+	w.response = resp
+	w.ready <- resp
+}
+
+// deliverResponse routes an incoming response to its waiting call. The lookup
+// and removal happen together under the state lock so that the canceling Call
+// and the read goroutine cannot both retire the same waiter.
+func (c *conn) deliverResponse(resp *Response) {
+	var w *waiter
+	c.updateInFlight(func(s *inFlightState) {
+		if cw, ok := s.outgoingCalls[resp.id]; ok {
+			delete(s.outgoingCalls, resp.id)
+			w = cw
+		}
+	})
+	if w != nil {
+		w.deliver(resp)
+	}
+	// An unmatched response (no pending call) is dropped: it answers a call that
+	// was already canceled or never made.
+}
+
+// Close implements [Conn].
+func (c *conn) Close() error {
+	c.updateInFlight(func(s *inFlightState) {
+		s.connClosing = true
+	})
+	<-c.done
+	return c.closeError()
+}
+
+// closeError reports the stream's close error under the state lock.
+func (c *conn) closeError() error {
+	var err error
+	c.updateInFlight(func(s *inFlightState) {
+		err = s.closeErr
+	})
+	return err
+}
+
+// Done implements [Conn].
+func (c *conn) Done() <-chan struct{} { return c.done }
+
+// Err implements [Conn]. A clean end of stream ([io.EOF]) and the shutdown
+// sentinels are reported as nil so that a graceful Close does not surface a
+// spurious error.
+//
+// Cancellation contract: the connection treats cancellation of the context
+// passed to [Conn.Go] as a request for a graceful local shutdown, not as a
+// connection failure. When the read loop stops because that context is canceled
+// or its deadline expires, [context.Canceled] and [context.DeadlineExceeded] are
+// folded into the clean-close set and Err reports nil. Genuine transport failures
+// (a broken pipe reported as anything other than these shutdown causes) are still
+// surfaced. [Conn.Close] remains the authoritative teardown and always reports
+// nil on a clean shutdown.
+func (c *conn) Err() error {
+	var err error
+	c.updateInFlight(func(s *inFlightState) {
+		switch {
+		case s.readErr != nil && !errors.Is(s.readErr, io.EOF):
+			err = s.readErr
+		case s.writeErr != nil:
+			err = s.writeErr
+		default:
+			err = s.closeErr
+		}
+	})
+	// A clean end of stream, an error that is the consequence of closing our own
+	// stream during a graceful shutdown, the shutdown sentinels themselves (a
+	// reply rejected because we are already closing), or a context cancellation
+	// that asked the read loop to stop are not connection failures.
+	switch {
+	case err == nil,
+		errors.Is(err, io.EOF),
+		errors.Is(err, io.ErrClosedPipe),
+		errors.Is(err, os.ErrClosed),
+		errors.Is(err, net.ErrClosed),
+		errors.Is(err, context.Canceled),
+		errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, ErrServerClosing),
+		errors.Is(err, ErrClientClosing):
+		return nil
+	}
+	return err
 }
