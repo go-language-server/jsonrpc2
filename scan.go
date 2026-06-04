@@ -93,25 +93,40 @@ func scanObject(data []byte, f *fields) (end int, ok bool) {
 // ignored. Recognition uses the raw quoted key bytes; recognized member names
 // contain no escapes, so a key span carrying a backslash cannot match.
 func assignField(f *fields, key, val []byte) {
-	switch string(key) {
-	case `"jsonrpc"`:
+	switch {
+	case bytesEqualString(key, `"jsonrpc"`):
 		f.jsonrpc = val
-	case `"id"`:
+	case bytesEqualString(key, `"id"`):
 		f.id = val
 		f.hasID = true
-	case `"method"`:
+	case bytesEqualString(key, `"method"`):
 		f.method = val
 		f.hasMethod = true
-	case `"params"`:
+	case bytesEqualString(key, `"params"`):
 		f.params = val
 		f.hasParams = true
-	case `"result"`:
+	case bytesEqualString(key, `"result"`):
 		f.result = val
 		f.hasResult = true
-	case `"error"`:
+	case bytesEqualString(key, `"error"`):
 		f.errobj = val
 		f.hasError = true
 	}
+}
+
+// bytesEqualString reports whether b contains exactly s, without converting b
+// to a string. It is used by scanner hot paths that compare against fixed JSON
+// literals.
+func bytesEqualString(b []byte, s string) bool {
+	if len(b) != len(s) {
+		return false
+	}
+	for i := range len(s) {
+		if b[i] != s[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // scanValue scans a single JSON value beginning at data[i] (which must be the
@@ -250,7 +265,7 @@ func scanLiteral(data []byte, i int, lit string) (end int, ok bool) {
 	if i+len(lit) > len(data) {
 		return 0, false
 	}
-	if string(data[i:i+len(lit)]) != lit {
+	if !bytesEqualString(data[i:i+len(lit)], lit) {
 		return 0, false
 	}
 	return i + len(lit), true
@@ -307,12 +322,12 @@ func scanErrorObject(span []byte, codeSpan, msgSpan, dataSpan *[]byte) (ok bool)
 		val := span[valStart:valEnd]
 		i = valEnd
 
-		switch string(key) {
-		case `"code"`:
+		switch {
+		case bytesEqualString(key, `"code"`):
 			*codeSpan = val
-		case `"message"`:
+		case bytesEqualString(key, `"message"`):
 			*msgSpan = val
-		case `"data"`:
+		case bytesEqualString(key, `"data"`):
 			if !isNullLiteral(val) {
 				*dataSpan = val
 			}
@@ -393,7 +408,7 @@ func (f *fields) toMessage() (Message, error) {
 // (a number such as 2.0 has no quotes), the null literal, and any other version
 // string such as "1.0".
 func (f *fields) validVersion() bool {
-	return string(f.jsonrpc) == `"2.0"`
+	return bytesEqualString(f.jsonrpc, `"2.0"`)
 }
 
 // toRequest builds a [*Call] or [*Notification] from a request object, copying

@@ -100,12 +100,59 @@ func decodeID(span []byte) (id ID, ok bool) {
 		}
 		return NewStringID(s), true
 	default:
-		n, perr := strconv.ParseInt(string(span), 10, 64)
-		if perr != nil {
+		n, nok := parseInt64Bytes(span)
+		if !nok {
 			return ID{}, false
 		}
 		return NewNumberID(n), true
 	}
+}
+
+// parseInt64Bytes parses a base-10 integer directly from a JSON number span,
+// avoiding the string conversion that would otherwise allocate on scanner hot
+// paths. The accepted syntax is the JSON-RPC identifier subset: an optional
+// leading '-' followed by decimal digits only.
+func parseInt64Bytes(span []byte) (int64, bool) {
+	if len(span) == 0 {
+		return 0, false
+	}
+
+	i := 0
+	neg := false
+	if span[0] == '-' {
+		neg = true
+		i = 1
+		if i == len(span) {
+			return 0, false
+		}
+	}
+
+	const maxInt64 = uint64(1<<63 - 1)
+	limit := maxInt64
+	if neg {
+		limit = maxInt64 + 1
+	}
+
+	var n uint64
+	for ; i < len(span); i++ {
+		c := span[i]
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		d := uint64(c - '0')
+		if n > (limit-d)/10 {
+			return 0, false
+		}
+		n = n*10 + d
+	}
+
+	if neg {
+		if n == maxInt64+1 {
+			return -1 << 63, true
+		}
+		return -int64(n), true
+	}
+	return int64(n), true
 }
 
 // Format implements [fmt.Formatter].
