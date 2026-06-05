@@ -93,25 +93,79 @@ func scanObject(data []byte, f *fields) (end int, ok bool) {
 // ignored. Recognition uses the raw quoted key bytes; recognized member names
 // contain no escapes, so a key span carrying a backslash cannot match.
 func assignField(f *fields, key, val []byte) {
-	switch {
-	case bytesEqualString(key, `"jsonrpc"`):
+	switch jsonrpcField(key) {
+	case fieldJSONRPC:
 		f.jsonrpc = val
-	case bytesEqualString(key, `"id"`):
+	case fieldID:
 		f.id = val
 		f.hasID = true
-	case bytesEqualString(key, `"method"`):
+	case fieldMethod:
 		f.method = val
 		f.hasMethod = true
-	case bytesEqualString(key, `"params"`):
+	case fieldParams:
 		f.params = val
 		f.hasParams = true
-	case bytesEqualString(key, `"result"`):
+	case fieldResult:
 		f.result = val
 		f.hasResult = true
-	case bytesEqualString(key, `"error"`):
+	case fieldError:
 		f.errobj = val
 		f.hasError = true
 	}
+}
+
+type fieldKind uint8
+
+const (
+	fieldUnknown fieldKind = iota
+	fieldJSONRPC
+	fieldID
+	fieldMethod
+	fieldParams
+	fieldResult
+	fieldError
+)
+
+func jsonrpcField(key []byte) fieldKind {
+	switch len(key) {
+	case len(`"id"`):
+		if key[0] == '"' && key[1] == 'i' && key[2] == 'd' && key[3] == '"' {
+			return fieldID
+		}
+	case len(`"error"`):
+		if key[0] == '"' && key[1] == 'e' && key[2] == 'r' && key[3] == 'r' &&
+			key[4] == 'o' && key[5] == 'r' && key[6] == '"' {
+			return fieldError
+		}
+	case len(`"method"`):
+		if key[0] != '"' || key[7] != '"' {
+			return fieldUnknown
+		}
+		switch key[1] {
+		case 'm':
+			if key[2] == 'e' && key[3] == 't' && key[4] == 'h' &&
+				key[5] == 'o' && key[6] == 'd' {
+				return fieldMethod
+			}
+		case 'p':
+			if key[2] == 'a' && key[3] == 'r' && key[4] == 'a' &&
+				key[5] == 'm' && key[6] == 's' {
+				return fieldParams
+			}
+		case 'r':
+			if key[2] == 'e' && key[3] == 's' && key[4] == 'u' &&
+				key[5] == 'l' && key[6] == 't' {
+				return fieldResult
+			}
+		}
+	case len(`"jsonrpc"`):
+		if key[0] == '"' && key[1] == 'j' && key[2] == 's' && key[3] == 'o' &&
+			key[4] == 'n' && key[5] == 'r' && key[6] == 'p' && key[7] == 'c' &&
+			key[8] == '"' {
+			return fieldJSONRPC
+		}
+	}
+	return fieldUnknown
 }
 
 // bytesEqualString reports whether b contains exactly s, without converting b

@@ -309,6 +309,7 @@ func TestScanMessageView_Invalid(t *testing.T) {
 		{name: "overflow id", wire: `{"jsonrpc":"2.0","method":"m","id":9223372036854775808}`, want: ErrInvalidRequest},
 		{name: "bad escape", wire: `{"jsonrpc":"2.0","method":"bad\q"}`, want: ErrInvalidRequest},
 		{name: "error null", wire: `{"jsonrpc":"2.0","id":1,"error":null}`, want: ErrInvalidRequest},
+		{name: "escaped method key ignored", wire: `{"jsonrpc":"2.0","m\u0065thod":"m","id":1}`, want: ErrInvalidRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
