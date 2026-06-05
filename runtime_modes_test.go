@@ -206,6 +206,42 @@ func TestDenseCallSlotsGrowAndDrain(t *testing.T) {
 	}
 }
 
+func TestDenseCallSlotsOutOfOrderRegistration(t *testing.T) {
+	t.Parallel()
+
+	var slots denseCallSlots
+	w9 := newSlotTestWaiter()
+	w8 := newSlotTestWaiter()
+	slots.Add(NewNumberID(9), w9)
+	slots.Add(NewNumberID(8), w8)
+
+	if got, ok := slots.Take(NewNumberID(8)); !ok || got != w8 {
+		t.Fatalf("Take(8) = %p, %v; want %p, true", got, ok, w8)
+	}
+	if got, ok := slots.Take(NewNumberID(9)); !ok || got != w9 {
+		t.Fatalf("Take(9) = %p, %v; want %p, true", got, ok, w9)
+	}
+}
+
+func TestDenseCallSlotsReuseAfterEmptyWithMonotonicIDs(t *testing.T) {
+	t.Parallel()
+
+	var slots denseCallSlots
+	for id := int64(1); id <= initialOutgoingCallSlots*4; id++ {
+		w := newSlotTestWaiter()
+		slots.Add(NewNumberID(id), w)
+		if got, ok := slots.Take(NewNumberID(id)); !ok || got != w {
+			t.Fatalf("Take(%d) = %p, %v; want %p, true", id, got, ok, w)
+		}
+		if slots.Len() != 0 {
+			t.Fatalf("Len after Take(%d) = %d, want 0", id, slots.Len())
+		}
+		if len(slots.slots) != initialOutgoingCallSlots {
+			t.Fatalf("slot capacity after Take(%d) = %d, want %d", id, len(slots.slots), initialOutgoingCallSlots)
+		}
+	}
+}
+
 type messageOnlyStream struct{}
 
 func (messageOnlyStream) Read(context.Context) (Message, int64, error) {

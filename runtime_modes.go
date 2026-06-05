@@ -140,9 +140,11 @@ func (s *denseCallSlots) Add(id ID, w *waiter) {
 	if len(s.slots) == 0 {
 		s.base = n
 		s.slots = make([]denseCallSlot, initialOutgoingCallSlots)
+	} else if s.live == 0 {
+		s.base = n
 	}
 	if n < s.base {
-		panic("jsonrpc2: dense call id is below the active window")
+		s.rebase(n)
 	}
 	if need := int(n - s.base + 1); need > len(s.slots) {
 		s.grow(need)
@@ -205,6 +207,23 @@ func (s *denseCallSlots) advanceBase() {
 		}
 		s.base++
 	}
+}
+
+func (s *denseCallSlots) rebase(base int64) {
+	if s.live == 0 {
+		s.base = base
+		return
+	}
+	maxID := base
+	for i := range s.slots {
+		if s.slots[i].waiter != nil && s.slots[i].id > maxID {
+			maxID = s.slots[i].id
+		}
+	}
+	if need := int(maxID - base + 1); need > len(s.slots) {
+		s.grow(need)
+	}
+	s.base = base
 }
 
 func (s *denseCallSlots) grow(need int) {
