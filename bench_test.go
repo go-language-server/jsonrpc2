@@ -21,6 +21,30 @@ var (
 	benchmarkFrame    FrameView
 )
 
+type benchmarkDecodeEnvelopeCase struct {
+	name    string
+	input   []byte
+	batch   bool
+	wantErr bool
+}
+
+var benchmarkDecodeEnvelopeCases = []benchmarkDecodeEnvelopeCase{
+	{"Call", benchmarkDecodeMedium, false, false},
+	{"StringID", []byte(`{"jsonrpc":"2.0","method":"textDocument/hover","params":{"line":1},"id":"abc"}`), false, false},
+	{"Notification", []byte(`{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"hello"}}`), false, false},
+	{"Response", []byte(`{"jsonrpc":"2.0","id":99,"result":{"contents":{"kind":"markdown","value":"hello"}}}`), false, false},
+	{"ErrorResponse", []byte(`{"jsonrpc":"2.0","id":99,"error":{"code":-32602,"message":"invalid params","data":{"field":"position"}}}`), false, false},
+	{"EscapedMethodAndID", []byte(`{"jsonrpc":"2.0","method":"textDocument\/hover\n","params":{"method":"nested"},"id":"a\u002fb"}`), false, false},
+	{"NestedMethodInParams", []byte(`{"jsonrpc":"2.0","method":"outer","params":{"method":"inner","id":7},"id":1}`), false, false},
+	{"DuplicateTopLevelFields", []byte(`{"jsonrpc":"2.0","method":"first","method":"second","params":null,"id":1}`), false, false},
+	{"LargeParams64KiB", benchmarkDecodeLarge64KiB, false, false},
+	{"LargeParams1MiB", benchmarkDecodeLarge1MiB, false, false},
+	{"InvalidJSON", []byte(`{"jsonrpc":"2.0","method":`), false, true},
+	{"InvalidJSONRPC", []byte(`{"jsonrpc":"1.0","method":"m","id":1}`), false, true},
+	{"BatchRequests", []byte(`[{"jsonrpc":"2.0","method":"one","id":1},{"jsonrpc":"2.0","method":"two","params":{"x":2},"id":2},{"jsonrpc":"2.0","method":"note","params":[1,2,3]}]`), true, false},
+	{"MixedBatchRequests", []byte(`[{"jsonrpc":"2.0","method":"one","id":1},{"jsonrpc":"2.0","method":1,"id":2},{"jsonrpc":"2.0","id":3,"result":true},{"jsonrpc":"2.0","method":"note"}]`), true, false},
+}
+
 func makeBenchmarkLargeCall(n int) []byte {
 	const prefix = `{"jsonrpc":"2.0","method":"large","params":{"text":"`
 	const suffix = `"},"id":1}`
@@ -91,29 +115,7 @@ func BenchmarkDecodeMediumLegacy(b *testing.B) {
 }
 
 func BenchmarkDecodeEnvelope(b *testing.B) {
-	tests := []struct {
-		name    string
-		input   []byte
-		batch   bool
-		wantErr bool
-	}{
-		{"Call", benchmarkDecodeMedium, false, false},
-		{"StringID", []byte(`{"jsonrpc":"2.0","method":"textDocument/hover","params":{"line":1},"id":"abc"}`), false, false},
-		{"Notification", []byte(`{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"hello"}}`), false, false},
-		{"Response", []byte(`{"jsonrpc":"2.0","id":99,"result":{"contents":{"kind":"markdown","value":"hello"}}}`), false, false},
-		{"ErrorResponse", []byte(`{"jsonrpc":"2.0","id":99,"error":{"code":-32602,"message":"invalid params","data":{"field":"position"}}}`), false, false},
-		{"EscapedMethodAndID", []byte(`{"jsonrpc":"2.0","method":"textDocument\/hover\n","params":{"method":"nested"},"id":"a\u002fb"}`), false, false},
-		{"NestedMethodInParams", []byte(`{"jsonrpc":"2.0","method":"outer","params":{"method":"inner","id":7},"id":1}`), false, false},
-		{"DuplicateTopLevelFields", []byte(`{"jsonrpc":"2.0","method":"first","method":"second","params":null,"id":1}`), false, false},
-		{"LargeParams64KiB", benchmarkDecodeLarge64KiB, false, false},
-		{"LargeParams1MiB", benchmarkDecodeLarge1MiB, false, false},
-		{"InvalidJSON", []byte(`{"jsonrpc":"2.0","method":`), false, true},
-		{"InvalidJSONRPC", []byte(`{"jsonrpc":"1.0","method":"m","id":1}`), false, true},
-		{"BatchRequests", []byte(`[{"jsonrpc":"2.0","method":"one","id":1},{"jsonrpc":"2.0","method":"two","params":{"x":2},"id":2},{"jsonrpc":"2.0","method":"note","params":[1,2,3]}]`), true, false},
-		{"MixedBatchRequests", []byte(`[{"jsonrpc":"2.0","method":"one","id":1},{"jsonrpc":"2.0","method":1,"id":2},{"jsonrpc":"2.0","id":3,"result":true},{"jsonrpc":"2.0","method":"note"}]`), true, false},
-	}
-
-	for _, tc := range tests {
+	for _, tc := range benchmarkDecodeEnvelopeCases {
 		b.Run(tc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(tc.input)))
@@ -146,6 +148,32 @@ func BenchmarkDecodeEnvelope(b *testing.B) {
 					b.Fatalf("DecodeMessage: %v", err)
 				}
 				benchmarkMessage = got
+			}
+		})
+	}
+}
+
+func BenchmarkDecodeViewEnvelope(b *testing.B) {
+	for _, tc := range benchmarkDecodeEnvelopeCases {
+		if tc.batch {
+			continue
+		}
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.input)))
+			for b.Loop() {
+				got, err := ScanMessageView(tc.input)
+				if tc.wantErr {
+					if err == nil {
+						b.Fatalf("ScanMessageView succeeded, want error")
+					}
+					benchmarkView = MessageView{}
+					continue
+				}
+				if err != nil {
+					b.Fatalf("ScanMessageView: %v", err)
+				}
+				benchmarkView = got
 			}
 		})
 	}
