@@ -15,6 +15,8 @@ var (
 
 	benchmarkMessage  Message
 	benchmarkRequests []*ParsedMessage
+	benchmarkView     MessageView
+	benchmarkFrame    FrameView
 )
 
 // BenchmarkVoidRoundTrip measures the AC-P1 hot path: a call with nil params to
@@ -107,6 +109,54 @@ func BenchmarkDecodeEnvelope(b *testing.B) {
 				benchmarkMessage = got
 			}
 		})
+	}
+}
+
+func BenchmarkDecodeMinimalFastView(b *testing.B) {
+	msg := benchmarkDecodeMinimal
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := ScanMessageView(msg)
+		if err != nil {
+			b.Fatalf("ScanMessageView: %v", err)
+		}
+		benchmarkView = got
+	}
+}
+
+func BenchmarkDecodeMediumFastView(b *testing.B) {
+	msg := benchmarkDecodeMedium
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := ScanMessageView(msg)
+		if err != nil {
+			b.Fatalf("ScanMessageView: %v", err)
+		}
+		benchmarkView = got
+	}
+}
+
+func BenchmarkDecodeMinimalView(b *testing.B) {
+	msg := benchmarkDecodeMinimal
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := ScanFrameView(msg)
+		if err != nil {
+			b.Fatalf("ScanFrameView: %v", err)
+		}
+		benchmarkFrame = got
+	}
+}
+
+func BenchmarkDecodeMediumView(b *testing.B) {
+	msg := benchmarkDecodeMedium
+	b.ReportAllocs()
+	for b.Loop() {
+		got, err := ScanFrameView(msg)
+		if err != nil {
+			b.Fatalf("ScanFrameView: %v", err)
+		}
+		benchmarkFrame = got
 	}
 }
 
