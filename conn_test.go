@@ -714,3 +714,57 @@ func closeBoth(t *testing.T, conns ...Conn) {
 		}
 	}
 }
+
+// TestCloseRacesConcurrentWrites stresses the lock-guarded idle->close edge
+// against concurrent writes. Many goroutines drive Call/Notify while Close fires
+// partway through; the test asserts that Done still closes within a generous
+// timeout on every iteration. A flaw in the idle-detection-to-close transition
+// (for example, observing idle on one path while the close edge is decided on
+// another) would manifest as a Close that hangs forever — a liveness bug the race
+// detector cannot catch — so this timeout assertion is the gate rather than -race
+// alone.
+func TestCloseRacesConcurrentWrites(t *testing.T) {
+	t.Parallel()
+	for iter := range 50 {
+		ea, eb := memTransport(NewNDJSONStream)(t)
+		client := NewConn(ea.stream)
+		server := NewConn(eb.stream)
+		ctx, cancel := context.WithCancel(context.Background())
+		client.Go(ctx, MethodNotFoundHandler)
+		server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+			return reply(ctx, nil, nil)
+		})
+
+		// Drive a burst of concurrent writers; some will race the Close.
+		var wg sync.WaitGroup
+		for w := range 8 {
+			wg.Add(1)
+			go func(w int) {
+				defer wg.Done()
+				for range 20 {
+					// Errors are expected once shutdown begins; only liveness matters.
+					if w%2 == 0 {
+						_, _ = client.Call(ctx, "void", nil, nil)
+					} else {
+						_ = client.Notify(ctx, "void", nil)
+					}
+				}
+			}(w)
+		}
+
+		// Close both ends while the writers are mid-burst.
+		go func() { _ = client.Close() }()
+		go func() { _ = server.Close() }()
+
+		for _, conn := range []Conn{client, server} {
+			select {
+			case <-conn.Done():
+			case <-time.After(5 * time.Second):
+				cancel()
+				t.Fatalf("iter %d: Done did not close within timeout (possible idle/close split-brain)", iter)
+			}
+		}
+		cancel()
+		wg.Wait()
+	}
+}

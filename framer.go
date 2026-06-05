@@ -172,6 +172,17 @@ func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendMessage(buf, msg)
+	})
+}
+
+// composeAndWrite frames a single body, where appendBody appends the encoded
+// JSON envelope to the body region of the reused, writeMu-guarded compose
+// buffer. It reserves room for the Content-Length header, lets appendBody fill
+// the body, then writes the header prefix and shifts the body so the header and
+// body are emitted with one conn.Write. The caller must hold writeMu.
+func (s *headerStream) composeAndWrite(appendBody func(buf []byte) []byte) (int64, error) {
 	const (
 		contentLengthPrefix = "Content-Length: "
 		headerSuffix        = "\r\n\r\n"
@@ -185,7 +196,7 @@ func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
 		buf = buf[:headerReserve]
 	}
 	bodyStart := len(buf)
-	buf = appendMessage(buf, msg)
+	buf = appendBody(buf)
 	bodyLen := len(buf) - bodyStart
 
 	header := append(buf[:0], contentLengthPrefix...)
@@ -198,6 +209,43 @@ func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
 
 	n, err := s.conn.Write(buf)
 	return int64(n), err
+}
+
+// writeCall implements frameWriter: it frames a call envelope from its concrete
+// fields without boxing a wire value into the Message interface.
+func (s *headerStream) writeCall(ctx context.Context, id ID, method string, params RawMessage) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendCallFields(buf, id, method, params)
+	})
+}
+
+// writeNotification implements frameWriter for a notification envelope.
+func (s *headerStream) writeNotification(ctx context.Context, method string, params RawMessage) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendNotificationFields(buf, method, params)
+	})
+}
+
+// writeResponse implements frameWriter for a response envelope.
+func (s *headerStream) writeResponse(ctx context.Context, id ID, result RawMessage, err error) (int64, error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return 0, cerr
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendResponseFields(buf, id, result, err)
+	})
 }
 
 // WriteFrame implements the internal frameStream interface. It frames the
@@ -318,12 +366,58 @@ func (s *ndjsonStream) Write(ctx context.Context, msg Message) (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	buf := appendMessage(s.wbuf[:0], msg)
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendMessage(buf, msg)
+	})
+}
+
+// composeAndWrite appends one encoded body via appendBody and a single '\n'
+// into the reused, writeMu-guarded compose buffer and emits it with one
+// conn.Write. The caller must hold writeMu.
+func (s *ndjsonStream) composeAndWrite(appendBody func(buf []byte) []byte) (int64, error) {
+	buf := appendBody(s.wbuf[:0])
 	buf = append(buf, '\n')
 	s.wbuf = buf
 
 	n, err := s.conn.Write(buf)
 	return int64(n), err
+}
+
+// writeCall implements frameWriter: it frames a call envelope from its concrete
+// fields without boxing a wire value into the Message interface.
+func (s *ndjsonStream) writeCall(ctx context.Context, id ID, method string, params RawMessage) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendCallFields(buf, id, method, params)
+	})
+}
+
+// writeNotification implements frameWriter for a notification envelope.
+func (s *ndjsonStream) writeNotification(ctx context.Context, method string, params RawMessage) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendNotificationFields(buf, method, params)
+	})
+}
+
+// writeResponse implements frameWriter for a response envelope.
+func (s *ndjsonStream) writeResponse(ctx context.Context, id ID, result RawMessage, err error) (int64, error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return 0, cerr
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.composeAndWrite(func(buf []byte) []byte {
+		return appendResponseFields(buf, id, result, err)
+	})
 }
 
 // WriteFrame implements the internal frameStream interface. It appends a single

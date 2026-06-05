@@ -122,15 +122,15 @@ func (c *conn) handleRequest(ctx context.Context, handler Handler, req Request) 
 	}
 
 	// The inline releaser carries the state for the Async handoff in typed fields
-	// (ch left nil), so dispatch allocates the releaser but no per-request closure.
-	rel := &releaser{conn: c, ctx: ctx, handler: handler}
-	ir.rel = rel
+	// (ch left nil). It is a value field of ir, so initializing it in place adds no
+	// allocation beyond ir itself.
+	ir.rel = releaser{active: true, conn: c, ctx: ctx, handler: handler}
 
 	reply, replied := c.replier(ir, nil)
-	c.runHandler(handler, ir, rel, reply, replied)
+	c.runHandler(handler, ir, &ir.rel, reply, replied)
 	// handedOff is set by a hard release (Async) on this same read goroutine
 	// before runHandler returns, so the read carries no data race.
-	return rel.handedOff
+	return ir.rel.handedOff
 }
 
 // handleBatchMember dispatches one batch member. Unlike the inline
@@ -144,16 +144,15 @@ func (c *conn) handleBatchMember(ctx context.Context, handler Handler, req Reque
 		return
 	}
 
-	rel := &releaser{ch: make(chan struct{})}
-	ir.rel = rel
+	ir.rel = releaser{active: true, ch: make(chan struct{})}
 
 	reply, replied := c.replier(ir, bc)
 
-	go c.runHandler(handler, ir, rel, reply, replied)
+	go c.runHandler(handler, ir, &ir.rel, reply, replied)
 
 	// Block until the member releases the dispatch loop: immediately for an async
 	// member (via Async), or when the handler returns for a synchronous one.
-	<-rel.ch
+	<-ir.rel.ch
 }
 
 // repliedFlag reports whether a request's [Replier] has been invoked. It is
@@ -191,7 +190,9 @@ func (c *conn) replier(ir *incomingRequest, bc *batchCollector) (Replier, *repli
 		return func(context.Context, any, error) error { return nil }, notificationReplied
 	}
 
-	flag := &repliedFlag{}
+	// flag is &ir.replied: the replied flag is a value field of the request, so it
+	// shares ir's single allocation rather than a separate &repliedFlag{}.
+	flag := &ir.replied
 	return func(ctx context.Context, result any, err error) error {
 		if !flag.done.CompareAndSwap(false, true) {
 			// A duplicate reply is a programming error in the handler; ignore it
@@ -224,7 +225,7 @@ func (c *conn) sendResponse(ctx context.Context, id ID, bc *batchCollector, resu
 		bc.add(ctx, resp)
 		return nil
 	}
-	return c.write(ctx, resp)
+	return c.writeResponse(ctx, resp.id, resp.result, resp.err)
 }
 
 // completeRequest answers req with an error without invoking the handler, used
@@ -256,7 +257,7 @@ func (c *conn) writeInvalid(ctx context.Context, bc *batchCollector, err *Error)
 		bc.add(ctx, resp)
 		return
 	}
-	_ = c.write(ctx, resp)
+	_ = c.writeResponse(ctx, resp.id, resp.result, resp.err)
 }
 
 // fail records err as the connection's terminating error and closes the stream

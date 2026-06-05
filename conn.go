@@ -116,6 +116,9 @@ func NewConn(stream Stream, opts ...Option) Conn {
 		codec:  DefaultCodec,
 		done:   make(chan struct{}),
 	}
+	// The stream is fixed for the connection's lifetime, so resolve the optional
+	// concrete-write extension once here instead of type-asserting on every send.
+	c.fw, _ = stream.(frameWriter)
 	c.state.closer = stream
 	for _, opt := range opts {
 		opt(c)
@@ -130,6 +133,7 @@ type conn struct {
 	seq atomic.Int64 // last allocated outgoing call id
 
 	stream    Stream
+	fw        frameWriter // stream's concrete-write extension, resolved once; nil if unsupported
 	codec     Codec
 	preempter Preempter // optional, consulted before the handler
 
@@ -222,9 +226,18 @@ func putWaiter(w *waiter) {
 type incomingRequest struct {
 	req    Request
 	parent context.Context
-	rel    *releaser // the request's release token, returned for asyncKey{}
 	id     ID
 	isCall bool
+
+	// rel and replied are value fields, not separate heap objects: folding them
+	// into incomingRequest means one dispatch-path allocation (this struct) backs
+	// the request context, the release token, and the replied flag together. The
+	// releaser is reached via &ir.rel (an interior pointer, no extra alloc) for
+	// the asyncKey{} value and the dispatch handoff; replied is reached via
+	// &ir.replied. The merged struct stays GC-managed exactly as before, so a
+	// handler may still retain the request context with no lifetime change.
+	rel     releaser
+	replied repliedFlag
 
 	mu         sync.Mutex
 	canceled   bool               // cancel was called before realCtx existed
@@ -246,8 +259,8 @@ func (ir *incomingRequest) Deadline() (deadline time.Time, ok bool) {
 // other key delegates to the parent. It is kept lock-free because the
 // synchronous dispatch path may read context values.
 func (ir *incomingRequest) Value(key any) any {
-	if _, ok := key.(asyncKey); ok && ir.rel != nil {
-		return ir.rel
+	if _, ok := key.(asyncKey); ok && ir.rel.active {
+		return &ir.rel
 	}
 	return ir.parent.Value(key)
 }
@@ -359,7 +372,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 		return id, shutErr
 	}
 
-	if err := c.write(ctx, callWire{id: id, method: method, params: raw}); err != nil {
+	if err := c.writeCall(ctx, id, method, raw); err != nil {
 		// The write failed, so the peer will never answer. If we win the removal we
 		// own the waiter; otherwise the read goroutine retired it on a read-side
 		// failure and is committed to delivering once, so wait before pooling.
@@ -427,16 +440,59 @@ func (c *conn) Notify(ctx context.Context, method string, params any) error {
 		return shutErr
 	}
 
-	return c.write(ctx, notificationWire{method: method, params: raw})
+	return c.writeNotification(ctx, method, raw)
 }
 
-// write sends msg on the stream after checking that the connection is not
-// shutting down, and propagates an unattributable write failure into the
-// in-flight state so that in-flight incoming calls are canceled.
-//
-// The [Stream] contract already serializes concurrent writers and emits each
-// frame contiguously, so write holds no additional lock across the I/O.
-func (c *conn) write(ctx context.Context, msg Message) error {
+// frameWriter is the optional, package-internal extension of [Stream] that
+// frames a message from its concrete fields, so the connection hot path can emit
+// a call, notification, or response without boxing a wire value into the
+// [Message] interface (which forces a heap allocation per send). The built-in
+// framers implement it; a [Stream] that does not is written through the boxed
+// [Stream.Write] fallback.
+type frameWriter interface {
+	writeCall(ctx context.Context, id ID, method string, params RawMessage) (int64, error)
+	writeNotification(ctx context.Context, method string, params RawMessage) (int64, error)
+	writeResponse(ctx context.Context, id ID, result RawMessage, err error) (int64, error)
+}
+
+// writeCall frames and sends a call envelope from its concrete fields, avoiding
+// the per-send Message box on framers that implement frameWriter.
+func (c *conn) writeCall(ctx context.Context, id ID, method string, params RawMessage) error {
+	if c.fw != nil {
+		return c.guardedWrite(ctx, func() (int64, error) {
+			return c.fw.writeCall(ctx, id, method, params)
+		})
+	}
+	return c.write(ctx, callWire{id: id, method: method, params: params})
+}
+
+// writeNotification frames and sends a notification envelope from its concrete
+// fields, avoiding the per-send Message box on framers that implement
+// frameWriter.
+func (c *conn) writeNotification(ctx context.Context, method string, params RawMessage) error {
+	if c.fw != nil {
+		return c.guardedWrite(ctx, func() (int64, error) {
+			return c.fw.writeNotification(ctx, method, params)
+		})
+	}
+	return c.write(ctx, notificationWire{method: method, params: params})
+}
+
+// writeResponse frames and sends a response envelope from its concrete fields,
+// avoiding the per-send Message box on framers that implement frameWriter.
+func (c *conn) writeResponse(ctx context.Context, id ID, result RawMessage, respErr error) error {
+	if c.fw != nil {
+		return c.guardedWrite(ctx, func() (int64, error) {
+			return c.fw.writeResponse(ctx, id, result, respErr)
+		})
+	}
+	return c.write(ctx, responseWire{id: id, result: result, err: respErr})
+}
+
+// guardedWrite performs the shutdown check, runs the stream write effect, and
+// propagates an unattributable write failure into the in-flight state, sharing
+// the body of write across the concrete frameWriter paths.
+func (c *conn) guardedWrite(ctx context.Context, do func() (int64, error)) error {
 	var shutErr error
 	c.updateInFlight(func(s *inFlightState) {
 		shutErr = s.shuttingDown(ErrServerClosing)
@@ -445,9 +501,24 @@ func (c *conn) write(ctx context.Context, msg Message) error {
 		return shutErr
 	}
 
-	_, err := c.stream.Write(ctx, msg)
+	_, err := do()
 	c.afterWrite(ctx, err)
 	return err
+}
+
+// write sends msg on the stream after checking that the connection is not
+// shutting down, and propagates an unattributable write failure into the
+// in-flight state so that in-flight incoming calls are canceled. It is the
+// boxed-Message path used for foreign [Stream] implementations and by the batch
+// collector; the connection's own call/notification/response sends use the
+// concrete writeCall/writeNotification/writeResponse helpers above.
+//
+// The [Stream] contract already serializes concurrent writers and emits each
+// frame contiguously, so write holds no additional lock across the I/O.
+func (c *conn) write(ctx context.Context, msg Message) error {
+	return c.guardedWrite(ctx, func() (int64, error) {
+		return c.stream.Write(ctx, msg)
+	})
 }
 
 // afterWrite records a broken-writer error in the in-flight state. A failure

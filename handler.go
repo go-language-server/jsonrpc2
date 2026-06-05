@@ -194,6 +194,13 @@ type releaser struct {
 	mu       sync.Mutex
 	released bool
 
+	// active marks the releaser as set up for an in-flight request. It is needed
+	// because the releaser is now a value field of incomingRequest rather than a
+	// separately-allocated pointer, so the zero value must be distinguishable from
+	// a releaser that dispatch has initialized; only an active releaser is handed
+	// out for the asyncKey{} context value.
+	active bool
+
 	// ch, when non-nil, marks the batch-member mode: release closes it.
 	ch chan struct{}
 
