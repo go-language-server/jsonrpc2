@@ -72,6 +72,10 @@ func newOursDirectRPCClient(ctx context.Context) (rpcClient, error) {
 	return newOursDirectAdapter(ctx)
 }
 
+func newOursSyncRPCClient(ctx context.Context) (rpcClient, error) {
+	return newOursSyncAdapter(ctx)
+}
+
 // paramsSmall, paramsMedium, paramsLarge are identical pre-encoded JSON payloads
 // reused verbatim across every library, so the only variable is the library, not
 // the bytes on the wire. Sizes are approximately 50 B, 256 B, and 4 KiB.
@@ -253,6 +257,27 @@ func BenchmarkRoundTripVoidHeader(b *testing.B) {
 // which bypasses net.Pipe while still exercising the same Conn and batch code.
 func BenchmarkRoundTripVoidDirect(b *testing.B) {
 	benchmarkSingleAdapter(b, "ours/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+		for b.Loop() {
+			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
+				b.Fatalf("Call: %v", err)
+			}
+		}
+	})
+}
+
+// BenchmarkRoundTripVoidSync measures the A1c synchronous-client mode: ours
+// SyncClient (no client-side background reader; the caller owns the read loop)
+// against an ordinary ours Conn server over net.Pipe with NDJSON framing.
+//
+// MODE DISCLOSURE: this is a DISTINCT execution model, not the concurrent Conn
+// (ours/native) and not comparable head-to-head with jrpc2's channel.Direct
+// (both keep a client-side reader). It removes the client's third goroutine hop,
+// so a lower number here means "ours' fastest in-process request path," NOT that
+// the concurrent Conn got faster. It is reported separately for exactly the same
+// integrity reason the batch rows are: the operation is not the same shape as
+// the rivals'. See sync_adapter.go and RESULTS.md.
+func BenchmarkRoundTripVoidSync(b *testing.B) {
+	benchmarkSingleAdapter(b, "ours/sync", newOursSyncRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
