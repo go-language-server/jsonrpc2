@@ -55,6 +55,12 @@ define run_in_module
 	$2
 endef
 
+# Benchmark-only dependency probes under internal/benchmark intentionally run in
+# module mode so a root or CI vendor directory cannot alter the measured graph.
+define bench_mod_flags
+$(if $(filter internal/benchmark,$1),-mod=mod,)
+endef
+
 # -----------------------------------------------------------------------------
 # target
 
@@ -80,7 +86,7 @@ test: $(call GO_MODULE_TARGETS,test)
 
 .PHONY: bench/%
 bench/%:
-	$(call run_in_module,$*,${GO_TEST} -- -run='^$$' -bench=${GO_BENCH_FUNC} ${GO_BENCH_FLAGS} $(strip ${GO_FLAGS}) ${GO_TEST_PACKAGES})
+	go -C $* test -run='^$$' -bench=${GO_BENCH_FUNC} ${GO_BENCH_FLAGS} $(call bench_mod_flags,$*) $(strip ${GO_FLAGS}) ./...
 
 .PHONY: bench
 bench:  ## Take a package benchmark.
