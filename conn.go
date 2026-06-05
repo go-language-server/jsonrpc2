@@ -351,12 +351,15 @@ func (c *conn) updateInFlight(f func(s *inFlightState)) {
 
 // Call implements [Conn].
 func (c *conn) Call(ctx context.Context, method string, params, result any) (ID, error) {
-	id := NewNumberID(c.seq.Add(1))
-
+	// Marshal before allocating the call id so a local marshal failure returns a
+	// zero ID (no call was sent) and does not burn a sequence number — matching
+	// SyncClient.Call.
 	raw, err := marshalParams(c.codec, params)
 	if err != nil {
-		return id, fmt.Errorf("jsonrpc2: marshaling call parameters: %w", err)
+		return ID{}, fmt.Errorf("jsonrpc2: marshaling call parameters: %w", err)
 	}
+
+	id := NewNumberID(c.seq.Add(1))
 
 	w := getWaiter()
 

@@ -197,3 +197,46 @@ func TestSyncClientEquivalentToConn(t *testing.T) {
 		t.Fatalf("SyncClient vs Conn result mismatch (-conn +sync):\n%s", diff)
 	}
 }
+
+// TestCallMarshalErrorZeroID locks the cross-client contract that a local marshal
+// failure — which happens before anything is sent or registered — returns a zero
+// ID, never a "would-have-been" id. Conn and SyncClient must behave identically.
+func TestCallMarshalErrorZeroID(t *testing.T) {
+	t.Parallel()
+	// A channel cannot be marshaled by any codec, so marshalParams fails before
+	// the call is assigned an id, registered, or written.
+	badParams := make(chan int)
+
+	t.Run("conn", func(t *testing.T) {
+		t.Parallel()
+		ca, cb := net.Pipe()
+		defer cb.Close()
+		c := NewConn(NewNDJSONStream(ca))
+		defer c.Close()
+		id, err := c.Call(t.Context(), "m", badParams, nil)
+		if err == nil {
+			t.Fatal("Conn.Call: expected a marshal error, got nil")
+		}
+		if id.IsValid() {
+			t.Fatalf("Conn.Call returned valid id %v on marshal error; want zero ID", id)
+		}
+	})
+
+	t.Run("syncclient", func(t *testing.T) {
+		t.Parallel()
+		ca, cb := net.Pipe()
+		defer cb.Close()
+		sc, err := NewSyncClient(NewNDJSONStream(ca))
+		if err != nil {
+			t.Fatalf("NewSyncClient: %v", err)
+		}
+		defer sc.Close()
+		id, err := sc.Call(t.Context(), "m", badParams, nil)
+		if err == nil {
+			t.Fatal("SyncClient.Call: expected a marshal error, got nil")
+		}
+		if id.IsValid() {
+			t.Fatalf("SyncClient.Call returned valid id %v on marshal error; want zero ID", id)
+		}
+	})
+}
