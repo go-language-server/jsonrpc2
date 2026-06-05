@@ -74,8 +74,9 @@ func dialTransportPair(b *testing.B, ln net.Listener) (client, server net.Conn) 
 }
 
 // unixListener returns a Unix socket listener under a short /tmp directory
-// (Darwin rejects long sockaddr_un paths with EINVAL) and a cleanup function.
-func unixListener(b *testing.B) (net.Listener, func()) {
+// (Darwin rejects long sockaddr_un paths with EINVAL); teardown is registered
+// via b.Cleanup so callers need not thread a cleanup func.
+func unixListener(b *testing.B) net.Listener {
 	b.Helper()
 	dir, err := os.MkdirTemp("/tmp", "jrpc2-bench-")
 	if err != nil {
@@ -86,10 +87,11 @@ func unixListener(b *testing.B) (net.Listener, func()) {
 		_ = os.RemoveAll(dir)
 		b.Fatalf("listen unix: %v", err)
 	}
-	return ln, func() {
+	b.Cleanup(func() {
 		_ = ln.Close()
 		_ = os.RemoveAll(dir)
-	}
+	})
+	return ln
 }
 
 // voidServerHandler replies to every request with a nil result.
@@ -104,6 +106,12 @@ func voidServerHandler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2
 // exercise the existing Conn's concurrent in-flight path (background reader plus
 // id-keyed pending map), which is the correct matched-inflight baseline for the
 // plan's two tracks.
+//
+// Each iteration fans out `inflight` calls and waits for all to return — a
+// burst-and-drain, not a sustained steady-state, workload. That under-states the
+// response batching a never-draining queue would show, so the reported reads/call
+// is a conservative floor on the coalescing effect (which only strengthens the
+// "reads already coalesce, writes do not" finding).
 func benchVoidConcurrent(b *testing.B, ca, cb net.Conn, inflight int) {
 	var creads, cwrites int64
 	ctx := b.Context()
@@ -172,15 +180,15 @@ func BenchmarkTransportNetPipe(b *testing.B) {
 func BenchmarkTransportUnix(b *testing.B) {
 	for _, c := range transportInflight {
 		b.Run(inflightName(c), func(b *testing.B) {
-			ln, cleanup := unixListener(b)
-			defer cleanup()
-			ca, cb := dialTransportPair(b, ln)
+			ca, cb := dialTransportPair(b, unixListener(b))
 			benchVoidConcurrent(b, ca, cb, c)
 		})
 	}
 }
 
 // BenchmarkTransportTCP is the TCP loopback sweep (highest per-syscall cost).
+// TCP_NODELAY is enabled by default in Go's net package, so no Nagle tuning is
+// needed for a low-latency round-trip measurement.
 func BenchmarkTransportTCP(b *testing.B) {
 	for _, c := range transportInflight {
 		b.Run(inflightName(c), func(b *testing.B) {
@@ -190,12 +198,6 @@ func BenchmarkTransportTCP(b *testing.B) {
 			}
 			defer ln.Close()
 			ca, cb := dialTransportPair(b, ln)
-			if tc, ok := ca.(*net.TCPConn); ok {
-				_ = tc.SetNoDelay(true)
-			}
-			if tc, ok := cb.(*net.TCPConn); ok {
-				_ = tc.SetNoDelay(true)
-			}
 			benchVoidConcurrent(b, ca, cb, c)
 		})
 	}
