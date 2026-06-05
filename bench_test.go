@@ -13,7 +13,8 @@ var (
 	benchmarkDecodeMinimal = []byte(`{"jsonrpc":"2.0","method":"void","id":1}`)
 	benchmarkDecodeMedium  = []byte(`{"jsonrpc":"2.0","method":"textDocument/hover","params":{"textDocument":{"uri":"file:///tmp/example.go"},"position":{"line":123,"character":45}},"id":99}`)
 
-	benchmarkMessage Message
+	benchmarkMessage  Message
+	benchmarkRequests []*ParsedMessage
 )
 
 // BenchmarkVoidRoundTrip measures the AC-P1 hot path: a call with nil params to
@@ -69,6 +70,43 @@ func BenchmarkDecodeMediumLegacy(b *testing.B) {
 			b.Fatalf("DecodeMessage: %v", err)
 		}
 		benchmarkMessage = got
+	}
+}
+
+func BenchmarkDecodeEnvelope(b *testing.B) {
+	tests := []struct {
+		name  string
+		input []byte
+		batch bool
+	}{
+		{"Call", []byte(`{"jsonrpc":"2.0","method":"textDocument/hover","params":{"textDocument":{"uri":"file:///tmp/example.go"},"position":{"line":123,"character":45}},"id":99}`), false},
+		{"Notification", []byte(`{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"hello"}}`), false},
+		{"Response", []byte(`{"jsonrpc":"2.0","id":99,"result":{"contents":{"kind":"markdown","value":"hello"}}}`), false},
+		{"ErrorResponse", []byte(`{"jsonrpc":"2.0","id":99,"error":{"code":-32602,"message":"invalid params","data":{"field":"position"}}}`), false},
+		{"BatchRequests", []byte(`[{"jsonrpc":"2.0","method":"one","id":1},{"jsonrpc":"2.0","method":"two","params":{"x":2},"id":2},{"jsonrpc":"2.0","method":"note","params":[1,2,3]}]`), true},
+	}
+
+	for _, tc := range tests {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			if tc.batch {
+				for b.Loop() {
+					got, err := ParseRequests(tc.input)
+					if err != nil {
+						b.Fatalf("ParseRequests: %v", err)
+					}
+					benchmarkRequests = got
+				}
+				return
+			}
+			for b.Loop() {
+				got, err := DecodeMessage(tc.input)
+				if err != nil {
+					b.Fatalf("DecodeMessage: %v", err)
+				}
+				benchmarkMessage = got
+			}
+		})
 	}
 }
 
