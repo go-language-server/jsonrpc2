@@ -18,6 +18,64 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > were intentionally left at their documented allocation floors (see the
 > [decode floor note](#decode-allocation-floor-ac-p2--ac-p4-status)).
 
+> **Update — next-layer optimization pass (this pass).** A further pass cut the
+> root `BenchmarkVoidRoundTrip` from **10 → 6 allocs/op** and **572 → 408 B/op**
+> (arm64, M3 Max, ≈ 2900 ns/op, no ns regression), and added a new synchronous-
+> client mode. Every change was profiled first and gated on `go test -race
+> -count=2 .` Two changes were applied, one was rejected on measurement, and one
+> was rejected on safety — all documented below so the record is honest, not
+> flattering.
+>
+> - **Kept #1 — concrete non-interface write path.** `conn.write` boxed a
+>   `callWire`/`responseWire` value into the `Message` interface on every send,
+>   forcing a heap allocation (confirmed by escape analysis). A `frameWriter`
+>   internal seam frames the envelope from concrete fields, so the built-in
+>   framers write without the box. Foreign `Stream`s keep the boxed fallback. **−2
+>   allocs/op.**
+> - **Kept #2 — merge (not pool) the per-request structs.** The releaser and
+>   replied flag were folded into `incomingRequest` as value fields: three heap
+>   objects become one GC-managed struct. This is a *merge*, not a `sync.Pool` —
+>   zero ownership/lifetime change, so a synchronous handler may still retain its
+>   request context, and there is no use-after-recycle hazard. (Pooling was
+>   explicitly **not** done: it would buy only one more alloc, is the sole
+>   use-after-free source, and `-race` cannot detect a `sync.Pool` use-after-
+>   recycle because `Pool.Get`/`Put` synchronize internally.) **−2 allocs/op.**
+> - **New — `SyncClient` (A1c caller-pumps-the-reader).** A distinct synchronous-
+>   client mode that owns its read loop instead of running a background reader, so
+>   a `Call` collapses the third goroutine hop. **~2030 ns/op vs the `Conn` round
+>   trip's ~2900 ns** on the same `net.Pipe`+NDJSON transport. Reported as a
+>   separate `ours/sync` row with mode disclosure (see
+>   [Synchronous-client mode](#synchronous-client-mode-a1c)); it is **not** a
+>   head-to-head claim against `channel.Direct` and **not** a speedup of the
+>   bidirectional `Conn`.
+> - **Rejected on measurement — atomic shutdown fast path (A2).** An atomic
+>   "shutting down" latch was implemented to skip the `stateMu` acquisition on the
+>   read-only `shuttingDown` check in the write path. A clean A2-off vs A2-on
+>   isolation (same code state, `-count=8`) was **statistically indistinguishable**
+>   (~3679–3786 vs ~3656–3899 ns at P4/P12). The parallel path is scheduling-bound
+>   (the CPU profile is 56% `pthread_cond_wait` + 26% `cond_signal`); the `stateMu`
+>   mutex *delay* is parked-goroutine wait, not wall-clock. With zero measured
+>   benefit and a real cost (a second source of truth for shutdown state that a
+>   future maintainer must keep in sync), the latch was **reverted**. The
+>   `TestCloseRacesConcurrentWrites` liveness stress test it motivated was **kept**
+>   (it exercises Close racing concurrent writes on the locked path; `-race` cannot
+>   catch an idle/close hang, so the liveness assertion is the gate). *Finding for
+>   the record: the synchronization model is not the bottleneck on `net.Pipe`; the
+>   slot-table and incoming map updates fundamentally need the lock.*
+> - **Rejected on safety — `unsafe` borrowed decode.** Aliasing the read buffer to
+>   drop the method-copy + `*Call` alloc on the inline-sync path was rejected. The
+>   "copy on `Async`" escape invariant is incomplete: a synchronous handler that
+>   does **not** call `Async` but retains `req.Params()`/`req.Method()` and returns
+>   normally has no signal to trigger a copy, so the next frame overwrites the
+>   borrowed bytes — an undetectable use-after-free (`-race` cannot see it). It
+>   would be safe only with an explicit *public* params-lifetime contract change,
+>   which buys ~1 alloc (the alloc target was already met without it). Not taken;
+>   the public `DecodeMessage` keeps owning its bytes. The remaining `replier`
+>   closure (~1 alloc) is likewise documented as the **server-dispatch alloc
+>   floor**, consistent with the standalone decode-floor decision: removable only
+>   by an interface change to `Replier` that damages every handler call site for
+>   no ns gain.
+
 ## Libraries under test
 
 | Label | Module | Notes |
@@ -25,6 +83,32 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 | `ours`  | `go.lsp.dev/jsonrpc2` (this repo, via replace) | The library being benchmarked. |
 | `jrpc2` | `github.com/creachadair/jrpc2` v1.3.5 | Mature, widely used; the reference for `BenchmarkRoundTrip` / `BenchmarkParseRequests`. |
 | `mcp`   | vendored `mcpref/` (Go MCP SDK's jsonrpc2, gopls-derived) | Vendored at `internal/benchmark/mcpref`. |
+
+## Synchronous-client mode (A1c)
+
+`SyncClient` owns its read loop (no client-side background reader); each `Call`
+writes the request and reads its own response on the caller's goroutine,
+collapsing the dedicated-reader-to-`Call` hand-off (the third goroutine hop) that
+the concurrent `Conn` pays. Measured on `net.Pipe` + NDJSON against an ordinary
+`Conn` server (arm64, M3 Max, root benchmark, `-count=8`):
+
+| Path | ns/op | B/op | allocs/op |
+|------|------:|-----:|----------:|
+| `BenchmarkVoidRoundTrip` (`Conn`, concurrent) | ~2900 | 408 | 6 |
+| `BenchmarkSyncClientVoidRoundTrip` | **~2030** | 408 | 6 |
+
+**Mode disclosure (do not quote the number without it).** `SyncClient` removes the
+*client's* reader goroutine. It cannot receive server-initiated requests and
+serializes its calls (one outstanding at a time). The win is therefore an
+execution-model change, reported as a distinct `ours/sync` row exactly as the
+batch rows are excluded from the strict apples-to-apples claim. It is **not**
+comparable head-to-head with jrpc2's `channel.Direct` (which keeps a client-side
+reader), and a lower number here does **not** mean the bidirectional `Conn` got
+faster. The feasibility premise in the planning doc ("reuse the `Async`
+successor-reader handoff") was incorrect — that handoff moves the single reader
+role between goroutines and is not a caller-pump primitive — so `SyncClient` is a
+separate, additive type that never starts a background reader, leaving the
+existing `Conn` untouched.
 
 ## Environment
 

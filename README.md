@@ -213,11 +213,46 @@ developer baseline.
 
 ### Same, on `arm64` (Apple M3 Max, secondary baseline)
 
-| Library | ns/op | B/op | allocs/op |
+These arm64 numbers reflect the **next-layer allocation pass** (the concurrent
+`Conn` void round trip fell from 10 to **6 allocs/op** on the root benchmark via
+two general, GC-safe changes: a concrete non-interface write path that drops the
+per-send envelope box, and folding the per-request releaser and replied flag into
+the request struct — no pooling, no `unsafe`, no ownership change). The B/op and
+ns/op fell correspondingly.
+
+| Library | ns/op | B/op | allocs/op (root) |
 |---------|------:|-----:|----------:|
-| **jsonrpc2 (ours)** | **~3270** | **584** | **12** |
+| **jsonrpc2 (ours)** | **~2900** | **408** | **6** |
 | jrpc2 | ~7990 | 4469 | 100 |
 | mcp | ~22500 | 100550 | 46 |
+
+> **amd64 (the `fastest`-claim arch) needs a CI rerun.** The amd64 headline table
+> above still shows the pre-pass figures (12 harness allocs); it was **not**
+> re-measured in this pass. The CircleCI `bench` job must be re-run to refresh the
+> amd64 numbers before the headline claim is re-quoted. The arm64 row here is the
+> directly-measured secondary baseline for the new state.
+
+### Synchronous-client mode (`SyncClient`) — a distinct, lower-latency request path
+
+`SyncClient` is a synchronous client that **owns its read loop** instead of
+running a background reader goroutine: each `Call` writes the request and reads
+its own response on the caller's goroutine, collapsing the dedicated-reader-to-
+caller hand-off (the third goroutine hop) a concurrent `Conn` pays. On the same
+`net.Pipe` + NDJSON transport against an ordinary `Conn` server:
+
+| Path | ns/op | B/op | allocs/op |
+|------|------:|-----:|----------:|
+| `Conn` round trip (concurrent) | ~2900 | 408 | 6 |
+| `SyncClient` round trip | **~2030** | 408 | 6 |
+
+**Read this as a mode, not a speedup of `Conn`.** `SyncClient` removes the
+*client's* reader goroutine; it cannot receive server-initiated requests and
+serializes its calls (one outstanding at a time). It is therefore reported
+separately — the same integrity reason the batch rows are excluded — and is **not**
+a head-to-head claim against jrpc2's `channel.Direct` (which keeps a client-side
+reader). A lower number here means "ours' fastest in-process request path," not
+that the bidirectional `Conn` got faster. Use `Conn` with `Conn.Go` when you need
+concurrent calls or server-to-client requests.
 
 ### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
 
