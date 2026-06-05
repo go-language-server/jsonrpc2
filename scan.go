@@ -212,9 +212,10 @@ func scanContainer(data []byte, i int) (end int, ok bool) {
 
 // scanNumber scans a JSON number beginning at data[i]. It accepts the JSON
 // number grammar (optional sign, integer part, optional fraction, optional
-// exponent) and returns the index just past the last digit.
+// exponent) and returns the index just past the last digit. Its only caller
+// (scanValue) enters on a '-' or a digit, so the integer part always consumes at
+// least one byte or returns false; no "consumed nothing" guard is needed.
 func scanNumber(data []byte, i int) (end int, ok bool) {
-	start := i
 	if i < len(data) && data[i] == '-' {
 		i++
 	}
@@ -253,9 +254,6 @@ func scanNumber(data []byte, i int) (end int, ok bool) {
 		for i < len(data) && data[i] >= '0' && data[i] <= '9' {
 			i++
 		}
-	}
-	if i == start {
-		return 0, false
 	}
 	return i, true
 }

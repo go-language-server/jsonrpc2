@@ -103,9 +103,11 @@ func Serve(ctx context.Context, ln net.Listener, server StreamServer, idleTimeou
 	newConns := make(chan net.Conn)
 	doneListening := make(chan error, 1)
 
-	// closedConns reports a connection finishing. The channel is buffered with one
-	// slot per possible in-flight connection so a finishing server goroutine never
-	// blocks sending on it after the accept loop has stopped reading.
+	// closedConns signals the accept loop that a connection finished and the active
+	// set became idle, so it can re-arm the idle timer. A buffer of one plus a
+	// non-blocking send means a finishing server goroutine never blocks: if a
+	// signal is already pending the send is dropped, and the loop reads the
+	// up-to-date active count when it wakes.
 	closedConns := make(chan struct{}, 1)
 
 	var (

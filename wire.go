@@ -55,11 +55,11 @@ func EncodeMessage(msg Message) ([]byte, error) {
 func appendMessage(dst []byte, msg Message) []byte {
 	switch m := msg.(type) {
 	case *Call:
-		return appendCall(dst, m)
+		return appendCallFields(dst, m.id, m.method, m.params)
 	case *Notification:
-		return appendNotification(dst, m)
+		return appendNotificationFields(dst, m.method, m.params)
 	case *Response:
-		return appendResponse(dst, m)
+		return appendResponseFields(dst, m.id, m.result, m.err)
 	case callWire:
 		return appendCallFields(dst, m.id, m.method, m.params)
 	case notificationWire:
@@ -71,13 +71,9 @@ func appendMessage(dst []byte, msg Message) []byte {
 	}
 }
 
-// appendCall appends a call envelope:
+// appendCallFields appends a call envelope from its concrete fields:
 //
 //	{"jsonrpc":"2.0","method":<esc>,"params":<raw?>,"id":<id>}
-func appendCall(dst []byte, c *Call) []byte {
-	return appendCallFields(dst, c.id, c.method, c.params)
-}
-
 func appendCallFields(dst []byte, id ID, method string, params RawMessage) []byte {
 	dst = append(dst, envelopePrefix...)
 	dst = append(dst, `,"method":`...)
@@ -91,13 +87,10 @@ func appendCallFields(dst []byte, id ID, method string, params RawMessage) []byt
 	return append(dst, '}')
 }
 
-// appendNotification appends a notification envelope (no id member):
+// appendNotificationFields appends a notification envelope (no id member) from
+// its concrete fields:
 //
 //	{"jsonrpc":"2.0","method":<esc>,"params":<raw?>}
-func appendNotification(dst []byte, n *Notification) []byte {
-	return appendNotificationFields(dst, n.method, n.params)
-}
-
 func appendNotificationFields(dst []byte, method string, params RawMessage) []byte {
 	dst = append(dst, envelopePrefix...)
 	dst = append(dst, `,"method":`...)
@@ -109,17 +102,13 @@ func appendNotificationFields(dst []byte, method string, params RawMessage) []by
 	return append(dst, '}')
 }
 
-// appendResponse appends a response envelope. Per the specification a response
-// always carries an id (null when unknown) and exactly one of result or error;
-// a successful response always emits a result member, defaulting to null when no
-// result bytes are present.
+// appendResponseFields appends a response envelope from its concrete fields. Per
+// the specification a response always carries an id (null when unknown) and
+// exactly one of result or error; a successful response always emits a result
+// member, defaulting to null when no result bytes are present.
 //
 //	{"jsonrpc":"2.0","id":<id>,"result":<raw|null>}
 //	{"jsonrpc":"2.0","id":<id>,"error":{...}}
-func appendResponse(dst []byte, r *Response) []byte {
-	return appendResponseFields(dst, r.id, r.result, r.err)
-}
-
 func appendResponseFields(dst []byte, id ID, result RawMessage, err error) []byte {
 	dst = append(dst, envelopePrefix...)
 	dst = append(dst, `,"id":`...)
