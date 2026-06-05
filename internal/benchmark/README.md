@@ -22,12 +22,23 @@ internal/benchmark/bench-artifacts.sh \
   --count 10
 ```
 
+To compare a new run against an existing raw `go test -bench` output:
+
+```sh
+internal/benchmark/bench-artifacts.sh \
+  --bench 'Benchmark(RoundTripVoid|Decode|Encode)' \
+  --count 10 \
+  --compare internal/benchmark/artifacts/<before>/bench.txt
+```
+
 The script writes a timestamped directory under
 `internal/benchmark/artifacts/` containing:
 
 - `bench.txt` — raw `go test -bench` output.
 - `command.txt` — the exact benchmark command after normalization.
-- `env.txt` — git, Go, `GOFLAGS`, `GOWORK`, and module-cache context.
+- `env.txt` — git, Go, `GOFLAGS`, `GOWORK`, host, CPU, and module-cache
+  context.
+- `benchstat.txt` — before/after comparison when `--compare` is supplied.
 - `cpu.pprof` and `mem.pprof` — pprof files, unless `--no-profiles` is used.
 
 The artifact directory is ignored by git. Copy the relevant raw outputs into
@@ -64,4 +75,3 @@ GOFLAGS=-mod=vendor GOPROXY=off \
 
 That command should pass even though the same benchmark module fails when run
 directly with `GOFLAGS=-mod=vendor`.
-

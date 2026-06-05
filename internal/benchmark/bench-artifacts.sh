@@ -13,6 +13,7 @@ Options:
   --run REGEX         Test regex passed to go test -run (default: ^$)
   --count N           Count passed to go test -count (default: 10)
   --out DIR           Artifact directory (default: internal/benchmark/artifacts/<timestamp>)
+  --compare FILE      Existing benchmark output to compare with benchstat
   --no-benchmem       Omit -benchmem
   --no-profiles       Do not write cpu.pprof and mem.pprof
   -h, --help          Show this help
@@ -29,6 +30,7 @@ bench='.'
 run='^$'
 count='10'
 out=''
+compare=''
 benchmem=1
 profiles=1
 extra_args=()
@@ -67,6 +69,14 @@ while (($#)); do
 		out=${1#--out=}
 		shift
 		;;
+	--compare)
+		compare=${2:?missing value for --compare}
+		shift 2
+		;;
+	--compare=*)
+		compare=${1#--compare=}
+		shift
+		;;
 	--no-benchmem)
 		benchmem=0
 		shift
@@ -100,6 +110,10 @@ if [[ -z "$out" ]]; then
 	out="${script_dir}/artifacts/${timestamp}"
 elif [[ "$out" != /* ]]; then
 	out="${repo_root}/${out}"
+fi
+
+if [[ -n "$compare" && "$compare" != /* ]]; then
+	compare="${repo_root}/${compare}"
 fi
 
 mkdir -p "$out"
@@ -158,6 +172,13 @@ cmd+=("${extra_args[@]}" .)
 	printf '\n[go]\n'
 	go version
 	go env GOFLAGS GOWORK GOPROXY GOMODCACHE GOOS GOARCH
+	printf '\n[host]\n'
+	hostname || true
+	uname -a || true
+	sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+	if [[ -r /proc/cpuinfo ]]; then
+		grep -m1 '^model name' /proc/cpuinfo || true
+	fi
 } >"$out/env.txt"
 
 {
@@ -168,3 +189,12 @@ cmd+=("${extra_args[@]}" .)
 
 printf 'writing benchmark artifacts to %s\n' "$out"
 "${cmd[@]}" | tee "$out/bench.txt"
+
+if [[ -n "$compare" ]]; then
+	if ! command -v benchstat >/dev/null 2>&1; then
+		printf 'benchstat not found; cannot compare %s\n' "$compare" >&2
+		exit 1
+	fi
+	printf 'benchstat %q %q\n' "$compare" "$out/bench.txt" >"$out/benchstat-command.txt"
+	benchstat "$compare" "$out/bench.txt" | tee "$out/benchstat.txt"
+fi
