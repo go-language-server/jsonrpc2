@@ -195,3 +195,43 @@ func BenchmarkSyncClientVoidRoundTrip(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkOutgoingCallSlotsAddTake(b *testing.B) {
+	waiters := makeBenchmarkWaiters(256)
+	b.ReportAllocs()
+	for b.Loop() {
+		var slots outgoingCallSlots
+		for i, w := range waiters {
+			slots.Add(NewNumberID(int64(i+1)), w)
+		}
+		for i := range waiters {
+			if _, ok := slots.Take(NewNumberID(int64(i + 1))); !ok {
+				b.Fatalf("Take(%d) failed", i+1)
+			}
+		}
+	}
+}
+
+func BenchmarkDenseCallSlotsAddTake(b *testing.B) {
+	waiters := makeBenchmarkWaiters(256)
+	b.ReportAllocs()
+	for b.Loop() {
+		var slots denseCallSlots
+		for i, w := range waiters {
+			slots.Add(NewNumberID(int64(i+1)), w)
+		}
+		for i := range waiters {
+			if _, ok := slots.Take(NewNumberID(int64(i + 1))); !ok {
+				b.Fatalf("Take(%d) failed", i+1)
+			}
+		}
+	}
+}
+
+func makeBenchmarkWaiters(n int) []*waiter {
+	waiters := make([]*waiter, n)
+	for i := range waiters {
+		waiters[i] = &waiter{ready: make(chan *Response, 1)}
+	}
+	return waiters
+}
