@@ -255,10 +255,11 @@ ns/op fell correspondingly.
 | mcp | ~22500 | 100550 | 46 |
 
 > **amd64 refresh caveat.** The amd64 headline table above is a measured artifact,
-> but it has not been refreshed for the latest local arm64 allocation/runtime-mode
-> pass. Re-run the CircleCI `bench` job before quoting amd64 numbers for the new
-> six-allocation `Conn` state or the new mode-specific clients. The arm64 row here
-> is the directly measured secondary baseline for the new state.
+> but the full comparative table has not been refreshed for the latest local
+> allocation/runtime-mode pass. `PipelineClient` has its own current-head amd64
+> artifact below; re-run the CircleCI `bench` job before quoting full comparative
+> amd64 numbers for the new six-allocation `Conn` state. The arm64 row here is
+> the directly measured secondary baseline for the new state.
 
 ### Synchronous-client mode (`SyncClient`) — a distinct, lower-latency request path
 
@@ -285,23 +286,27 @@ concurrent calls or server-to-client requests.
 ### Pipelined-client mode (`PipelineClient`) — concurrent client-only path
 
 `PipelineClient` keeps many client-originated calls in flight, but it does not
-dispatch server-initiated calls. It uses dense generated-ID slots and scans
-canonical success responses before falling back to the borrowed `MessageView`
-scanner. On Apple M3 Max (`go1.26.4 darwin/arm64`, `net.Pipe` + NDJSON,
-`-benchtime=200x -count=10`), the preserved artifact
-`internal/benchmark/artifacts/20260606T012124Z-root-pipeline-fastpath-vs-conn`
-showed:
+dispatch server-initiated calls. It uses dense generated-ID slots, pooled waiters,
+numeric response delivery, and a canonical success-response scanner before
+falling back to the borrowed `MessageView` scanner. The current-head arm64
+artifact
+`internal/benchmark/artifacts/20260606T025048Z-root-pipeline-lazy-base-current-head`
+(`go1.26.4 darwin/arm64`, Apple M3 Max, `net.Pipe` + NDJSON, `-count=10`) shows:
 
 | Inflight | Conn ns/op | PipelineClient ns/op | allocs/op |
 |---------:|-----------:|---------------------:|----------:|
-| 1 | 2.914 µs | **2.565 µs** (-12.0%) | 6 → **4** |
-| 8 | 34.99 µs | **32.00 µs** (-8.6%) | 57 → **41** |
-| 64 | 325.4 µs | **257.1 µs** (-21.0%) | 451 → **322** |
-| 256 | 1.232 ms | 1.241 ms (statistically neutral) | 1810 → **1296** |
+| 1 | 3.028 µs | **2.801 µs** (-7.5%) | 6 → **4** |
+| 8 | 32.20 µs | 31.86 µs (statistically neutral, p=0.063) | 57 → **41** |
+| 64 | 302.6 µs | **262.9 µs** (-13.1%) | 450 → **321** |
+| 256 | 1.240 ms | 1.261 ms (statistically neutral, p=0.123) | 1804 → **1290** |
 
-Read this as a client-only mode result: it proves lower allocation pressure at
-all measured inflight levels and latency wins up to inflight 64 on this harness;
-it is not a bidirectional `Conn` replacement.
+A current-head linux/amd64 artifact was also captured at
+`internal/benchmark/artifacts/20260606T025258Z-linux-amd64-root-pipeline-lazy-base-current-head`
+(Go `1.26.3`, Debian 13, Intel Xeon Platinum 8481C). It shows latency wins at
+inflight `1/8/64`, an inflight `256` latency regression on that host, and
+allocation/byte reductions at every inflight level. Quote the pipelined result as
+a **geomean latency win plus allocation-pressure win**, not as a strict latency
+win at every concurrency level. It is not a bidirectional `Conn` replacement.
 
 ### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
 

@@ -120,6 +120,28 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > client-driven and does not dispatch server-initiated requests; `Conn`/`Peer`
 > remain the bidirectional mode.
 
+> **Update — current-head pipelined-client evidence (2026-06-06).** The final
+> current-head pipeline evidence supersedes the earlier `20260606T012124Z` probe
+> for quoted numbers. Arm64 raw artifact:
+> `internal/benchmark/artifacts/20260606T025048Z-root-pipeline-lazy-base-current-head`
+> (`go test -run '^$' -bench
+> 'Benchmark(ConnPipelinedVoidRoundTrip|PipelineClientVoidRoundTrip)$' -benchmem
+> -count=10 -cpuprofile ... -memprofile ... .`, clean HEAD
+> `40f2a9ed855cd4ba2810ab70b1b9da7b068f5036`, Go `go1.26.4
+> darwin/arm64`, Apple M3 Max). Benchstat: inflight `1` −7.48% ns/op,
+> inflight `8` neutral (`p=0.063`), inflight `64` −13.13%, inflight
+> `256` neutral (`p=0.123`), geomean −5.17%; bytes fell −18.50% geomean
+> and allocs fell −29.67% geomean (`6/57/450/1804` → `4/41/321/1290`).
+> Linux/amd64 raw artifact:
+> `internal/benchmark/artifacts/20260606T025258Z-linux-amd64-root-pipeline-lazy-base-current-head`
+> (remote host `debian-13-trixie-mnx1`, Go `go1.26.3 linux/amd64`, Intel
+> Xeon Platinum 8481C, clean same HEAD). Benchstat: inflight `1` −9.95%,
+> `8` −8.79%, `64` −5.98%, `256` +3.45%, geomean −5.46%; bytes and
+> allocs still fall at every inflight level. Therefore quote `PipelineClient` as
+> a client-only geomean latency win and all-level allocation/byte win, with an
+> explicit high-inflight latency caveat, **not** as a strict latency win for
+> every inflight level on every host.
+
 ## Libraries under test
 
 | Label | Module | Notes |
