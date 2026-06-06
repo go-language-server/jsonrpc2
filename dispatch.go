@@ -27,11 +27,11 @@ func (c *conn) setupRequest(ctx context.Context, req Request, bc *batchCollector
 	ir = &incomingRequest{req: req, parent: ctx, id: id, isCall: isCall}
 
 	// A Preempter, if configured, runs inline on the read goroutine before the
-	// request is queued for the handler. A request it handles (any error other
-	// than ErrNotHandled) is answered here and never reaches the handler.
+	// request is queued for the handler. ErrNotHandled or a nil handled value
+	// defers to the handler; every other result or error is answered here.
 	if c.preempter != nil {
 		result, perr := c.preempter.Preempt(ir, req)
-		if !errors.Is(perr, ErrNotHandled) {
+		if !errors.Is(perr, ErrNotHandled) && (result != nil || perr != nil) {
 			c.updateInFlight(func(s *inFlightState) { s.incoming++ })
 			c.completeRequest(ir, ir, bc, result, perr)
 			return nil, true

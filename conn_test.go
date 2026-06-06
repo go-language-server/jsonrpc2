@@ -655,6 +655,12 @@ func (p *recordingPreempter) Preempt(ctx context.Context, req Request) (any, err
 	if req.Method() == "preempt" {
 		return raw(`"preempted"`), nil
 	}
+	if req.Method() == "nil-defer" {
+		return nil, nil
+	}
+	if req.Method() == "result-not-handled" {
+		return raw(`"ignored"`), ErrNotHandled
+	}
 	return nil, ErrNotHandled
 }
 
@@ -691,6 +697,22 @@ func TestPreempter(t *testing.T) {
 	}
 	if string(got) != `"handled"` {
 		t.Fatalf("normal result: got %s want \"handled\"", got)
+	}
+
+	// A nil handled value also falls through to the handler.
+	if _, err := client.Call(ctx, "nil-defer", nil, &got); err != nil {
+		t.Fatalf("Call nil-defer: %v", err)
+	}
+	if string(got) != `"handled"` {
+		t.Fatalf("nil-defer result: got %s want \"handled\"", got)
+	}
+
+	// ErrNotHandled always falls through, even if a stale handled value is present.
+	if _, err := client.Call(ctx, "result-not-handled", nil, &got); err != nil {
+		t.Fatalf("Call result-not-handled: %v", err)
+	}
+	if string(got) != `"handled"` {
+		t.Fatalf("result-not-handled result: got %s want \"handled\"", got)
 	}
 	if handlerSawPreempt.Load() {
 		t.Fatal("handler observed a preempted request")
