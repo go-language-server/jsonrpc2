@@ -171,6 +171,9 @@ func (s *headerStream) Write(ctx context.Context, msg Message) (int64, error) {
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendMessage(buf, msg)
@@ -219,6 +222,9 @@ func (s *headerStream) writeCall(ctx context.Context, id ID, method string, para
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendCallFields(buf, id, method, params)
 	})
@@ -231,6 +237,9 @@ func (s *headerStream) writeNotification(ctx context.Context, method string, par
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendNotificationFields(buf, method, params)
 	})
@@ -243,6 +252,9 @@ func (s *headerStream) writeResponse(ctx context.Context, id ID, result RawMessa
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendResponseFields(buf, id, result, err)
 	})
@@ -259,6 +271,9 @@ func (s *headerStream) WriteFrame(ctx context.Context, data []byte) (int64, erro
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 
 	buf := s.wbuf[:0]
 	buf = append(buf, "Content-Length: "...)
@@ -365,6 +380,9 @@ func (s *ndjsonStream) Write(ctx context.Context, msg Message) (int64, error) {
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendMessage(buf, msg)
@@ -391,6 +409,9 @@ func (s *ndjsonStream) writeCall(ctx context.Context, id ID, method string, para
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendCallFields(buf, id, method, params)
 	})
@@ -403,6 +424,9 @@ func (s *ndjsonStream) writeNotification(ctx context.Context, method string, par
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendNotificationFields(buf, method, params)
 	})
@@ -415,6 +439,9 @@ func (s *ndjsonStream) writeResponse(ctx context.Context, id ID, result RawMessa
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	return s.composeAndWrite(func(buf []byte) []byte {
 		return appendResponseFields(buf, id, result, err)
 	})
@@ -431,6 +458,9 @@ func (s *ndjsonStream) WriteFrame(ctx context.Context, data []byte) (int64, erro
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 
 	buf := append(s.wbuf[:0], data...)
 	buf = append(buf, '\n')

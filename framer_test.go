@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
 )
@@ -496,6 +497,57 @@ func TestStreamContextCanceled(t *testing.T) {
 			}
 			if _, err := s.Write(ctx, NewNotification("x", nil)); !errors.Is(err, context.Canceled) {
 				t.Errorf("Write err = %v, want context.Canceled", err)
+			}
+		})
+	}
+}
+
+func TestFrameWriteCallHonorsContextCanceledWhileQueued(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*countingConn) (frameWriter, func()){
+		"header": func(cc *countingConn) (frameWriter, func()) {
+			s := NewHeaderStream(cc).(*headerStream)
+			s.writeMu.Lock()
+			return s, s.writeMu.Unlock
+		},
+		"ndjson": func(cc *countingConn) (frameWriter, func()) {
+			s := NewNDJSONStream(cc).(*ndjsonStream)
+			s.writeMu.Lock()
+			return s, s.writeMu.Unlock
+		},
+	}
+	for name, setup := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var cc countingConn
+			fw, unlock := setup(&cc)
+			ctx, cancel := context.WithCancel(t.Context())
+			errc := make(chan error, 1)
+			go func() {
+				_, err := fw.writeCall(ctx, NewNumberID(1), "queued", nil)
+				errc <- err
+			}()
+
+			// Give the writer goroutine time to pass its first context check and
+			// block on the stream write mutex. The post-lock context check is the
+			// behavior under test: a cancellation while queued for the write lock
+			// must not emit a request after the lock becomes available.
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+			unlock()
+
+			select {
+			case err := <-errc:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("writeCall err = %v, want context.Canceled", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for writeCall")
+			}
+			if writes := cc.writes.Load(); writes != 0 {
+				t.Fatalf("conn.Write calls = %d, want 0 for canceled queued write", writes)
 			}
 		})
 	}

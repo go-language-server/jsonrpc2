@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -38,6 +39,10 @@ type PipelineClient struct {
 	writeErr   error
 	closeErr   error
 	done       chan struct{}
+
+	writeQueueMu sync.Mutex
+	writeQueue   []pipelineQueuedCall
+	writeRunning bool
 }
 
 // NewPipelineClient creates a pipelined client over stream.
@@ -66,19 +71,24 @@ func (c *PipelineClient) Call(ctx context.Context, method string, params, result
 		return ID{}, fmt.Errorf("jsonrpc2: marshaling call parameters: %w", err)
 	}
 
-	id := NewNumberID(c.seq.Add(1))
+	idNum := c.seq.Add(1)
+	id := NewNumberID(idNum)
 	w := getPipelineWaiter(result)
 
 	c.mu.Lock()
+	queueWrite := false
 	if shutErr := c.shuttingDownLocked(); shutErr != nil {
 		c.mu.Unlock()
 		putPipelineWaiter(w)
 		return id, shutErr
 	}
 	c.calls.Add(id, w)
+	queueWrite = c.frames != nil && c.calls.Len() > 1
 	c.mu.Unlock()
 
-	if err := c.writeCall(ctx, id, method, raw); err != nil {
+	if queueWrite {
+		c.enqueueCall(pipelineQueuedCall{ctx: ctx, id: idNum, method: method, params: raw})
+	} else if err := c.writeCall(ctx, id, method, raw); err != nil {
 		c.afterWrite(ctx, err)
 		if c.retireCall(id) {
 			putPipelineWaiter(w)
@@ -125,6 +135,79 @@ func (c *PipelineClient) Notify(ctx context.Context, method string, params any) 
 	err = c.writeNotification(ctx, method, raw)
 	c.afterWrite(ctx, err)
 	return err
+}
+
+type pipelineQueuedCall struct {
+	ctx    context.Context
+	id     int64
+	method string
+	params RawMessage
+}
+
+func (c *PipelineClient) enqueueCall(call pipelineQueuedCall) {
+	c.writeQueueMu.Lock()
+	c.writeQueue = append(c.writeQueue, call)
+	start := !c.writeRunning
+	if start {
+		c.writeRunning = true
+	}
+	c.writeQueueMu.Unlock()
+	if start {
+		go c.writeQueuedCalls()
+	}
+}
+
+func (c *PipelineClient) writeQueuedCalls() {
+	// A just-started writer yields once so a burst of concurrent Call goroutines
+	// can enqueue behind the first direct writer and be drained by one writer
+	// goroutine instead of all contending on the stream write mutex. In the
+	// single-call path Call writes directly and never reaches this goroutine.
+	runtime.Gosched()
+
+	var spare []pipelineQueuedCall
+	for {
+		c.writeQueueMu.Lock()
+		calls := c.writeQueue
+		if len(calls) == 0 {
+			if cap(spare) > cap(c.writeQueue) {
+				c.writeQueue = spare
+			}
+			c.writeRunning = false
+			c.writeQueueMu.Unlock()
+			return
+		}
+		c.writeQueue = spare[:0]
+		c.writeQueueMu.Unlock()
+
+		if err := c.writeQueuedCallFrames(context.Background(), calls); err != nil {
+			c.writeQueueMu.Lock()
+			c.writeQueue = c.writeQueue[:0]
+			c.writeRunning = false
+			c.writeQueueMu.Unlock()
+			c.afterWrite(context.Background(), err)
+			return
+		}
+		spare = calls[:0]
+	}
+}
+
+func (c *PipelineClient) writeQueuedCallFrames(ctx context.Context, calls []pipelineQueuedCall) error {
+	for _, call := range calls {
+		writeCtx := ctx
+		if call.ctx != nil {
+			writeCtx = call.ctx
+		}
+		if err := c.writeCall(writeCtx, NewNumberID(call.id), call.method, call.params); err != nil {
+			if writeCtx.Err() != nil {
+				if w := c.retireNumberCall(call.id); w != nil {
+					w.deliver(writeCtx.Err())
+				}
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 // Go implements [Conn].
@@ -248,6 +331,9 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if isJSONArray(frame) {
+		return c.deliverBatchResponse(frame)
+	}
 	if id, result, ok, err := scanPipelineResultResponseNumber(frame); ok || err != nil {
 		if err != nil {
 			return err
@@ -285,6 +371,11 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 
 const pipelineResultResponsePrefix = `{"jsonrpc":"2.0","id":`
 
+func isJSONArray(frame []byte) bool {
+	i := skipSpace(frame, 0)
+	return i < len(frame) && frame[i] == '['
+}
+
 func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool, err error) {
 	n, result, ok, err := scanPipelineResultResponseNumber(frame)
 	if !ok || err != nil {
@@ -295,18 +386,29 @@ func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool
 
 func scanPipelineResultResponseNumber(frame []byte) (id int64, result RawMessage, ok bool, err error) {
 	i := skipSpace(frame, 0)
+	id, result, next, ok, err := scanPipelineResultResponseNumberAt(frame, i)
+	if !ok || err != nil {
+		return 0, result, ok, err
+	}
+	if skipSpace(frame, next) != len(frame) {
+		return 0, nil, false, ErrInvalidRequest
+	}
+	return id, result, true, nil
+}
+
+func scanPipelineResultResponseNumberAt(frame []byte, i int) (id int64, result RawMessage, next int, ok bool, err error) {
 	if !hasLiteralAt(frame, i, pipelineResultResponsePrefix) {
-		return 0, nil, false, nil
+		return 0, nil, i, false, nil
 	}
 	i += len(pipelineResultResponsePrefix)
 
 	n, next, ok := parsePositiveInt64(frame, i)
 	if !ok {
-		return 0, nil, false, nil
+		return 0, nil, i, false, nil
 	}
 	i = next
 	if !hasLiteralAt(frame, i, `,"result":`) {
-		return 0, nil, false, nil
+		return 0, nil, i, false, nil
 	}
 	i += len(`,"result":`)
 
@@ -315,28 +417,81 @@ func scanPipelineResultResponseNumber(frame []byte) (id int64, result RawMessage
 		i += len("null")
 		i = skipSpace(frame, i)
 		if i >= len(frame) || frame[i] != '}' {
-			return 0, nil, false, ErrInvalidRequest
+			return 0, nil, i, false, ErrInvalidRequest
 		}
-		i = skipSpace(frame, i+1)
-		if i != len(frame) {
-			return 0, nil, false, ErrInvalidRequest
-		}
-		return n, RawMessage(frame[valStart : valStart+len("null")]), true, nil
+		return n, RawMessage(frame[valStart : valStart+len("null")]), i + 1, true, nil
 	}
 
 	valEnd, ok := scanValue(frame, i)
 	if !ok {
-		return 0, nil, false, ErrParse
+		return 0, nil, i, false, ErrParse
 	}
 	i = skipSpace(frame, valEnd)
 	if i >= len(frame) || frame[i] != '}' {
-		return 0, nil, false, ErrInvalidRequest
+		return 0, nil, i, false, ErrInvalidRequest
+	}
+	return n, RawMessage(frame[valStart:valEnd]), i + 1, true, nil
+}
+
+func (c *PipelineClient) deliverBatchResponse(frame []byte) error {
+	if ok, err := c.deliverFastBatchResponse(frame); ok || err != nil {
+		return err
+	}
+
+	i := skipSpace(frame, 0)
+	spans, ok := scanArrayElements(frame, i)
+	if !ok {
+		return ErrInvalidRequest
+	}
+	for _, span := range spans {
+		msg, err := DecodeMessage(span)
+		if err != nil {
+			return fmt.Errorf("jsonrpc2: decoding batch response: %w", err)
+		}
+		resp, ok := msg.(*Response)
+		if !ok {
+			return fmt.Errorf("jsonrpc2: pipeline client received non-response %T in batch", msg)
+		}
+		c.deliverResponse(resp.id, resp.result, resp.err)
+	}
+	return nil
+}
+
+func (c *PipelineClient) deliverFastBatchResponse(frame []byte) (ok bool, err error) {
+	i := skipSpace(frame, 0)
+	if i >= len(frame) || frame[i] != '[' {
+		return false, nil
 	}
 	i = skipSpace(frame, i+1)
-	if i != len(frame) {
-		return 0, nil, false, ErrInvalidRequest
+	if i < len(frame) && frame[i] == ']' {
+		if skipSpace(frame, i+1) != len(frame) {
+			return false, ErrInvalidRequest
+		}
+		return true, ErrInvalidRequest
 	}
-	return n, RawMessage(frame[valStart:valEnd]), true, nil
+	for {
+		id, result, next, ok, err := scanPipelineResultResponseNumberAt(frame, i)
+		if !ok || err != nil {
+			return ok, err
+		}
+		c.deliverNumberResponse(id, result, nil)
+		i = skipSpace(frame, next)
+		if i >= len(frame) {
+			return false, ErrInvalidRequest
+		}
+		switch frame[i] {
+		case ',':
+			i = skipSpace(frame, i+1)
+			continue
+		case ']':
+			if skipSpace(frame, i+1) != len(frame) {
+				return false, ErrInvalidRequest
+			}
+			return true, nil
+		default:
+			return false, ErrInvalidRequest
+		}
+	}
 }
 
 func hasLiteralAt(data []byte, i int, lit string) bool {
@@ -408,6 +563,13 @@ func (c *PipelineClient) retireCall(id ID) bool {
 	_, ok := c.calls.Take(id)
 	c.mu.Unlock()
 	return ok
+}
+
+func (c *PipelineClient) retireNumberCall(id int64) *pipelineWaiter {
+	c.mu.Lock()
+	w, _ := c.calls.TakeNumber(id)
+	c.mu.Unlock()
+	return w
 }
 
 func (c *PipelineClient) takeCall(id ID) *pipelineWaiter {
