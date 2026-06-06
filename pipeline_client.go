@@ -90,7 +90,8 @@ func (c *PipelineClient) Call(ctx context.Context, method string, params, result
 	}
 
 	select {
-	case err := <-w.ready:
+	case <-w.ready:
+		err := w.err
 		putPipelineWaiter(w)
 		if err != nil {
 			return id, err
@@ -533,15 +534,19 @@ func (c *PipelineClient) terminationErrorLocked() error {
 }
 
 type pipelineWaiter struct {
-	ready  chan error
+	ready  chan struct{}
 	result any
+	err    error
 }
 
-func (w *pipelineWaiter) deliver(err error) { w.ready <- err }
+func (w *pipelineWaiter) deliver(err error) {
+	w.err = err
+	w.ready <- struct{}{}
+}
 
 var pipelineWaiterPool = sync.Pool{
 	New: func() any {
-		return &pipelineWaiter{ready: make(chan error, 1)}
+		return &pipelineWaiter{ready: make(chan struct{}, 1)}
 	},
 }
 
@@ -557,6 +562,7 @@ func putPipelineWaiter(w *pipelineWaiter) {
 	default:
 	}
 	w.result = nil
+	w.err = nil
 	pipelineWaiterPool.Put(w)
 }
 
