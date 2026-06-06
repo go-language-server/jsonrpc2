@@ -247,6 +247,13 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if id, result, ok, err := scanPipelineResultResponse(frame); ok || err != nil {
+		if err != nil {
+			return err
+		}
+		c.deliverResponse(id, result, nil)
+		return nil
+	}
 	view, err := ScanMessageView(frame)
 	if err != nil {
 		return fmt.Errorf("jsonrpc2: decoding response: %w", err)
@@ -273,6 +280,73 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 	default:
 		return fmt.Errorf("jsonrpc2: pipeline client received non-response %s", view.Kind)
 	}
+}
+
+const pipelineResultResponsePrefix = `{"jsonrpc":"2.0","id":`
+
+func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool, err error) {
+	i := skipSpace(frame, 0)
+	if !hasLiteralAt(frame, i, pipelineResultResponsePrefix) {
+		return ID{}, nil, false, nil
+	}
+	i += len(pipelineResultResponsePrefix)
+
+	n, next, ok := parsePositiveInt64(frame, i)
+	if !ok {
+		return ID{}, nil, false, nil
+	}
+	i = next
+	if !hasLiteralAt(frame, i, `,"result":`) {
+		return ID{}, nil, false, nil
+	}
+	i += len(`,"result":`)
+
+	valStart := i
+	valEnd, ok := scanValue(frame, i)
+	if !ok {
+		return ID{}, nil, false, ErrParse
+	}
+	i = skipSpace(frame, valEnd)
+	if i >= len(frame) || frame[i] != '}' {
+		return ID{}, nil, false, ErrInvalidRequest
+	}
+	i = skipSpace(frame, i+1)
+	if i != len(frame) {
+		return ID{}, nil, false, ErrInvalidRequest
+	}
+	return NewNumberID(n), RawMessage(frame[valStart:valEnd]), true, nil
+}
+
+func hasLiteralAt(data []byte, i int, lit string) bool {
+	if i < 0 || len(data)-i < len(lit) {
+		return false
+	}
+	for j := range lit {
+		if data[i+j] != lit[j] {
+			return false
+		}
+	}
+	return true
+}
+
+func parsePositiveInt64(data []byte, i int) (n int64, next int, ok bool) {
+	if i >= len(data) || data[i] < '1' || data[i] > '9' {
+		return 0, i, false
+	}
+	const maxInt64 = int64(1<<63 - 1)
+	for i < len(data) {
+		c := data[i]
+		if c < '0' || c > '9' {
+			break
+		}
+		digit := int64(c - '0')
+		if n > (maxInt64-digit)/10 {
+			return 0, i, false
+		}
+		n = n*10 + digit
+		i++
+	}
+	return n, i, true
 }
 
 func (c *PipelineClient) deliverResponse(id ID, result RawMessage, respErr error) {
