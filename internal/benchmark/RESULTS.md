@@ -244,21 +244,21 @@ existing `Conn` untouched.
 > server — see [amd64 results](#amd64-results-the-fastest-claim-arch) immediately
 > below. The arm64 tables remain a truthful secondary baseline.
 
-> **amd64 source of truth: the CircleCI `bench` job.** The `.circleci/config.yml`
-> `bench` job runs this exact harness on CircleCI's docker executor, which is
-> `amd64`/linux, with `go -C internal/benchmark test -run='^$' -bench=. -benchmem
-> -count=8 ./...` and stores `bench-amd64.txt` as a build artifact. That job —
-> not this developer machine — is the reproducible source of truth for the
-> amd64 "fastest" claim. The rival dependencies (jrpc2, mds, segmentio/encoding,
-> x/sync) are resolved over the network there via `go mod download`; they live
-> only in `internal/benchmark/go.mod` and never enter the root module graph. The
-> tables in this document remain the local `arm64` baseline and are labeled as
-> such.
+> **amd64 source of truth: a direct amd64 server measurement.** The full
+> comparative harness (`go -C internal/benchmark test -run='^$' -bench=. -benchmem
+> -count=10 ./...`, storing `bench_amd64.txt`) was run directly on an `amd64`/linux
+> server — Intel Xeon Platinum 8481C, Debian 13, `go1.26.4` — see
+> [amd64 results](#amd64-results-the-fastest-claim-arch) below. That measured run,
+> not this developer machine, is the source of truth for the amd64 "fastest"
+> claim. The rival dependencies (jrpc2, mds, segmentio/encoding, x/sync) are
+> resolved via `go mod download`; they live only in `internal/benchmark/go.mod`
+> and never enter the root module graph. The tables in this document remain the
+> local `arm64` baseline and are labeled as such.
 
 ## amd64 results (the `fastest` claim arch)
 
 Measured directly on an `amd64` server, closing the gap where the headline claim
-was previously anchored to CI but unmeasured. **`ours` is the fastest on every
+was previously asserted for amd64 but unmeasured. **`ours` is the fastest on every
 apples-to-apples workload**, with the *same* allocation counts as arm64 and, in
 several cases, *wider* margins.
 
@@ -329,10 +329,10 @@ envelope + single-copy scanner + single-write framing), not a platform artifact.
 The amd64 time-margins are equal-to-larger than arm64's (e.g. Decode Minimal
 18.4× vs jrpc2 here vs ~17× on arm64; void-vs-mcp 9.3× vs ~6.5×).
 
-> The CircleCI `bench` job (`.circleci/config.yml`) runs this same harness on
-> CI's amd64 executor and stores `bench-amd64.txt` as an artifact, so the amd64
-> claim is reproducible on every push; the table above is a direct server
-> measurement of that same workload. Rival deps live only in
+> The table above is a direct measurement on an amd64 server (Intel Xeon
+> Platinum 8481C, Debian 13, `go1.26.4`), reproducible by re-running this same
+> harness (`go -C internal/benchmark test -run='^$' -bench=. -benchmem -count=10
+> ./...`) on any amd64/linux host. Rival deps live only in
 > `internal/benchmark/go.mod` and never enter the root module graph.
 
 ## Transport families (Phase 6 §6 integrity protocol)
@@ -689,7 +689,8 @@ are general algorithmic improvements, not benchmark gaming, and every change was
 gated on `-race` and on a no-regression void round-trip before being kept.
 
 > **arm64 caveat unchanged.** These are local `darwin/arm64` numbers. Any
-> "fastest" claim for the project remains anchored to amd64/CI; these figures are
-> a truthful local measurement, not a marketing claim.
+> "fastest" claim for the project remains anchored to the direct amd64 server
+> measurement above; these figures are a truthful local measurement, not a
+> marketing claim.
 
 Raw per-run data: [`bench.txt`](./bench.txt).
