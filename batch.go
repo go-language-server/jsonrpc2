@@ -179,15 +179,7 @@ func (bc *batchCollector) write(ctx context.Context, resps []responseWire) {
 		return
 	}
 
-	buf := make([]byte, 0, 2)
-	buf = append(buf, '[')
-	for i, resp := range resps {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = appendMessage(buf, resp)
-	}
-	buf = append(buf, ']')
+	buf := appendResponseBatch(make([]byte, 0, 2), resps)
 
 	_, err := fs.WriteFrame(ctx, buf)
 	bc.c.afterWrite(ctx, err)

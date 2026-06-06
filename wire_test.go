@@ -109,6 +109,11 @@ func TestEncodeMessage_Golden(t *testing.T) {
 func TestAppendFields_Golden(t *testing.T) {
 	t.Parallel()
 
+	batch := []Message{
+		NewCall(NewNumberID(1), "sum", RawMessage(`{"a":1,"b":2}`)),
+		NewNotification("notify", RawMessage(`[1,2,3]`)),
+		NewResponse(NewNumberID(4), RawMessage(`19`), nil),
+	}
 	tests := map[string]struct {
 		got  []byte
 		want string
@@ -128,6 +133,14 @@ func TestAppendFields_Golden(t *testing.T) {
 		"error response": {
 			got:  AppendResponse(nil, ID{}, nil, NewError(ParseError, "parse error")),
 			want: `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`,
+		},
+		"batch": {
+			got:  AppendBatch(nil, batch),
+			want: `[{"jsonrpc":"2.0","method":"sum","params":{"a":1,"b":2},"id":1},{"jsonrpc":"2.0","method":"notify","params":[1,2,3]},{"jsonrpc":"2.0","id":4,"result":19}]`,
+		},
+		"empty batch": {
+			got:  AppendBatch([]byte("prefix:"), nil),
+			want: `prefix:[]`,
 		},
 	}
 

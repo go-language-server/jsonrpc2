@@ -8,9 +8,9 @@
 // framing, a swappable payload codec, and a bidirectional connection state
 // machine. The wire core encodes message envelopes by appending directly into a
 // byte buffer ([EncodeMessage], [AppendMessage], [AppendCall],
-// [AppendNotification], [AppendResponse]) and decodes them with a single-pass
-// span scanner ([DecodeMessage], [ParseRequests]), so the hot path performs no
-// reflection and copies each payload at most once.
+// [AppendNotification], [AppendResponse], [AppendBatch]) and decodes them with
+// a single-pass span scanner ([DecodeMessage], [ParseRequests]), so the hot path
+// performs no reflection and copies each payload at most once.
 //
 // [EncodeMessage], [DecodeMessage], and [ParseRequests] return owned values.
 // For callback-scoped fast paths, [ScanMessageView], [ScanFrameView], and

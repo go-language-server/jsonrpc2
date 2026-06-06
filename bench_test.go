@@ -248,6 +248,11 @@ func BenchmarkDecodeMinimalFastView(b *testing.B) {
 
 func BenchmarkAppendEnvelope(b *testing.B) {
 	call := NewCall(NewNumberID(1), "textDocument/hover", RawMessage(`{"line":1}`))
+	batch := []Message{
+		call,
+		NewNotification("$/progress", RawMessage(`{"token":1}`)),
+		NewResponse(NewNumberID(1), RawMessage(`{"ok":true}`), nil),
+	}
 
 	b.Run("EncodeMessage/Call", func(b *testing.B) {
 		b.ReportAllocs()
@@ -278,6 +283,13 @@ func BenchmarkAppendEnvelope(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			benchmarkEncoded = AppendResponse(buf[:0], NewNumberID(1), RawMessage(`{"ok":true}`), nil)
+		}
+	})
+	b.Run("AppendBatch/Mixed", func(b *testing.B) {
+		buf := make([]byte, 0, 384)
+		b.ReportAllocs()
+		for b.Loop() {
+			benchmarkEncoded = AppendBatch(buf[:0], batch)
 		}
 	})
 }

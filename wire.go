@@ -74,6 +74,23 @@ func AppendResponse(dst []byte, id ID, result RawMessage, err error) []byte {
 	return appendResponseFields(dst, id, result, err)
 }
 
+// AppendBatch appends a JSON-RPC batch array containing msgs to dst.
+//
+// The function appends exactly the messages it is given. A valid JSON-RPC batch
+// request contains at least one request/notification member, and a valid batch
+// response contains at least one response member; callers that need to enforce
+// those protocol roles should do so before calling AppendBatch.
+func AppendBatch(dst []byte, msgs []Message) []byte {
+	dst = append(dst, '[')
+	for i, msg := range msgs {
+		if i > 0 {
+			dst = append(dst, ',')
+		}
+		dst = appendMessage(dst, msg)
+	}
+	return append(dst, ']')
+}
+
 // appendMessage appends the wire envelope of msg to dst and returns the extended
 // slice. It dispatches on the concrete message type; the [Message] set is closed
 // so the default case is unreachable for well-formed values.
@@ -125,6 +142,17 @@ func appendNotificationFields(dst []byte, method string, params RawMessage) []by
 		dst = append(dst, params...)
 	}
 	return append(dst, '}')
+}
+
+func appendResponseBatch(dst []byte, resps []responseWire) []byte {
+	dst = append(dst, '[')
+	for i, resp := range resps {
+		if i > 0 {
+			dst = append(dst, ',')
+		}
+		dst = appendMessage(dst, resp)
+	}
+	return append(dst, ']')
 }
 
 // appendResponseFields appends a response envelope from its concrete fields. Per
