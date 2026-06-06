@@ -25,6 +25,9 @@ a swappable payload codec, and a bidirectional connection state machine:
 - **Two wire framings and a pluggable codec.** Newline-delimited JSON (MCP
   stdio) and LSP `Content-Length` header framing; the payload codec defaults to
   `encoding/json/v2` and can be swapped for opt-in `sonic` or `goccy` codecs.
+- **Explicit fast-path modes.** `Conn`/`Peer` stay bidirectional; `SingleClient`
+  is the serialized caller-owned-read-loop path; `PipelineClient` is a
+  concurrent client-only mode; `BatchClient` exposes raw frame batch I/O.
 
 ## Install
 
@@ -36,6 +39,31 @@ The module requires Go 1.26 or later. The importable core depends only on
 [`github.com/go-json-experiment/json`](https://github.com/go-json-experiment/json)
 (encoding/json/v2); no assembly, JIT, or heavy transitive dependencies enter the
 core module graph.
+
+## Runtime modes and borrowed views
+
+Choose the smallest mode that matches the workload; the fast paths are not all
+interchangeable:
+
+- `NewConn` / `NewPeer`: bidirectional JSON-RPC peer mode. Use it for LSP-style
+  connections where either side may send calls, notifications, responses, and
+  server-initiated requests.
+- `NewSingleClient` / `NewSyncClient`: serialized single-flight client mode. The
+  caller owns the read loop for each `Call`, so it avoids the background-reader
+  hand-off, but only one call may be outstanding and server-initiated requests
+  are not dispatched.
+- `NewPipelineClient`: concurrent client-only mode. It uses generated numeric
+  IDs, dense wait slots, pooled waiters, and a canonical success-response scanner
+  for the common response shape. Start its response reader with `Go` once; use
+  `Conn`/`Peer` instead when the remote can initiate requests.
+- `NewBatchClient`: raw-frame batch mode for callers that already build a JSON
+  batch array and want to write/read one frame without routing each member
+  through `Conn.Call`.
+
+For parser-only fast paths, `ScanMessageView`, `ScanFrameView`, and
+`AppendRequestViews` return borrowed spans over caller-owned frame bytes. Those
+views are valid only while the source frame remains valid and unmodified; call
+`Clone`/`Owned` before retaining data beyond the callback or read iteration.
 
 ## Quickstart
 
@@ -196,11 +224,11 @@ constant per comparison, isolates rival dependencies in a separate module, and
 asserts (via `go-cmp`) that all three decoders extract the same method and params
 from identical input, so the comparison measures equivalent work.
 
-Lower is better; the winner is per row. The **`amd64`** table is the source of
-the "fastest" claim and was measured directly; the `arm64` table is a secondary
-developer baseline.
+Lower is better; the winner is per row. The **`amd64`** table is a measured
+historical claim anchor; the `arm64` table and mode-specific artifacts below are
+the current developer baseline for the latest local optimization pass.
 
-### Headline: void round-trip (nil params) — amd64 (claim arch, measured)
+### Headline: void round-trip (nil params) — amd64 (historical claim arch)
 
 `linux/amd64`, Intel Xeon Platinum 8481C (GCE c3, 44 vCPU), Debian 13, Go 1.26.4,
 `benchstat` over `-count=10`:
@@ -226,11 +254,11 @@ ns/op fell correspondingly.
 | jrpc2 | ~7990 | 4469 | 100 |
 | mcp | ~22500 | 100550 | 46 |
 
-> **amd64 (the `fastest`-claim arch) needs a CI rerun.** The amd64 headline table
-> above still shows the pre-pass figures (12 harness allocs); it was **not**
-> re-measured in this pass. The CircleCI `bench` job must be re-run to refresh the
-> amd64 numbers before the headline claim is re-quoted. The arm64 row here is the
-> directly-measured secondary baseline for the new state.
+> **amd64 refresh caveat.** The amd64 headline table above is a measured artifact,
+> but it has not been refreshed for the latest local arm64 allocation/runtime-mode
+> pass. Re-run the CircleCI `bench` job before quoting amd64 numbers for the new
+> six-allocation `Conn` state or the new mode-specific clients. The arm64 row here
+> is the directly measured secondary baseline for the new state.
 
 ### Synchronous-client mode (`SyncClient`) — a distinct, lower-latency request path
 
@@ -254,6 +282,27 @@ reader). A lower number here means "ours' fastest in-process request path," not
 that the bidirectional `Conn` got faster. Use `Conn` with `Conn.Go` when you need
 concurrent calls or server-to-client requests.
 
+### Pipelined-client mode (`PipelineClient`) — concurrent client-only path
+
+`PipelineClient` keeps many client-originated calls in flight, but it does not
+dispatch server-initiated calls. It uses dense generated-ID slots and scans
+canonical success responses before falling back to the borrowed `MessageView`
+scanner. On Apple M3 Max (`go1.26.4 darwin/arm64`, `net.Pipe` + NDJSON,
+`-benchtime=200x -count=10`), the preserved artifact
+`internal/benchmark/artifacts/20260606T012124Z-root-pipeline-fastpath-vs-conn`
+showed:
+
+| Inflight | Conn ns/op | PipelineClient ns/op | allocs/op |
+|---------:|-----------:|---------------------:|----------:|
+| 1 | 2.914 µs | **2.565 µs** (-12.0%) | 6 → **4** |
+| 8 | 34.99 µs | **32.00 µs** (-8.6%) | 57 → **41** |
+| 64 | 325.4 µs | **257.1 µs** (-21.0%) | 451 → **322** |
+| 256 | 1.232 ms | 1.241 ms (statistically neutral) | 1810 → **1296** |
+
+Read this as a client-only mode result: it proves lower allocation pressure at
+all measured inflight levels and latency wins up to inflight 64 on this harness;
+it is not a bidirectional `Conn` replacement.
+
 ### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
 
 | Input | ours ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs |
@@ -270,12 +319,11 @@ concurrent calls or server-to-client requests.
 These caveats are load-bearing; the benchmark is reported honestly rather than to
 flatter the library.
 
-- **The `fastest` claim is anchored to `amd64` and has been measured.** The amd64
-  headline above was measured directly on an Intel Xeon 8481C server (Debian 13,
-  Go 1.26.4, `-count=10`); `ours` wins every apples-to-apples workload there, with
-  the same allocation counts as arm64. CircleCI also runs the `internal/benchmark`
-  comparison on `amd64`/linux (the CI `bench` job), so the figures are reproducible
-  on every push. The `arm64` tables are a secondary developer baseline.
+- **Keep fastest claims artifact-scoped.** The amd64 headline above was measured
+  directly on an Intel Xeon 8481C server (Debian 13, Go 1.26.4, `-count=10`), but
+  it is not a substitute for current-head artifacts when quoting newer
+  allocation/runtime-mode work. Use the raw artifact path, command, Go version,
+  GOOS/GOARCH, CPU, git SHA, and mode disclosure whenever publishing numbers.
 - **Batch rows are excluded from the "lowest-cost on every workload" claim.** The
   batch mechanics differ by library — `jrpc2` issues a true single
   batch request/response, `mcp` bursts N concurrent independent calls, and `ours`
