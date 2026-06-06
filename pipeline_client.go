@@ -247,11 +247,11 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if id, result, ok, err := scanPipelineResultResponse(frame); ok || err != nil {
+	if id, result, ok, err := scanPipelineResultResponseNumber(frame); ok || err != nil {
 		if err != nil {
 			return err
 		}
-		c.deliverResponse(id, result, nil)
+		c.deliverNumberResponse(id, result, nil)
 		return nil
 	}
 	view, err := ScanMessageView(frame)
@@ -285,19 +285,27 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 const pipelineResultResponsePrefix = `{"jsonrpc":"2.0","id":`
 
 func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool, err error) {
+	n, result, ok, err := scanPipelineResultResponseNumber(frame)
+	if !ok || err != nil {
+		return ID{}, result, ok, err
+	}
+	return NewNumberID(n), result, true, nil
+}
+
+func scanPipelineResultResponseNumber(frame []byte) (id int64, result RawMessage, ok bool, err error) {
 	i := skipSpace(frame, 0)
 	if !hasLiteralAt(frame, i, pipelineResultResponsePrefix) {
-		return ID{}, nil, false, nil
+		return 0, nil, false, nil
 	}
 	i += len(pipelineResultResponsePrefix)
 
 	n, next, ok := parsePositiveInt64(frame, i)
 	if !ok {
-		return ID{}, nil, false, nil
+		return 0, nil, false, nil
 	}
 	i = next
 	if !hasLiteralAt(frame, i, `,"result":`) {
-		return ID{}, nil, false, nil
+		return 0, nil, false, nil
 	}
 	i += len(`,"result":`)
 
@@ -306,28 +314,28 @@ func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool
 		i += len("null")
 		i = skipSpace(frame, i)
 		if i >= len(frame) || frame[i] != '}' {
-			return ID{}, nil, false, ErrInvalidRequest
+			return 0, nil, false, ErrInvalidRequest
 		}
 		i = skipSpace(frame, i+1)
 		if i != len(frame) {
-			return ID{}, nil, false, ErrInvalidRequest
+			return 0, nil, false, ErrInvalidRequest
 		}
-		return NewNumberID(n), RawMessage(frame[valStart : valStart+len("null")]), true, nil
+		return n, RawMessage(frame[valStart : valStart+len("null")]), true, nil
 	}
 
 	valEnd, ok := scanValue(frame, i)
 	if !ok {
-		return ID{}, nil, false, ErrParse
+		return 0, nil, false, ErrParse
 	}
 	i = skipSpace(frame, valEnd)
 	if i >= len(frame) || frame[i] != '}' {
-		return ID{}, nil, false, ErrInvalidRequest
+		return 0, nil, false, ErrInvalidRequest
 	}
 	i = skipSpace(frame, i+1)
 	if i != len(frame) {
-		return ID{}, nil, false, ErrInvalidRequest
+		return 0, nil, false, ErrInvalidRequest
 	}
-	return NewNumberID(n), RawMessage(frame[valStart:valEnd]), true, nil
+	return n, RawMessage(frame[valStart:valEnd]), true, nil
 }
 
 func hasLiteralAt(data []byte, i int, lit string) bool {
@@ -367,6 +375,18 @@ func (c *PipelineClient) deliverResponse(id ID, result RawMessage, respErr error
 	if w == nil {
 		return
 	}
+	c.deliverWaiter(w, result, respErr)
+}
+
+func (c *PipelineClient) deliverNumberResponse(id int64, result RawMessage, respErr error) {
+	w := c.takeNumberCall(id)
+	if w == nil {
+		return
+	}
+	c.deliverWaiter(w, result, respErr)
+}
+
+func (c *PipelineClient) deliverWaiter(w *pipelineWaiter, result RawMessage, respErr error) {
 	if respErr != nil {
 		w.deliver(respErr)
 		return
@@ -388,6 +408,13 @@ func (c *PipelineClient) retireCall(id ID) bool {
 func (c *PipelineClient) takeCall(id ID) *pipelineWaiter {
 	c.mu.Lock()
 	w, _ := c.calls.Take(id)
+	c.mu.Unlock()
+	return w
+}
+
+func (c *PipelineClient) takeNumberCall(id int64) *pipelineWaiter {
+	c.mu.Lock()
+	w, _ := c.calls.TakeNumber(id)
 	c.mu.Unlock()
 	return w
 }
@@ -572,7 +599,14 @@ func (s *densePipelineCallSlots) Add(id ID, w *pipelineWaiter) {
 
 func (s *densePipelineCallSlots) Take(id ID) (*pipelineWaiter, bool) {
 	n, ok := id.Number()
-	if !ok || s.live == 0 || len(s.slots) == 0 || n < s.base || int(n-s.base) >= len(s.slots) {
+	if !ok {
+		return nil, false
+	}
+	return s.TakeNumber(n)
+}
+
+func (s *densePipelineCallSlots) TakeNumber(n int64) (*pipelineWaiter, bool) {
+	if s.live == 0 || len(s.slots) == 0 || n < s.base || int(n-s.base) >= len(s.slots) {
 		return nil, false
 	}
 	idx := s.index(n)
