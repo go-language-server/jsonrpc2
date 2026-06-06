@@ -8,18 +8,42 @@ import "testing"
 func TestScanPipelineResultResponse(t *testing.T) {
 	t.Parallel()
 
-	id, result, ok, err := scanPipelineResultResponse([]byte(`{"jsonrpc":"2.0","id":42,"result":{"ok":true}}`))
-	if err != nil {
-		t.Fatalf("scanPipelineResultResponse error: %v", err)
-	}
-	if !ok {
-		t.Fatal("scanPipelineResultResponse ok = false, want true")
-	}
-	if got, ok := id.Number(); !ok || got != 42 {
-		t.Fatalf("id = %v, %v; want 42, true", got, ok)
-	}
-	if string(result) != `{"ok":true}` {
-		t.Fatalf("result = %q, want object", result)
+	for _, tt := range []struct {
+		name   string
+		frame  string
+		id     int64
+		result string
+	}{
+		{
+			name:   "object",
+			frame:  `{"jsonrpc":"2.0","id":42,"result":{"ok":true}}`,
+			id:     42,
+			result: `{"ok":true}`,
+		},
+		{
+			name:   "null",
+			frame:  `{"jsonrpc":"2.0","id":43,"result":null}`,
+			id:     43,
+			result: `null`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			id, result, ok, err := scanPipelineResultResponse([]byte(tt.frame))
+			if err != nil {
+				t.Fatalf("scanPipelineResultResponse error: %v", err)
+			}
+			if !ok {
+				t.Fatal("scanPipelineResultResponse ok = false, want true")
+			}
+			if got, ok := id.Number(); !ok || got != tt.id {
+				t.Fatalf("id = %v, %v; want %d, true", got, ok, tt.id)
+			}
+			if string(result) != tt.result {
+				t.Fatalf("result = %q, want %q", result, tt.result)
+			}
+		})
 	}
 }
 

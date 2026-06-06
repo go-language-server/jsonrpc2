@@ -302,6 +302,19 @@ func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool
 	i += len(`,"result":`)
 
 	valStart := i
+	if hasLiteralAt(frame, i, "null") {
+		i += len("null")
+		i = skipSpace(frame, i)
+		if i >= len(frame) || frame[i] != '}' {
+			return ID{}, nil, false, ErrInvalidRequest
+		}
+		i = skipSpace(frame, i+1)
+		if i != len(frame) {
+			return ID{}, nil, false, ErrInvalidRequest
+		}
+		return NewNumberID(n), RawMessage(frame[valStart : valStart+len("null")]), true, nil
+	}
+
 	valEnd, ok := scanValue(frame, i)
 	if !ok {
 		return ID{}, nil, false, ErrParse
