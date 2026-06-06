@@ -25,7 +25,7 @@ type adapterFactory struct {
 // over net.Pipe with NDJSON framing, jrpc2 over channel.Direct (server.NewLocal).
 func nativeAdapters() []adapterFactory {
 	return []adapterFactory{
-		{"jsonrpc2/native", func(ctx context.Context) (rpcClient, error) { return newOursAdapter(ctx) }},
+		{"jsonrpc2/native", func(ctx context.Context) (rpcClient, error) { return newJSONRPC2Adapter(ctx) }},
 		{"jrpc2/native", func(ctx context.Context) (rpcClient, error) { return newJRPC2NativeAdapter(ctx) }},
 		{"mcp/native", func(ctx context.Context) (rpcClient, error) { return newMCPAdapter(ctx) }},
 	}
@@ -36,7 +36,7 @@ func nativeAdapters() []adapterFactory {
 // channel.RawJSON, mcp via the ndjson Reader/Writer in adapters.go.
 func commonAdapters() []adapterFactory {
 	return []adapterFactory{
-		{"jsonrpc2/common", func(ctx context.Context) (rpcClient, error) { return newOursAdapter(ctx) }},
+		{"jsonrpc2/common", func(ctx context.Context) (rpcClient, error) { return newJSONRPC2Adapter(ctx) }},
 		{"jrpc2/common", func(ctx context.Context) (rpcClient, error) { return newJRPC2CommonAdapter(ctx) }},
 		{"mcp/common", func(ctx context.Context) (rpcClient, error) { return newMCPAdapter(ctx) }},
 	}
@@ -64,16 +64,16 @@ func benchmarkSingleAdapter(b *testing.B, name string, make func(ctx context.Con
 	})
 }
 
-func newOursHeaderRPCClient(ctx context.Context) (rpcClient, error) {
-	return newOursHeaderAdapter(ctx)
+func newJSONRPC2HeaderRPCClient(ctx context.Context) (rpcClient, error) {
+	return newJSONRPC2HeaderAdapter(ctx)
 }
 
-func newOursDirectRPCClient(ctx context.Context) (rpcClient, error) {
-	return newOursDirectAdapter(ctx)
+func newJSONRPC2DirectRPCClient(ctx context.Context) (rpcClient, error) {
+	return newJSONRPC2DirectAdapter(ctx)
 }
 
-func newOursSyncRPCClient(ctx context.Context) (rpcClient, error) {
-	return newOursSyncAdapter(ctx)
+func newJSONRPC2SyncRPCClient(ctx context.Context) (rpcClient, error) {
+	return newJSONRPC2SyncAdapter(ctx)
 }
 
 // paramsSmall, paramsMedium, paramsLarge are identical pre-encoded JSON payloads
@@ -244,7 +244,7 @@ func BenchmarkBatch(b *testing.B) {
 // BenchmarkRoundTripVoidHeader measures the jsonrpc2 adapter over the header
 // transport, which is the package's default framing.
 func BenchmarkRoundTripVoidHeader(b *testing.B) {
-	benchmarkSingleAdapter(b, "jsonrpc2/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "jsonrpc2/header", newJSONRPC2HeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
@@ -256,7 +256,7 @@ func BenchmarkRoundTripVoidHeader(b *testing.B) {
 // BenchmarkRoundTripVoidDirect measures the benchmark-local direct transport,
 // which bypasses net.Pipe while still exercising the same Conn and batch code.
 func BenchmarkRoundTripVoidDirect(b *testing.B) {
-	benchmarkSingleAdapter(b, "jsonrpc2/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "jsonrpc2/direct", newJSONRPC2DirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
@@ -277,7 +277,7 @@ func BenchmarkRoundTripVoidDirect(b *testing.B) {
 // integrity reason the batch rows are: the operation is not the same shape as
 // the rivals'. See sync_adapter.go and RESULTS.md.
 func BenchmarkRoundTripVoidSync(b *testing.B) {
-	benchmarkSingleAdapter(b, "jsonrpc2/sync", newOursSyncRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "jsonrpc2/sync", newJSONRPC2SyncRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
@@ -288,7 +288,7 @@ func BenchmarkRoundTripVoidSync(b *testing.B) {
 
 // BenchmarkBatchHeader measures batch handling over the header transport.
 func BenchmarkBatchHeader(b *testing.B) {
-	benchmarkSingleAdapter(b, "n16/jsonrpc2/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "n16/jsonrpc2/header", newJSONRPC2HeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if err := c.Batch(ctx, 16); err != nil {
 				b.Fatalf("Batch: %v", err)
@@ -300,7 +300,7 @@ func BenchmarkBatchHeader(b *testing.B) {
 // BenchmarkBatchDirect measures batch handling over the benchmark-local direct
 // transport.
 func BenchmarkBatchDirect(b *testing.B) {
-	benchmarkSingleAdapter(b, "n16/jsonrpc2/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "n16/jsonrpc2/direct", newJSONRPC2DirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if err := c.Batch(ctx, 16); err != nil {
 				b.Fatalf("Batch: %v", err)

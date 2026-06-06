@@ -8,15 +8,15 @@ import (
 	"testing"
 )
 
-func TestOursHeaderAndDirectTransportBatch(t *testing.T) {
+func TestJSONRPC2HeaderAndDirectTransportBatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		make func(ctx context.Context) (*oursAdapter, error)
+		make func(ctx context.Context) (*jsonrpc2Adapter, error)
 	}{
-		{name: "header", make: newOursHeaderAdapter},
-		{name: "direct", make: newOursDirectAdapter},
+		{name: "header", make: newJSONRPC2HeaderAdapter},
+		{name: "direct", make: newJSONRPC2DirectAdapter},
 	}
 
 	for _, tc := range tests {

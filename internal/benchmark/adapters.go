@@ -87,47 +87,47 @@ type framedStream interface {
 // jsonrpc2 adapter
 // ---------------------------------------------------------------------------
 
-// oursAdapter drives go.lsp.dev/jsonrpc2 over a configurable framed transport.
+// jsonrpc2Adapter drives go.lsp.dev/jsonrpc2 over a configurable framed transport.
 //
 // The adapter reuses a second framed transport for Batch so the benchmark can
 // measure the batch path without paying connection setup on every iteration.
 // The batch side always speaks raw frames (WriteFrame/ReadFrame) so the same
 // implementation works for NDJSON, header, and the benchmark-local direct
 // transport.
-type oursAdapter struct {
+type jsonrpc2Adapter struct {
 	client      jsonrpc2.Conn
 	server      jsonrpc2.Conn
 	batchServer jsonrpc2.Conn
 	batchClient framedStream
 }
 
-// newOursAdapter builds a jsonrpc2 client/server pair over a fresh net.Pipe with
+// newJSONRPC2Adapter builds a jsonrpc2 client/server pair over a fresh net.Pipe with
 // NDJSON framing and verifies a void round-trip. It also wires the dedicated
 // batch transport used by Batch.
-func newOursAdapter(ctx context.Context) (*oursAdapter, error) {
-	return newOursAdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
+func newJSONRPC2Adapter(ctx context.Context) (*jsonrpc2Adapter, error) {
+	return newJSONRPC2AdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
 		ca, cb := net.Pipe()
 		return jsonrpc2.NewNDJSONStream(ca), jsonrpc2.NewNDJSONStream(cb)
 	})
 }
 
-// newOursHeaderAdapter builds a jsonrpc2 adapter that uses the LSP header framing
+// newJSONRPC2HeaderAdapter builds a jsonrpc2 adapter that uses the LSP header framing
 // on both the main and batch transports.
-func newOursHeaderAdapter(ctx context.Context) (*oursAdapter, error) {
-	return newOursAdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
+func newJSONRPC2HeaderAdapter(ctx context.Context) (*jsonrpc2Adapter, error) {
+	return newJSONRPC2AdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
 		ca, cb := net.Pipe()
 		return jsonrpc2.NewHeaderStream(ca), jsonrpc2.NewHeaderStream(cb)
 	})
 }
 
-// newOursDirectAdapter builds a jsonrpc2 adapter over the benchmark-local direct
+// newJSONRPC2DirectAdapter builds a jsonrpc2 adapter over the benchmark-local direct
 // transport. The transport bypasses net.Pipe while still exercising the same
 // jsonrpc2 Conn and batch code paths.
-func newOursDirectAdapter(ctx context.Context) (*oursAdapter, error) {
-	return newOursAdapterWithPair(ctx, newDirectStreamPair)
+func newJSONRPC2DirectAdapter(ctx context.Context) (*jsonrpc2Adapter, error) {
+	return newJSONRPC2AdapterWithPair(ctx, newDirectStreamPair)
 }
 
-func newOursAdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Stream, jsonrpc2.Stream)) (*oursAdapter, error) {
+func newJSONRPC2AdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Stream, jsonrpc2.Stream)) (*jsonrpc2Adapter, error) {
 	ca, cb := pair()
 	client := jsonrpc2.NewConn(ca)
 	server := jsonrpc2.NewConn(cb)
@@ -151,7 +151,7 @@ func newOursAdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Stream, j
 		return nil, fmt.Errorf("batch transport %T does not support framed batch writes", bca)
 	}
 
-	a := &oursAdapter{
+	a := &jsonrpc2Adapter{
 		client:      client,
 		server:      server,
 		batchServer: batchServer,
@@ -164,7 +164,7 @@ func newOursAdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Stream, j
 	return a, nil
 }
 
-func (a *oursAdapter) Call(ctx context.Context, method string, params []byte) ([]byte, error) {
+func (a *jsonrpc2Adapter) Call(ctx context.Context, method string, params []byte) ([]byte, error) {
 	var result jsonrpc2.RawMessage
 	if _, err := a.client.Call(ctx, method, rawParams(params), &result); err != nil {
 		return nil, err
@@ -172,13 +172,13 @@ func (a *oursAdapter) Call(ctx context.Context, method string, params []byte) ([
 	return result, nil
 }
 
-func (a *oursAdapter) Notify(ctx context.Context, method string, params []byte) error {
+func (a *jsonrpc2Adapter) Notify(ctx context.Context, method string, params []byte) error {
 	return a.client.Notify(ctx, method, rawParams(params))
 }
 
 // Batch sends n void calls as a single JSON-RPC batch array directly through
 // the dedicated batch transport and reads the single response-array frame.
-func (a *oursAdapter) Batch(ctx context.Context, n int) error {
+func (a *jsonrpc2Adapter) Batch(ctx context.Context, n int) error {
 	frame := make([]byte, 0, 48*n+2)
 	frame = append(frame, '[')
 	for i := range n {
@@ -207,7 +207,7 @@ func (a *oursAdapter) Batch(ctx context.Context, n int) error {
 	return nil
 }
 
-func (a *oursAdapter) Close() error {
+func (a *jsonrpc2Adapter) Close() error {
 	errc := a.client.Close()
 	<-a.client.Done()
 	errs := a.server.Close()

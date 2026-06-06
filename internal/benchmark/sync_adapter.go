@@ -11,7 +11,7 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-// oursSyncAdapter drives the jsonrpc2 SyncClient — the A1c synchronous-client mode —
+// jsonrpc2SyncAdapter drives the jsonrpc2 SyncClient — the A1c synchronous-client mode —
 // against an ordinary jsonrpc2 Conn server over a net.Pipe with NDJSON framing.
 //
 // MODE DISCLOSURE (do not quote the number without this qualifier): the
@@ -27,12 +27,12 @@ import (
 // mode, analogous to how the batch rows are excluded from the strict
 // apples-to-apples claim; it is "jsonrpc2's fastest in-process request path," not a
 // statement that the concurrent Conn got faster.
-type oursSyncAdapter struct {
+type jsonrpc2SyncAdapter struct {
 	client *jsonrpc2.SyncClient
 	server jsonrpc2.Conn
 }
 
-func newOursSyncAdapter(ctx context.Context) (*oursSyncAdapter, error) {
+func newJSONRPC2SyncAdapter(ctx context.Context) (*jsonrpc2SyncAdapter, error) {
 	ca, cb := net.Pipe()
 	client, err := jsonrpc2.NewSyncClient(jsonrpc2.NewNDJSONStream(ca))
 	if err != nil {
@@ -43,7 +43,7 @@ func newOursSyncAdapter(ctx context.Context) (*oursSyncAdapter, error) {
 		return reply(ctx, nil, nil)
 	})
 
-	a := &oursSyncAdapter{client: client, server: server}
+	a := &jsonrpc2SyncAdapter{client: client, server: server}
 	if err := sanityCheck(ctx, a); err != nil {
 		_ = a.Close()
 		return nil, fmt.Errorf("jsonrpc2 sync adapter: %w", err)
@@ -51,7 +51,7 @@ func newOursSyncAdapter(ctx context.Context) (*oursSyncAdapter, error) {
 	return a, nil
 }
 
-func (a *oursSyncAdapter) Call(ctx context.Context, method string, params []byte) ([]byte, error) {
+func (a *jsonrpc2SyncAdapter) Call(ctx context.Context, method string, params []byte) ([]byte, error) {
 	var result jsonrpc2.RawMessage
 	if _, err := a.client.Call(ctx, method, rawParams(params), &result); err != nil {
 		return nil, err
@@ -59,18 +59,18 @@ func (a *oursSyncAdapter) Call(ctx context.Context, method string, params []byte
 	return result, nil
 }
 
-func (a *oursSyncAdapter) Notify(ctx context.Context, method string, params []byte) error {
+func (a *jsonrpc2SyncAdapter) Notify(ctx context.Context, method string, params []byte) error {
 	return a.client.Notify(ctx, method, rawParams(params))
 }
 
 // Batch is unsupported by the synchronous-client mode (it serializes single
 // calls and has no batch-send API); the sync row is not part of the batch
 // comparison.
-func (a *oursSyncAdapter) Batch(ctx context.Context, n int) error {
+func (a *jsonrpc2SyncAdapter) Batch(ctx context.Context, n int) error {
 	return fmt.Errorf("jsonrpc2 sync adapter: Batch is not supported by SyncClient")
 }
 
-func (a *oursSyncAdapter) Close() error {
+func (a *jsonrpc2SyncAdapter) Close() error {
 	errc := a.client.Close()
 	errs := a.server.Close()
 	<-a.server.Done()
