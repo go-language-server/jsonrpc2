@@ -7,9 +7,15 @@
 // The package is built around a reflection-free wire core plus pluggable
 // framing, a swappable payload codec, and a bidirectional connection state
 // machine. The wire core encodes message envelopes by appending directly into a
-// byte buffer ([EncodeMessage]) and decodes them with a single-pass span scanner
-// ([DecodeMessage], [ParseRequests]), so the hot path performs no reflection and
-// copies each payload at most once.
+// byte buffer ([EncodeMessage], [AppendMessage], [AppendCall],
+// [AppendNotification], [AppendResponse]) and decodes them with a single-pass
+// span scanner ([DecodeMessage], [ParseRequests]), so the hot path performs no
+// reflection and copies each payload at most once.
+//
+// [EncodeMessage], [DecodeMessage], and [ParseRequests] return owned values.
+// For callback-scoped fast paths, [ScanMessageView], [ScanFrameView], and
+// [AppendRequestViews] expose borrowed views over caller-owned frame bytes; those
+// views are valid only while the source frame remains valid and unmodified.
 //
 // The message types are a closed set of [*Call], [*Notification], and
 // [*Response], all of which implement the [Message] interface.
