@@ -597,7 +597,10 @@ func (s *densePipelineCallSlots) Add(id ID, w *pipelineWaiter) {
 		s.rebase(n)
 	}
 	if need := int(n - s.base + 1); need > len(s.slots) {
-		s.grow(need)
+		s.compactBase()
+		if need = int(n - s.base + 1); need > len(s.slots) {
+			s.grow(need)
+		}
 	}
 	idx := s.index(n)
 	if s.slots[idx].waiter != nil {
@@ -632,9 +635,6 @@ func (s *densePipelineCallSlots) TakeNumber(n int64) (*pipelineWaiter, bool) {
 		s.base = 0
 		return w, true
 	}
-	if n == s.base {
-		s.advanceBase()
-	}
 	return w, true
 }
 
@@ -656,16 +656,6 @@ func (s *densePipelineCallSlots) index(id int64) int {
 	return int(uint64(id) & uint64(len(s.slots)-1))
 }
 
-func (s *densePipelineCallSlots) advanceBase() {
-	for s.live > 0 {
-		idx := s.index(s.base)
-		if s.slots[idx].waiter != nil && s.slots[idx].id == s.base {
-			return
-		}
-		s.base++
-	}
-}
-
 func (s *densePipelineCallSlots) rebase(base int64) {
 	if s.live == 0 {
 		s.base = base
@@ -679,6 +669,20 @@ func (s *densePipelineCallSlots) rebase(base int64) {
 	}
 	if need := int(maxID - base + 1); need > len(s.slots) {
 		s.grow(need)
+	}
+	s.base = base
+}
+
+func (s *densePipelineCallSlots) compactBase() {
+	if s.live == 0 {
+		s.base = 0
+		return
+	}
+	base := int64(1<<63 - 1)
+	for i := range s.slots {
+		if slot := &s.slots[i]; slot.waiter != nil && slot.id < base {
+			base = slot.id
+		}
 	}
 	s.base = base
 }
