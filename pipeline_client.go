@@ -391,6 +391,10 @@ func (c *PipelineClient) deliverWaiter(w *pipelineWaiter, result RawMessage, res
 		w.deliver(respErr)
 		return
 	}
+	if w.result == nil {
+		w.deliver(nil)
+		return
+	}
 	if err := unmarshalResult(c.codec, result, w.result); err != nil {
 		w.deliver(fmt.Errorf("jsonrpc2: unmarshaling result: %w", err))
 		return
