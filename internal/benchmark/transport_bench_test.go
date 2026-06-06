@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"go.lsp.dev/jsonrpc2"
 )
@@ -161,8 +162,8 @@ func benchVoidConcurrent(b *testing.B, ca, cb net.Conn, inflight int) {
 }
 
 // transportInflight is the concurrency sweep the plan's acceptance criteria are
-// measured at: C in {1, 8, 64}.
-var transportInflight = []int{1, 8, 64}
+// measured at: C in {1, 8, 64, 256}.
+var transportInflight = []int{1, 8, 64, 256}
 
 // BenchmarkTransportNetPipe is the in-memory baseline (no syscalls; the counters
 // still report, but reads/writes go through the pipe, not the kernel).
@@ -202,6 +203,66 @@ func BenchmarkTransportTCP(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkTransportOSPipe is the stdio-shaped control. JSON-RPC clients used
+// by LSP and MCP often communicate over paired process pipes rather than
+// sockets; this keeps that workload visible before promoting any writev or
+// socket-specific transport optimization.
+func BenchmarkTransportOSPipe(b *testing.B) {
+	for _, c := range transportInflight {
+		b.Run(inflightName(c), func(b *testing.B) {
+			ca, cb := osPipePair(b)
+			benchVoidConcurrent(b, ca, cb, c)
+		})
+	}
+}
+
+// osPipePair returns a full-duplex connection pair built from two unidirectional
+// OS pipes. It implements net.Conn so the existing syscall-counting benchmark
+// can drive it through the same connection wrapper used for net.Pipe, Unix, and
+// TCP.
+func osPipePair(tb testing.TB) (client, server net.Conn) {
+	tb.Helper()
+	c2sR, c2sW, err := os.Pipe()
+	if err != nil {
+		tb.Fatalf("os.Pipe client->server: %v", err)
+	}
+	s2cR, s2cW, err := os.Pipe()
+	if err != nil {
+		_ = c2sR.Close()
+		_ = c2sW.Close()
+		tb.Fatalf("os.Pipe server->client: %v", err)
+	}
+	return pipeConn{r: s2cR, w: c2sW}, pipeConn{r: c2sR, w: s2cW}
+}
+
+type pipeConn struct {
+	r *os.File
+	w *os.File
+}
+
+func (c pipeConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c pipeConn) Write(p []byte) (int, error) { return c.w.Write(p) }
+
+func (c pipeConn) Close() error {
+	err := c.r.Close()
+	if werr := c.w.Close(); err == nil {
+		err = werr
+	}
+	return err
+}
+
+func (c pipeConn) LocalAddr() net.Addr  { return pipeAddr("local") }
+func (c pipeConn) RemoteAddr() net.Addr { return pipeAddr("remote") }
+
+func (c pipeConn) SetDeadline(time.Time) error      { return nil }
+func (c pipeConn) SetReadDeadline(time.Time) error  { return nil }
+func (c pipeConn) SetWriteDeadline(time.Time) error { return nil }
+
+type pipeAddr string
+
+func (a pipeAddr) Network() string { return "pipe" }
+func (a pipeAddr) String() string  { return string(a) }
 
 // inflightName renders a stable sub-benchmark name for a concurrency level in
 // transportInflight.

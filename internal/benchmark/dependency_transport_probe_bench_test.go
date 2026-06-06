@@ -175,28 +175,36 @@ func BenchmarkWritevFrameProbe(b *testing.B) {
 
 	transports := []struct {
 		name string
-		pair func(*testing.B) (net.Conn, net.Conn)
+		pair func(*testing.B) (io.ReadWriteCloser, io.ReadWriteCloser)
 	}{
-		{"netpipe", func(*testing.B) (net.Conn, net.Conn) { return net.Pipe() }},
-		{"unix", func(b *testing.B) (net.Conn, net.Conn) { return dialTransportPair(b, unixListener(b)) }},
-		{"tcp", func(b *testing.B) (net.Conn, net.Conn) {
+		{"netpipe", func(*testing.B) (io.ReadWriteCloser, io.ReadWriteCloser) {
+			ca, cb := net.Pipe()
+			return ca, cb
+		}},
+		{"unix", func(b *testing.B) (io.ReadWriteCloser, io.ReadWriteCloser) {
+			ca, cb := dialTransportPair(b, unixListener(b))
+			return ca, cb
+		}},
+		{"tcp", func(b *testing.B) (io.ReadWriteCloser, io.ReadWriteCloser) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				b.Fatalf("listen tcp: %v", err)
 			}
 			b.Cleanup(func() { _ = ln.Close() })
-			return dialTransportPair(b, ln)
+			ca, cb := dialTransportPair(b, ln)
+			return ca, cb
 		}},
+		{"ospipe", func(b *testing.B) (io.ReadWriteCloser, io.ReadWriteCloser) { return osPipePair(b) }},
 	}
 	writers := []struct {
 		name  string
-		write func(net.Conn) error
+		write func(io.Writer) error
 	}{
-		{"composed-write", func(c net.Conn) error {
+		{"composed-write", func(c io.Writer) error {
 			_, err := c.Write(composed)
 			return err
 		}},
-		{"net-buffers", func(c net.Conn) error {
+		{"net-buffers", func(c io.Writer) error {
 			bufs := net.Buffers{header, body}
 			_, err := bufs.WriteTo(c)
 			return err

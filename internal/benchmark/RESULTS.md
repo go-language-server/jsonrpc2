@@ -76,6 +76,21 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 >   by an interface change to `Replier` that damages every handler call site for
 >   no ns gain.
 
+> **Update — stdio-shaped transport probe (2026-06-06).** The Phase 5 transport
+> corpus now includes a full-duplex `os.Pipe` pair, so LSP/MCP-style stdio
+> workloads are measured separately from `net.Pipe`, Unix sockets, and TCP. Raw
+> artifact:
+> `internal/benchmark/artifacts/20260606T002700Z-ospipe-transport` (`--bench
+> 'Benchmark(TransportOSPipe|WritevFrameProbe)' --count 3 --no-profiles --
+> -benchtime=20x`, Go `go1.26.4 darwin/arm64`, Apple M3 Max, committed HEAD captured in
+> `env.txt`). The smoke result is not a
+> final performance claim, but it preserves the decision signal: `os.Pipe`
+> keeps `writes/call` pinned at `1.000` through inflight `{1,8,64,256}` while
+> reads coalesce down to roughly `0.02-0.09 reads/call` at high inflight; the
+> `net.Buffers` probe on `os.Pipe` falls back to multiple writes and shows
+> `2 allocs/op`, so it is not a stdio default candidate without stronger
+> evidence.
+
 ## Libraries under test
 
 | Label | Module | Notes |
