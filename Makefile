@@ -21,7 +21,7 @@ GOEXPERIMENT := ${GOEXPERIMENT},simd,runtimesecret,mapsplitgroup
 endif
 export GOEXPERIMENT
 
-GO_MODULE_DIRS = . codec/goccy codec/sonic internal/benchmark
+GO_MODULE_DIRS = ${CURDIR} ${CURDIR}/codec/goccy ${CURDIR}/codec/sonic ${CURDIR}/internal/benchmark
 GO_MODULE_TARGETS = $(foreach mod,$(GO_MODULE_DIRS),$(1)/$(mod))
 
 TOOLS_DIR = ${CURDIR}/tools
@@ -32,7 +32,7 @@ GO_TEST ?= ${TOOLS_BIN}/gotestsum --
 GO_TEST_PACKAGES = $(shell go list -f='{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 GO_TEST_FLAGS ?= -race -count=1
 GO_TEST_FUNC ?= .
-GO_COVERAGE_OUT ?= coverage.out
+GO_COVERAGE_JUNITFILE_DIR ?= _test_results
 GO_BENCH_FLAGS ?= -benchmem
 GO_BENCH_FUNC ?= .
 GO_LINT_FLAGS ?=
@@ -73,7 +73,7 @@ tidy/%:
 tidy:  ## Run go mod tidy to all modules.
 tidy: $(call GO_MODULE_TARGETS,tidy)
 
-##@ test, bench, coverage
+##@ test
 
 .PHONY: test/%
 test/%: tools/bin/gotestsum
@@ -92,8 +92,10 @@ bench:  ## Take a package benchmark.
 bench: $(call GO_MODULE_TARGETS,bench)
 
 .PHONY: coverage/%
+coverage/%: GO_TEST=${TOOLS_BIN}/gotestsum --junitfile=${GO_COVERAGE_JUNITFILE_DIR}/tests.$(@F).xml --
 coverage/%: tools/bin/gotestsum
-	$(call run_in_module,$*,${GO_TEST} ${GO_TEST_FLAGS} -cover -covermode=atomic -coverpkg=./... -coverprofile=${GO_COVERAGE_OUT} $(strip ${GO_FLAGS}) ./...)
+	@mkdir -p ${GO_COVERAGE_JUNITFILE_DIR}
+	$(call run_in_module,$*,${GO_TEST} ${GO_TEST_FLAGS} -cover -covermode=atomic -coverpkg=./... -coverprofile=coverage.out $(strip ${GO_FLAGS}) ./...)
 
 .PHONY: coverage
 coverage:  ## Takes test coverage to all modules. This target is for CI only.
@@ -130,7 +132,7 @@ tools/bin/%: ${CURDIR}/tools/go.mod ${CURDIR}/tools/go.sum
 
 .PHONY: clean
 clean:  ## Cleanups binaries and extra files in the package.
-	@rm -rf *.out *.test *.prof trace.txt ${TOOLS_BIN}
+	@rm -rf *.out *.test *.prof trace.txt ${TOOLS_BIN} ${GO_COVERAGE_JUNITFILE_DIR}
 
 
 ##@ miscellaneous

@@ -44,8 +44,6 @@ jobs:
       - name: Test and take a coverage
         env:
           GOTESTSUM_FORMAT: standard-verbose
-          GOTESTSUM_JUNITFILE: _output/tests.xml
-          GOTESTSUM_JSONFILE: _output/tests.json
         run: |
           mkdir -p _output
           make coverage
@@ -55,9 +53,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           report_type: coverage
-          files: ./coverage.out
           flags: ${{ runner.os }}-${{ runner.arch }}
-          fail_ci_if_error: false
           use_oidc: true
           verbose: true
 
@@ -67,7 +63,7 @@ jobs:
         with:
           report_type: test_results
           name: test-results
-          directory: _output/
+          directory: _test_results/
 
   lint:
     name: lint
