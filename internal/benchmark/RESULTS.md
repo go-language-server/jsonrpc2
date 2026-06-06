@@ -91,6 +91,16 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > `2 allocs/op`, so it is not a stdio default candidate without stronger
 > evidence.
 
+> **Update — envelope selector dependency bakeoff (2026-06-06).** Phase 6 now
+> has a benchmark-only selector probe for `fastjson`, `jsonparser`, and `gjson`
+> against this package's borrowed `ScanMessageView` path. Raw artifact:
+> `internal/benchmark/artifacts/20260606T003400Z-envelope-selector-probe`
+> (`--bench 'BenchmarkEnvelopeSelectorProbe' --count 5 --no-profiles --
+> -benchtime=1000x`, committed HEAD captured in `env.txt`). This is not a
+> production dependency adoption: it measures top-level single-message envelope
+> classification/extraction only, excludes batch arrays, and keeps the new
+> dependencies inside the nested benchmark module.
+
 ## Libraries under test
 
 | Label | Module | Notes |
