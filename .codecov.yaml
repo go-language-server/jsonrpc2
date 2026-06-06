@@ -33,7 +33,9 @@ coverage:
 
 # https://docs.codecov.com/docs/ignoring-paths
 # prettier-ignore
-ignore: []
+ignore:
+  - internal/benchmark # for benchmark
+  - internal/benchmark/mcpref # vendored
 
 # https://docs.codecov.com/docs/codecovyml-reference#comment
 comment:
