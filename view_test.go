@@ -63,6 +63,64 @@ func TestScanMessageView_Conformance(t *testing.T) {
 	}
 }
 
+func TestScanMessageView_DifferentialCorpus(t *testing.T) {
+	t.Parallel()
+
+	// FuzzScan in scan_test.go differentially checks DecodeMessage against an
+	// encoding/json oracle. This corpus ties the borrowed view scanner to that
+	// owned scanner over the benchmark shapes that matter for AC-C5: escaped
+	// strings, duplicate fields, malformed inputs, batches, and large payloads.
+	type testCase struct {
+		name  string
+		input []byte
+		batch bool
+	}
+	var cases []testCase
+	for _, v := range conformance.Valid() {
+		cases = append(cases, testCase{name: "conformance/" + v.Name, input: []byte(v.Wire)})
+	}
+	for _, v := range conformance.Invalid() {
+		cases = append(cases, testCase{name: "invalid/" + v.Name, input: []byte(v.Wire)})
+	}
+	for _, tc := range benchmarkDecodeEnvelopeCases {
+		cases = append(cases, testCase{name: "benchmark/" + tc.name, input: tc.input, batch: tc.batch})
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tc.batch {
+				want, wantErr := ParseRequests(tc.input)
+				got, gotErr := ScanRequestViews(tc.input)
+				if (wantErr != nil) != (gotErr != nil) {
+					t.Fatalf("batch error mismatch: ParseRequests=%v ScanRequestViews=%v", wantErr, gotErr)
+				}
+				if wantErr != nil {
+					return
+				}
+				if len(got) != len(want) {
+					t.Fatalf("batch len = %d, want %d", len(got), len(want))
+				}
+				for i := range want {
+					compareParsedMessageView(t, tc.input, i, got[i], want[i])
+				}
+				return
+			}
+
+			want, wantErr := DecodeMessage(tc.input)
+			got, gotErr := ScanMessageView(tc.input)
+			if (wantErr != nil) != (gotErr != nil) {
+				t.Fatalf("message error mismatch: DecodeMessage=%v ScanMessageView=%v", wantErr, gotErr)
+			}
+			if wantErr != nil {
+				return
+			}
+			compareMessageView(t, tc.input, got, want)
+		})
+	}
+}
+
 func TestScanMessageView_BorrowedLifetimeInvalidatesOnFrameMutation(t *testing.T) {
 	t.Parallel()
 
@@ -405,6 +463,90 @@ func wantViewKind(kind conformance.Kind) MessageViewKind {
 		return MessageViewResponseResult
 	case conformance.KindResponseError:
 		return MessageViewResponseError
+	default:
+		return MessageViewInvalid
+	}
+}
+
+func compareParsedMessageView(t *testing.T, input []byte, i int, got ParsedMessageView, want *ParsedMessage) {
+	t.Helper()
+	if got.Batch != want.Batch {
+		t.Fatalf("entry %d Batch = %v, want %v", i, got.Batch, want.Batch)
+	}
+	if (got.Err != nil) != (want.Err != nil) {
+		t.Fatalf("entry %d Err = %v, want %v", i, got.Err, want.Err)
+	}
+	if got.Err != nil {
+		if got.Err.Code != want.Err.Code {
+			t.Fatalf("entry %d Err.Code = %d, want %d", i, got.Err.Code, want.Err.Code)
+		}
+		return
+	}
+	compareMessageView(t, input, got.View, want.Msg)
+}
+
+func compareMessageView(t *testing.T, input []byte, got MessageView, want Message) {
+	t.Helper()
+	if got.Kind != wantMessageViewKind(want) {
+		t.Fatalf("Kind = %v, want %v for %q", got.Kind, wantMessageViewKind(want), input)
+	}
+	switch want := want.(type) {
+	case *Call:
+		if method := mustMethodString(t, got); method != want.Method() {
+			t.Fatalf("method = %q, want %q for %q", method, want.Method(), input)
+		}
+		if !rawJSONEqual(t, got.Params, want.Params()) {
+			t.Fatalf("params = %q, want %q for %q", got.Params, want.Params(), input)
+		}
+		gotID, ok := got.ID.ID()
+		if !ok || gotID != want.ID() {
+			t.Fatalf("id = %#v, %v; want %#v for %q", gotID, ok, want.ID(), input)
+		}
+	case *Notification:
+		if method := mustMethodString(t, got); method != want.Method() {
+			t.Fatalf("method = %q, want %q for %q", method, want.Method(), input)
+		}
+		if !rawJSONEqual(t, got.Params, want.Params()) {
+			t.Fatalf("params = %q, want %q for %q", got.Params, want.Params(), input)
+		}
+	case *Response:
+		gotID, ok := got.ID.ID()
+		if !ok || gotID != want.ID() {
+			t.Fatalf("id = %#v, %v; want %#v for %q", gotID, ok, want.ID(), input)
+		}
+		if respErr := want.Err(); respErr != nil {
+			if got.Error.Code != respErr.(*Error).Code {
+				t.Fatalf("error code = %d, want %d for %q", got.Error.Code, respErr.(*Error).Code, input)
+			}
+			return
+		}
+		if !rawJSONEqual(t, got.Result, want.Result()) {
+			t.Fatalf("result = %q, want %q for %q", got.Result, want.Result(), input)
+		}
+	default:
+		t.Fatalf("unexpected message type %T", want)
+	}
+}
+
+func rawJSONEqual(t *testing.T, a, b []byte) bool {
+	t.Helper()
+	if len(a) == 0 || len(b) == 0 {
+		return len(a) == 0 && len(b) == 0
+	}
+	return jsonEqual(t, a, b)
+}
+
+func wantMessageViewKind(msg Message) MessageViewKind {
+	switch msg := msg.(type) {
+	case *Call:
+		return MessageViewCall
+	case *Notification:
+		return MessageViewNotification
+	case *Response:
+		if msg.Err() != nil {
+			return MessageViewResponseError
+		}
+		return MessageViewResponseResult
 	default:
 		return MessageViewInvalid
 	}
