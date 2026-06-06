@@ -97,6 +97,47 @@ func TestEncodeMessage_Golden(t *testing.T) {
 			if diff := gocmp.Diff(tt.want, string(got)); diff != "" {
 				t.Errorf("EncodeMessage mismatch (-want +got):\n%s", diff)
 			}
+
+			appended := AppendMessage([]byte("prefix:"), tt.msg)
+			if diff := gocmp.Diff("prefix:"+tt.want, string(appended)); diff != "" {
+				t.Errorf("AppendMessage mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAppendFields_Golden(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		got  []byte
+		want string
+	}{
+		"call": {
+			got:  AppendCall(nil, NewNumberID(1), "sum", RawMessage(`{"a":1,"b":2}`)),
+			want: `{"jsonrpc":"2.0","method":"sum","params":{"a":1,"b":2},"id":1}`,
+		},
+		"notification": {
+			got:  AppendNotification(nil, "notify", RawMessage(`[1,2,3]`)),
+			want: `{"jsonrpc":"2.0","method":"notify","params":[1,2,3]}`,
+		},
+		"response": {
+			got:  AppendResponse(nil, NewNumberID(4), RawMessage(`19`), nil),
+			want: `{"jsonrpc":"2.0","id":4,"result":19}`,
+		},
+		"error response": {
+			got:  AppendResponse(nil, ID{}, nil, NewError(ParseError, "parse error")),
+			want: `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if diff := gocmp.Diff(tt.want, string(tt.got)); diff != "" {
+				t.Errorf("append helper mismatch (-want +got):\n%s", diff)
+			}
 		})
 	}
 }

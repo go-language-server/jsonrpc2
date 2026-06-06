@@ -20,6 +20,7 @@ var (
 	benchmarkViews    []ParsedMessageView
 	benchmarkView     MessageView
 	benchmarkFrame    FrameView
+	benchmarkEncoded  []byte
 )
 
 type benchmarkDecodeEnvelopeCase struct {
@@ -243,6 +244,42 @@ func BenchmarkDecodeMinimalFastView(b *testing.B) {
 		}
 		benchmarkView = got
 	}
+}
+
+func BenchmarkAppendEnvelope(b *testing.B) {
+	call := NewCall(NewNumberID(1), "textDocument/hover", RawMessage(`{"line":1}`))
+
+	b.Run("EncodeMessage/Call", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			got, err := EncodeMessage(call)
+			if err != nil {
+				b.Fatalf("EncodeMessage: %v", err)
+			}
+			benchmarkEncoded = got
+		}
+	})
+	b.Run("AppendMessage/Call", func(b *testing.B) {
+		buf := make([]byte, 0, 128)
+		b.ReportAllocs()
+		for b.Loop() {
+			benchmarkEncoded = AppendMessage(buf[:0], call)
+		}
+	})
+	b.Run("AppendCall/Call", func(b *testing.B) {
+		buf := make([]byte, 0, 128)
+		b.ReportAllocs()
+		for b.Loop() {
+			benchmarkEncoded = AppendCall(buf[:0], call.ID(), call.Method(), call.Params())
+		}
+	})
+	b.Run("AppendResponse/Result", func(b *testing.B) {
+		buf := make([]byte, 0, 128)
+		b.ReportAllocs()
+		for b.Loop() {
+			benchmarkEncoded = AppendResponse(buf[:0], NewNumberID(1), RawMessage(`{"ok":true}`), nil)
+		}
+	})
 }
 
 func BenchmarkDecodeMediumFastView(b *testing.B) {

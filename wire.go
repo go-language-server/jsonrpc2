@@ -49,6 +49,31 @@ func EncodeMessage(msg Message) ([]byte, error) {
 	return out, nil
 }
 
+// AppendMessage appends msg's JSON-RPC envelope to dst and returns the extended
+// slice.
+//
+// Unlike [EncodeMessage], AppendMessage does not allocate an owned right-sized
+// result. The returned bytes alias dst's backing array, making this the preferred
+// API for callers that own an output buffer or write batch envelopes directly.
+func AppendMessage(dst []byte, msg Message) []byte {
+	return appendMessage(dst, msg)
+}
+
+// AppendCall appends a JSON-RPC call envelope to dst.
+func AppendCall(dst []byte, id ID, method string, params RawMessage) []byte {
+	return appendCallFields(dst, id, method, params)
+}
+
+// AppendNotification appends a JSON-RPC notification envelope to dst.
+func AppendNotification(dst []byte, method string, params RawMessage) []byte {
+	return appendNotificationFields(dst, method, params)
+}
+
+// AppendResponse appends a JSON-RPC response envelope to dst.
+func AppendResponse(dst []byte, id ID, result RawMessage, err error) []byte {
+	return appendResponseFields(dst, id, result, err)
+}
+
 // appendMessage appends the wire envelope of msg to dst and returns the extended
 // slice. It dispatches on the concrete message type; the [Message] set is closed
 // so the default case is unreachable for well-formed values.
