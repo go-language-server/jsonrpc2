@@ -65,6 +65,56 @@ func TestPipelineClientModeBridgeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPipelineClientErrorResponse(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	ca, cb := net.Pipe()
+	client := NewPipelineClient(NewNDJSONStream(ca))
+	server := NewServer(NewNDJSONStream(cb))
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+		return reply(ctx, nil, ErrMethodNotFound)
+	})
+	t.Cleanup(func() {
+		closeBoth(t, client, server)
+	})
+
+	if _, err := client.Call(ctx, "missing", nil, nil); !errors.Is(err, ErrMethodNotFound) {
+		t.Fatalf("PipelineClient.Call error = %v, want %v", err, ErrMethodNotFound)
+	}
+}
+
+func TestPipelineClientNotify(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	ca, cb := net.Pipe()
+	client := NewPipelineClient(NewNDJSONStream(ca))
+	server := NewServer(NewNDJSONStream(cb))
+	gotc := make(chan string, 1)
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+		gotc <- req.Method()
+		return nil
+	})
+	t.Cleanup(func() {
+		closeBoth(t, client, server)
+	})
+
+	if err := client.Notify(ctx, "window/logMessage", nil); err != nil {
+		t.Fatalf("PipelineClient.Notify: %v", err)
+	}
+	select {
+	case got := <-gotc:
+		if got != "window/logMessage" {
+			t.Fatalf("PipelineClient.Notify method = %q, want window/logMessage", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient.Notify did not reach server")
+	}
+}
+
 func TestPipelineClientContextCancelStopsWaiting(t *testing.T) {
 	t.Parallel()
 
@@ -108,6 +158,66 @@ func TestPipelineClientContextCancelStopsWaiting(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("PipelineClient.Call did not return after ctx cancel")
 	}
+}
+
+func TestPipelineClientCloseAbortsInFlightCall(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	ca, cb := net.Pipe()
+	client := NewPipelineClient(NewNDJSONStream(ca))
+	server := NewServer(NewNDJSONStream(cb))
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var releaseOnce sync.Once
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+		close(started)
+		<-release
+		return reply(ctx, nil, nil)
+	}))
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		_ = server.Close()
+		<-server.Done()
+	})
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := client.Call(ctx, "slow", nil, nil)
+		errc <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient slow call did not reach server")
+	}
+
+	closed := make(chan error, 1)
+	go func() { closed <- client.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("PipelineClient.Close: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient.Close did not return")
+	}
+	select {
+	case <-client.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient.Done did not close")
+	}
+	select {
+	case err := <-errc:
+		if !errors.Is(err, ErrClientClosing) {
+			t.Fatalf("PipelineClient.Call after Close = %v, want %v", err, ErrClientClosing)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient.Call did not return after Close")
+	}
+	releaseOnce.Do(func() { close(release) })
 }
 
 func TestPipelineClientCanceledCallLateResponseDoesNotReachLaterCall(t *testing.T) {

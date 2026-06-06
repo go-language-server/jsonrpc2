@@ -17,22 +17,6 @@ func NewSingleClient(stream Stream, opts ...Option) (*SingleClient, error) {
 	return NewSyncClient(stream, opts...)
 }
 
-// PipelineClient is the pipelined client mode boundary.
-//
-// This first prototype deliberately delegates protocol execution to [Conn] so
-// it preserves today's bidirectional semantics while tests and benchmarks grow
-// around the new mode name. [Conn] now uses denseCallSlots for its generated
-// numeric IDs; a future PipelineClient can still own a narrower client-only
-// read/write loop without changing the mode constructor.
-type PipelineClient struct {
-	Conn
-}
-
-// NewPipelineClient creates a pipelined client over stream.
-func NewPipelineClient(stream Stream, opts ...Option) *PipelineClient {
-	return &PipelineClient{Conn: NewConn(stream, opts...)}
-}
-
 // Peer is the bidirectional JSON-RPC endpoint mode.
 //
 // It names the existing [Conn] capability set explicitly: both sides may send
