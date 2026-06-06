@@ -1,4 +1,4 @@
-name: test
+name: CI
 
 on:
   push:
@@ -34,6 +34,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          check-latest: true
 
       - name: Check versions
         run: |
@@ -50,18 +51,21 @@ jobs:
           make coverage
 
       - name: Upload coverage to Codecov
-        if: success() && matrix.runner == 'ubuntu-slim'
+        if: success()
         uses: codecov/codecov-action@v6
         with:
-          use_oidc: true
+          report_type: coverage
           files: ./coverage.out
+          flags: ${{ runner.os }}-${{ runner.arch }}
           fail_ci_if_error: false
+          use_oidc: true
           verbose: true
 
       - name: Upload test results
-        if: always() && matrix.runner == 'ubuntu-slim'
+        if: always()
         uses: codecov/codecov-action@v6
         with:
+          report_type: test_results
           name: test-results
           directory: _output/
 
@@ -76,13 +80,14 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          check-latest: true
 
       - name: Run fmt and lint for sources
         run: |-
           make lint
           git add -N . && git diff --exit-code
 
-  benchmark-artifacts:
+  benchmark:
     name: benchmark/${{ matrix.runner }}
     runs-on: ${{ matrix.runner }}
 
@@ -100,6 +105,7 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          check-latest: true
 
       - name: Capture benchmark artifacts
         run: |
