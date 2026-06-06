@@ -21,22 +21,22 @@ type adapterFactory struct {
 	make func(ctx context.Context) (rpcClient, error)
 }
 
-// nativeAdapters returns the fastest-per-library native transports: ours and mcp
+// nativeAdapters returns the fastest-per-library native transports: jsonrpc2 and mcp
 // over net.Pipe with NDJSON framing, jrpc2 over channel.Direct (server.NewLocal).
 func nativeAdapters() []adapterFactory {
 	return []adapterFactory{
-		{"ours/native", func(ctx context.Context) (rpcClient, error) { return newOursAdapter(ctx) }},
+		{"jsonrpc2/native", func(ctx context.Context) (rpcClient, error) { return newOursAdapter(ctx) }},
 		{"jrpc2/native", func(ctx context.Context) (rpcClient, error) { return newJRPC2NativeAdapter(ctx) }},
 		{"mcp/native", func(ctx context.Context) (rpcClient, error) { return newMCPAdapter(ctx) }},
 	}
 }
 
 // commonAdapters returns all three libraries over the SAME net.Pipe transport
-// family (NDJSON-style framing): ours via NewNDJSONStream, jrpc2 via
+// family (NDJSON-style framing): jsonrpc2 via NewNDJSONStream, jrpc2 via
 // channel.RawJSON, mcp via the ndjson Reader/Writer in adapters.go.
 func commonAdapters() []adapterFactory {
 	return []adapterFactory{
-		{"ours/common", func(ctx context.Context) (rpcClient, error) { return newOursAdapter(ctx) }},
+		{"jsonrpc2/common", func(ctx context.Context) (rpcClient, error) { return newOursAdapter(ctx) }},
 		{"jrpc2/common", func(ctx context.Context) (rpcClient, error) { return newJRPC2CommonAdapter(ctx) }},
 		{"mcp/common", func(ctx context.Context) (rpcClient, error) { return newMCPAdapter(ctx) }},
 	}
@@ -48,7 +48,7 @@ func allAdapters() []adapterFactory {
 }
 
 // benchmarkSingleAdapter runs a benchmark body against one adapter factory.
-// It is used for transport-specific ours-only benchmarks that do not compare
+// It is used for transport-specific jsonrpc2-only benchmarks that do not compare
 // against the other libraries.
 func benchmarkSingleAdapter(b *testing.B, name string, make func(ctx context.Context) (rpcClient, error), body func(*testing.B, context.Context, rpcClient)) {
 	b.Run(name, func(b *testing.B) {
@@ -215,7 +215,7 @@ func BenchmarkNotify(b *testing.B) {
 }
 
 // BenchmarkBatch measures batches of 1, 4, and 16 void calls. jrpc2 uses its
-// public Client.Batch; mcp issues concurrent calls (no public batch-send); ours
+// public Client.Batch; mcp issues concurrent calls (no public batch-send); jsonrpc2
 // hand-frames the batch array and reads the response array (no public
 // batch-send on Conn). The differing batch mechanics are documented in
 // adapters.go and RESULTS.md.
@@ -241,10 +241,10 @@ func BenchmarkBatch(b *testing.B) {
 	}
 }
 
-// BenchmarkRoundTripVoidHeader measures the ours adapter over the header
+// BenchmarkRoundTripVoidHeader measures the jsonrpc2 adapter over the header
 // transport, which is the package's default framing.
 func BenchmarkRoundTripVoidHeader(b *testing.B) {
-	benchmarkSingleAdapter(b, "ours/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "jsonrpc2/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
@@ -256,7 +256,7 @@ func BenchmarkRoundTripVoidHeader(b *testing.B) {
 // BenchmarkRoundTripVoidDirect measures the benchmark-local direct transport,
 // which bypasses net.Pipe while still exercising the same Conn and batch code.
 func BenchmarkRoundTripVoidDirect(b *testing.B) {
-	benchmarkSingleAdapter(b, "ours/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "jsonrpc2/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
@@ -265,19 +265,19 @@ func BenchmarkRoundTripVoidDirect(b *testing.B) {
 	})
 }
 
-// BenchmarkRoundTripVoidSync measures the A1c synchronous-client mode: ours
+// BenchmarkRoundTripVoidSync measures the A1c synchronous-client mode: jsonrpc2
 // SyncClient (no client-side background reader; the caller owns the read loop)
-// against an ordinary ours Conn server over net.Pipe with NDJSON framing.
+// against an ordinary jsonrpc2 Conn server over net.Pipe with NDJSON framing.
 //
 // MODE DISCLOSURE: this is a DISTINCT execution model, not the concurrent Conn
-// (ours/native) and not comparable head-to-head with jrpc2's channel.Direct
+// (jsonrpc2/native) and not comparable head-to-head with jrpc2's channel.Direct
 // (both keep a client-side reader). It removes the client's third goroutine hop,
-// so a lower number here means "ours' fastest in-process request path," NOT that
+// so a lower number here means "jsonrpc2's fastest in-process request path," NOT that
 // the concurrent Conn got faster. It is reported separately for exactly the same
 // integrity reason the batch rows are: the operation is not the same shape as
 // the rivals'. See sync_adapter.go and RESULTS.md.
 func BenchmarkRoundTripVoidSync(b *testing.B) {
-	benchmarkSingleAdapter(b, "ours/sync", newOursSyncRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "jsonrpc2/sync", newOursSyncRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if _, err := c.Call(ctx, voidMethod, nil); err != nil {
 				b.Fatalf("Call: %v", err)
@@ -288,7 +288,7 @@ func BenchmarkRoundTripVoidSync(b *testing.B) {
 
 // BenchmarkBatchHeader measures batch handling over the header transport.
 func BenchmarkBatchHeader(b *testing.B) {
-	benchmarkSingleAdapter(b, "n16/ours/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "n16/jsonrpc2/header", newOursHeaderRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if err := c.Batch(ctx, 16); err != nil {
 				b.Fatalf("Batch: %v", err)
@@ -300,7 +300,7 @@ func BenchmarkBatchHeader(b *testing.B) {
 // BenchmarkBatchDirect measures batch handling over the benchmark-local direct
 // transport.
 func BenchmarkBatchDirect(b *testing.B) {
-	benchmarkSingleAdapter(b, "n16/ours/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
+	benchmarkSingleAdapter(b, "n16/jsonrpc2/direct", newOursDirectRPCClient, func(b *testing.B, ctx context.Context, c rpcClient) {
 		for b.Loop() {
 			if err := c.Batch(ctx, 16); err != nil {
 				b.Fatalf("Batch: %v", err)
@@ -336,25 +336,25 @@ var decodeInputs = []struct {
 }
 
 // BenchmarkDecode measures pure decode cost on identical bytes with NO transport
-// involved. For single-message inputs ours uses DecodeMessage and mcp uses
-// DecodeMessage; for the batch input ours and jrpc2 use their ParseRequests.
+// involved. For single-message inputs jsonrpc2 uses DecodeMessage and mcp uses
+// DecodeMessage; for the batch input jsonrpc2 and jrpc2 use their ParseRequests.
 // jrpc2 uses ParseRequests for every input (it has no single-message decoder).
 func BenchmarkDecode(b *testing.B) {
 	for _, in := range decodeInputs {
 		msg := []byte(in.input)
 
-		b.Run(in.name+"/ours", func(b *testing.B) {
+		b.Run(in.name+"/jsonrpc2", func(b *testing.B) {
 			b.ReportAllocs()
 			if in.batch {
 				for b.Loop() {
 					if _, err := jsonrpc2.ParseRequests(msg); err != nil {
-						b.Fatalf("ours.ParseRequests: %v", err)
+						b.Fatalf("jsonrpc2.ParseRequests: %v", err)
 					}
 				}
 			} else {
 				for b.Loop() {
 					if _, err := jsonrpc2.DecodeMessage(msg); err != nil {
-						b.Fatalf("ours.DecodeMessage: %v", err)
+						b.Fatalf("jsonrpc2.DecodeMessage: %v", err)
 					}
 				}
 			}
@@ -386,7 +386,7 @@ func BenchmarkDecode(b *testing.B) {
 }
 
 // BenchmarkDecodeParseRequests isolates the request-array parse path on the same
-// inputs for ours vs jrpc2 (both expose ParseRequests). It complements
+// inputs for jsonrpc2 vs jrpc2 (both expose ParseRequests). It complements
 // BenchmarkDecode by always exercising the batch-capable entry point, even for
 // single-message inputs, so the two libraries' ParseRequests are compared
 // directly. mcp has no ParseRequests and is omitted.
@@ -394,11 +394,11 @@ func BenchmarkDecodeParseRequests(b *testing.B) {
 	for _, in := range decodeInputs {
 		msg := []byte(in.input)
 
-		b.Run(in.name+"/ours", func(b *testing.B) {
+		b.Run(in.name+"/jsonrpc2", func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, err := jsonrpc2.ParseRequests(msg); err != nil {
-					b.Fatalf("ours.ParseRequests: %v", err)
+					b.Fatalf("jsonrpc2.ParseRequests: %v", err)
 				}
 			}
 		})
@@ -422,8 +422,8 @@ func BenchmarkEncode(b *testing.B) {
 	id := int64(1)
 	params := jsonrpc2.RawMessage(paramsSmall)
 
-	// ours: build a *Call and append-encode it.
-	oursCall := jsonrpc2.NewCall(jsonrpc2.NewNumberID(id), method, params)
+	// jsonrpc2: build a *Call and append-encode it.
+	jsonrpc2Call := jsonrpc2.NewCall(jsonrpc2.NewNumberID(id), method, params)
 
 	// mcp: build a *Request call with the same method/params.
 	mcpCall, err := mcp.NewCall(mcp.Int64ID(id), method, paramsSmall)
@@ -431,11 +431,11 @@ func BenchmarkEncode(b *testing.B) {
 		b.Fatalf("mcp.NewCall: %v", err)
 	}
 
-	b.Run("ours", func(b *testing.B) {
+	b.Run("jsonrpc2", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			if _, err := jsonrpc2.EncodeMessage(oursCall); err != nil {
-				b.Fatalf("ours.EncodeMessage: %v", err)
+			if _, err := jsonrpc2.EncodeMessage(jsonrpc2Call); err != nil {
+				b.Fatalf("jsonrpc2.EncodeMessage: %v", err)
 			}
 		}
 	})
@@ -451,6 +451,6 @@ func BenchmarkEncode(b *testing.B) {
 
 	// jrpc2 exposes no public single-message encoder equivalent to
 	// EncodeMessage/AppendMessage; its wire encoding is internal to the
-	// client/server. The encode comparison is therefore ours vs mcp only, which
+	// client/server. The encode comparison is therefore jsonrpc2 vs mcp only, which
 	// is recorded in RESULTS.md.
 }

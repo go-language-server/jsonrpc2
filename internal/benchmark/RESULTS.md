@@ -44,7 +44,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 >   client mode that owns its read loop instead of running a background reader, so
 >   a `Call` collapses the third goroutine hop. **~2030 ns/op vs the `Conn` round
 >   trip's ~2900 ns** on the same `net.Pipe`+NDJSON transport. Reported as a
->   separate `ours/sync` row with mode disclosure (see
+>   separate `jsonrpc2/sync` row with mode disclosure (see
 >   [Synchronous-client mode](#synchronous-client-mode-a1c)); it is **not** a
 >   head-to-head claim against `channel.Direct` and **not** a speedup of the
 >   bidirectional `Conn`.
@@ -198,7 +198,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 
 | Label | Module | Notes |
 |-------|--------|-------|
-| `ours`  | `go.lsp.dev/jsonrpc2` (this repo, via replace) | The library being benchmarked. |
+| `jsonrpc2`  | `go.lsp.dev/jsonrpc2` (this repo, via replace) | The library being benchmarked. |
 | `jrpc2` | `github.com/creachadair/jrpc2` v1.3.5 | Mature, widely used; the reference for `BenchmarkRoundTrip` / `BenchmarkParseRequests`. |
 | `mcp`   | vendored `mcpref/` (Go MCP SDK's jsonrpc2, gopls-derived) | Vendored at `internal/benchmark/mcpref`. |
 
@@ -218,7 +218,7 @@ the concurrent `Conn` pays. Measured on `net.Pipe` + NDJSON against an ordinary
 **Mode disclosure (do not quote the number without it).** `SyncClient` removes the
 *client's* reader goroutine. It cannot receive server-initiated requests and
 serializes its calls (one outstanding at a time). The win is therefore an
-execution-model change, reported as a distinct `ours/sync` row exactly as the
+execution-model change, reported as a distinct `jsonrpc2/sync` row exactly as the
 batch rows are excluded from the strict apples-to-apples claim. It is **not**
 comparable head-to-head with jrpc2's `channel.Direct` (which keeps a client-side
 reader), and a lower number here does **not** mean the bidirectional `Conn` got
@@ -258,7 +258,7 @@ existing `Conn` untouched.
 ## amd64 results (the `fastest` claim arch)
 
 Measured directly on an `amd64` server, closing the gap where the headline claim
-was previously asserted for amd64 but unmeasured. **`ours` is the fastest on every
+was previously asserted for amd64 but unmeasured. **`jsonrpc2` is the fastest on every
 apples-to-apples workload**, with the *same* allocation counts as arm64 and, in
 several cases, *wider* margins.
 
@@ -273,40 +273,40 @@ several cases, *wider* margins.
 
 ### Void round-trip (sequential, nil params) — AC-P1 headline
 
-| Transport | ours | jrpc2 | mcp |
+| Transport | jsonrpc2 | jrpc2 | mcp |
 |-----------|------|-------|-----|
 | native | **4.78 µs / 585 B / 12 allocs** | 12.33 µs / 4480 B / 100 | 44.22 µs / 100919 B / 46 |
 | common (same net.Pipe) | **4.97 µs / 585 B / 12** | 18.72 µs / 4569 B / 101 | 43.93 µs / 100920 B / 47 |
 
-`ours` is **2.6× faster** than jrpc2 and **9.3× faster** than mcp (native), with
+`jsonrpc2` is **2.6× faster** than jrpc2 and **9.3× faster** than mcp (native), with
 **8.3× fewer allocs** than jrpc2.
 
 ### Parallel void round-trip (b.RunParallel)
 
-| Parallelism | ours | jrpc2 | mcp |
+| Parallelism | jsonrpc2 | jrpc2 | mcp |
 |-------------|------|-------|-----|
 | native P4  | **6.09 µs** | 13.67 µs | 36.82 µs |
 | native P12 | **6.08 µs** | 14.28 µs | 34.12 µs |
 
 ### Round-trip with params (native, same pre-encoded bytes)
 
-| Workload | ours | jrpc2 | mcp | Winner |
+| Workload | jsonrpc2 | jrpc2 | mcp | Winner |
 |----------|------|-------|-----|--------|
-| small (~50 B)  | **5.23 µs** | 14.32 µs | 42.77 µs | ours |
-| medium (~256 B)| **5.53 µs** | 19.01 µs | 45.44 µs | ours |
-| large (~4 KiB) | **16.77 µs** | 95.19 µs | 89.95 µs | ours (5.7× / 5.4×) |
+| small (~50 B)  | **5.23 µs** | 14.32 µs | 42.77 µs | jsonrpc2 |
+| medium (~256 B)| **5.53 µs** | 19.01 µs | 45.44 µs | jsonrpc2 |
+| large (~4 KiB) | **16.77 µs** | 95.19 µs | 89.95 µs | jsonrpc2 (5.7× / 5.4×) |
 
 ### Notify / Batch (native)
 
-| Workload | ours | jrpc2 | mcp | Winner |
+| Workload | jsonrpc2 | jrpc2 | mcp | Winner |
 |----------|------|-------|-----|--------|
-| Notify | **1.65 µs / 244 B / 5** | 4.23 µs / 2071 B / 42 | 12.84 µs / 33824 B / 20 | ours |
-| Batch n1 | **6.72 µs** | 12.48 µs | 34.21 µs | ours |
-| Batch n4 | **18.18 µs** | 51.15 µs | 129.5 µs | ours |
+| Notify | **1.65 µs / 244 B / 5** | 4.23 µs / 2071 B / 42 | 12.84 µs / 33824 B / 20 | jsonrpc2 |
+| Batch n1 | **6.72 µs** | 12.48 µs | 34.21 µs | jsonrpc2 |
+| Batch n4 | **18.18 µs** | 51.15 µs | 129.5 µs | jsonrpc2 |
 
 ### Pure decode / parse / encode (identical bytes, no transport) — AC-P2 anchor
 
-| Workload | ours | jrpc2 | mcp |
+| Workload | jsonrpc2 | jrpc2 | mcp |
 |----------|------|-------|-----|
 | Decode Minimal | **175 ns / 88 B / 2 allocs** | 3.23 µs / 1504 B / 31 (**18.4×**) | 7.13 µs / 33032 B / 8 (**40.7×**) |
 | Decode Medium  | **399 ns / 192 B / 3** | 5.19 µs / 36 | 9.04 µs / 9 |
@@ -318,7 +318,7 @@ several cases, *wider* margins.
 
 - **AC-P1** (void RT ≥ 20 % lower ns/op & ≤ rival allocs vs the faster rival): **MET** — 61 % lower ns/op than jrpc2, 12 ≤ 100 allocs.
 - **AC-P2** (ParseRequests ≥ 40 % lower & ≤ 1 alloc): **speed MET** (93 % lower), the ≤ 1-alloc target remains documented-infeasible under the §3.3 ownership invariant (4 allocs).
-- **AC-P3** (never slower on any workload): **MET** — `ours` is lowest on every row.
+- **AC-P3** (never slower on any workload): **MET** — `jsonrpc2` is lowest on every row.
 - **AC-P4** (encode/decode ≤ 1 alloc): encode **MET** (1); decode is 2 (ownership-invariant floor, documented).
 
 ### Cross-arch consistency
@@ -338,24 +338,24 @@ The amd64 time-margins are equal-to-larger than arm64's (e.g. Decode Minimal
 ## Transport families (Phase 6 §6 integrity protocol)
 
 Two transport families are measured so the comparison cannot be gamed by giving
-`ours` a cheaper transport than the rivals:
+`jsonrpc2` a cheaper transport than the rivals:
 
 - **`native`** — the fastest in-memory transport each library natively offers.
-  - `ours`: `NewConn` over an in-memory `net.Pipe` with newline-delimited JSON
-    (NDJSON) framing. `ours` has no in-memory channel transport, so `net.Pipe`
+  - `jsonrpc2`: `NewConn` over an in-memory `net.Pipe` with newline-delimited JSON
+    (NDJSON) framing. `jsonrpc2` has no in-memory channel transport, so `net.Pipe`
     is its fastest in-memory option.
   - `jrpc2`: `server.NewLocal` (`channel.Direct`), which passes message buffers
     **in memory with no framing and no encoding**. This is jrpc2's fastest
     transport and is **strictly faster** than the framed, piped transports the
     other native adapters use. The asymmetry is intentional: it does **not**
-    advantage `ours`.
+    advantage `jsonrpc2`.
   - `mcp`: `mcpref.NewConnection` with an NDJSON `Reader`/`Writer` (implemented
     in `adapters.go`) over `net.Pipe` — its only in-memory option.
 - **`common`** — all three libraries over the **same** `net.Pipe` pair with
-  NDJSON-style framing (one goroutine per endpoint): `ours` via
+  NDJSON-style framing (one goroutine per endpoint): `jsonrpc2` via
   `NewNDJSONStream`, `jrpc2` via `channel.RawJSON`, `mcp` via the NDJSON
   Reader/Writer. No library gets an in-memory channel here. If anything, the
-  shared piped path biases slightly **against** `ours`, which is the intent.
+  shared piped path biases slightly **against** `jsonrpc2`, which is the intent.
 
 Every adapter answers a single no-op `"void"` method (matching jrpc2's
 `BenchmarkRoundTrip`) and each adapter constructor runs a sanity void
@@ -366,7 +366,7 @@ pure-decode benchmarks compare equivalent work.
 
 ### Faithfulness of the harness (why these numbers are not an artifact)
 
-- **`ours` calibration.** The harness's `ours/native` adapter is the same setup
+- **`jsonrpc2` calibration.** The harness's `jsonrpc2/native` adapter is the same setup
   as the root repository's own `BenchmarkVoidRoundTrip` (a `net.Pipe` + NDJSON +
   void round-trip). After the optimization pass, running that canonical root
   benchmark independently
@@ -376,7 +376,7 @@ pure-decode benchmarks compare equivalent work.
   time and bytes. The +2 allocs/op come from the harness decoding the response
   into a `RawMessage` result (the root bench discards the result with `nil`), not
   from a measurement distortion. The harness therefore faithfully reflects
-  `ours`'s real cost.
+  `jsonrpc2`'s real cost.
 - **`jrpc2` is measured through its own canonical setup.** `jrpc2/native` is
   literally jrpc2's `BenchmarkRoundTrip` configuration: `server.NewLocal` with
   `ServerOptions{DisableBuiltin:true, Concurrency:1}` (the `C01-B` case). The
@@ -387,7 +387,7 @@ pure-decode benchmarks compare equivalent work.
   directly; the only harness code is the NDJSON `Reader`/`Writer`, constructed
   once per connection (not per call).
 
-This is what makes "ours wins even though jrpc2 was handed its zero-framing
+This is what makes "jsonrpc2 wins even though jrpc2 was handed its zero-framing
 `channel.Direct` transport on the native path" a defensible claim rather than a
 wrapper artifact.
 
@@ -396,24 +396,24 @@ wrapper artifact.
 ns/op, B/op, allocs/op; lower is better. `winner` is per-row across the three
 libraries within a transport family.
 
-### native (AFTER optimization; pre-opt `ours` in parentheses)
+### native (AFTER optimization; pre-opt `jsonrpc2` in parentheses)
 
-| Library | ns/op | B/op | allocs/op | vs ours |
+| Library | ns/op | B/op | allocs/op | vs jsonrpc2 |
 |---------|------:|-----:|----------:|---------|
-| **ours**  | **~3270** (was 4876) | **584** (was 961) | **12** (was 20) | — (fastest) |
-| jrpc2 | ~7990 | 4469  | 100 | ours faster (~2.4x time, 7.7x B, 8.3x allocs) |
-| mcp   | ~22500 | 100550 | 46 | ours faster (~6.9x time, 172x B, 3.8x allocs) |
+| **jsonrpc2**  | **~3270** (was 4876) | **584** (was 961) | **12** (was 20) | — (fastest) |
+| jrpc2 | ~7990 | 4469  | 100 | jsonrpc2 faster (~2.4x time, 7.7x B, 8.3x allocs) |
+| mcp   | ~22500 | 100550 | 46 | jsonrpc2 faster (~6.9x time, 172x B, 3.8x allocs) |
 
 ### common (same net.Pipe transport; AFTER optimization)
 
-| Library | ns/op | B/op | allocs/op | vs ours |
+| Library | ns/op | B/op | allocs/op | vs jsonrpc2 |
 |---------|------:|-----:|----------:|---------|
-| **ours**  | **~3160** (was 4900) | **584** (was 961) | **12** (was 20) | — (fastest) |
-| jrpc2 | ~11300 | 4562  | 101 | ours faster (~3.6x time, 7.8x B, 8.4x allocs) |
-| mcp   | ~23000 | 100556 | 47 | ours faster (~7.3x time, 172x B, 3.9x allocs) |
+| **jsonrpc2**  | **~3160** (was 4900) | **584** (was 961) | **12** (was 20) | — (fastest) |
+| jrpc2 | ~11300 | 4562  | 101 | jsonrpc2 faster (~3.6x time, 7.8x B, 8.4x allocs) |
+| mcp   | ~23000 | 100556 | 47 | jsonrpc2 faster (~7.3x time, 172x B, 3.9x allocs) |
 
 > **Optimization note (replaces the earlier "prediction not borne out" note).**
-> The Phase 6 plan anticipated `ours` would *lose* the void round-trip at
+> The Phase 6 plan anticipated `jsonrpc2` would *lose* the void round-trip at
 > ~18 allocs/op. The pre-optimization baseline already *won* it at 20 harness
 > allocs/op (18 on the root bench). The subsequent best-effort optimization pass
 > then cut that to **12 harness allocs/op (10 on the root bench)** and lowered
@@ -435,42 +435,42 @@ libraries within a transport family.
 
 ## Round-trip with params (same pre-encoded bytes across all libs)
 
-sec/op (µs), B/op, allocs/op. Each row's winner is `ours` on every axis.
+sec/op (µs), B/op, allocs/op. Each row's winner is `jsonrpc2` on every axis.
 
 ### native (AFTER optimization)
 
-| Workload | ours µs / B / allocs | jrpc2 µs / B / allocs | mcp µs / B / allocs | Winner |
+| Workload | jsonrpc2 µs / B / allocs | jrpc2 µs / B / allocs | mcp µs / B / allocs | Winner |
 |----------|----------------------|-----------------------|---------------------|--------|
-| small (~50 B)  | 3.05 / 672 / 14  | 9.04 / 4873 / 108  | 20.4 / 100948 / 51 | ours |
-| medium (~256 B)| 3.18 / 864 / 14  | 11.5 / 5667 / 109 | 21.4 / 102194 / 51 | ours |
-| large (~4 KiB) | 9.18 / 12907 / 15 | 60.1 / 22552 / 109 | 44.4 / 130673 / 53 | ours |
+| small (~50 B)  | 3.05 / 672 / 14  | 9.04 / 4873 / 108  | 20.4 / 100948 / 51 | jsonrpc2 |
+| medium (~256 B)| 3.18 / 864 / 14  | 11.5 / 5667 / 109 | 21.4 / 102194 / 51 | jsonrpc2 |
+| large (~4 KiB) | 9.18 / 12907 / 15 | 60.1 / 22552 / 109 | 44.4 / 130673 / 53 | jsonrpc2 |
 
-(`common` transport family tracks `native` for `ours`; full per-run data in
-`bench.txt`. ours allocs/op fell from 22/22/23 to 14/14/15 across the sizes.)
+(`common` transport family tracks `native` for `jsonrpc2`; full per-run data in
+`bench.txt`. jsonrpc2 allocs/op fell from 22/22/23 to 14/14/15 across the sizes.)
 
 ## Parallel void round-trip (b.RunParallel, SetParallelism ≈ jrpc2 C4/C12)
 
-sec/op (µs). `ours` runs the same dispatch mode under load; this stresses each
+sec/op (µs). `jsonrpc2` runs the same dispatch mode under load; this stresses each
 library's connection mutexes rather than its handler concurrency.
 
 ### native (AFTER optimization)
 
-| Parallelism | ours | jrpc2 | mcp | Winner |
+| Parallelism | jsonrpc2 | jrpc2 | mcp | Winner |
 |-------------|-----:|------:|----:|--------|
-| P4  | 3.74 µs (was 5.68) | 6.05 µs | 23.6 µs | ours |
-| P12 | 3.78 µs (was 4.65) | 7.34 µs | 26.2 µs | ours |
+| P4  | 3.74 µs (was 5.68) | 6.05 µs | 23.6 µs | jsonrpc2 |
+| P12 | 3.78 µs (was 4.65) | 7.34 µs | 26.2 µs | jsonrpc2 |
 
-allocs/op AFTER optimization: **ours 12** (was 20), jrpc2 100, mcp 45.
+allocs/op AFTER optimization: **jsonrpc2 12** (was 20), jrpc2 100, mcp 45.
 
 ## Notify (fire-and-forget) — AFTER optimization
 
 The inline dispatch and write-buffer reuse also benefit the server-side drain of
 a notification (it runs inline through `handleRequest` with no goroutine), so
-`ours` Notify fell from 12 to **5 allocs/op** and from ~1.54 µs to ~1.02 µs.
+`jsonrpc2` Notify fell from 12 to **5 allocs/op** and from ~1.54 µs to ~1.02 µs.
 
-| Transport | ours µs / B / allocs | jrpc2 µs / B / allocs | mcp µs / B / allocs | Winner |
+| Transport | jsonrpc2 µs / B / allocs | jrpc2 µs / B / allocs | mcp µs / B / allocs | Winner |
 |-----------|----------------------|-----------------------|---------------------|--------|
-| native | 1.02 (was 1.54) / 244 / 5 (was 12) | 2.55 / 2066 / 42 | 6.6 / 33800 / 20 | ours |
+| native | 1.02 (was 1.54) / 244 / 5 (was 12) | 2.55 / 2066 / 42 | 6.6 / 33800 / 20 | jsonrpc2 |
 
 ## Batch (1 / 4 / 16 void calls)
 
@@ -479,44 +479,44 @@ a notification (it runs inline through `handleRequest` with no goroutine), so
 - `jrpc2`: public `Client.Batch(specs)` — a true single batch request/response.
 - `mcp`: no public batch-send, so the adapter issues N concurrent `Call`s and
   awaits them (independent frames). This is how an mcp caller would burst.
-- `ours`: no public batch-send on `Conn`, so the adapter **hand-frames** the
+- `jsonrpc2`: no public batch-send on `Conn`, so the adapter **hand-frames** the
   JSON-RPC batch array, writes it directly through a dedicated persistent
-  `net.Pipe` transport answered by a real `ours` server, and reads the single
+  `net.Pipe` transport answered by a real `jsonrpc2` server, and reads the single
   response-array frame. Because the mechanics differ, batch rows are **not**
   a strict apples-to-apples protocol comparison; they reflect each library's
   realistic batch path.
 
-sec/op (µs), allocs/op. native shown (AFTER optimization). ours batch allocs/op
+sec/op (µs), allocs/op. native shown (AFTER optimization). jsonrpc2 batch allocs/op
 also fell (each member now uses the folded request context): n1 22→19, n4 66→54,
 n16 236→188.
 
-| n  | ours µs / allocs | jrpc2 µs / allocs | mcp µs / allocs | Winner |
+| n  | jsonrpc2 µs / allocs | jrpc2 µs / allocs | mcp µs / allocs | Winner |
 |----|------------------|-------------------|-----------------|--------|
-| 1  | 3.83 / 19 (was 22)  | 7.30 / 100  | 15.2 / 42  | ours |
-| 4  | 10.4 / 54 (was 66)  | 26.7 / 337 | 61.3 / 168 | ours |
-| 16 | 36.2 / 188 (was 236) | 89.4 / 1253 | 234.6 / 664 | ours |
+| 1  | 3.83 / 19 (was 22)  | 7.30 / 100  | 15.2 / 42  | jsonrpc2 |
+| 4  | 10.4 / 54 (was 66)  | 26.7 / 337 | 61.3 / 168 | jsonrpc2 |
+| 16 | 36.2 / 188 (was 236) | 89.4 / 1253 | 234.6 / 664 | jsonrpc2 |
 
 ## AC-P2 anchor: pure DECODE on identical bytes (NO transport)
 
 Inputs mirror `jrpc2` `BenchmarkParseRequests` (`Minimal`, `Medium`, `Batch`).
-`ours` uses `DecodeMessage` for single messages and `ParseRequests` for the
+`jsonrpc2` uses `DecodeMessage` for single messages and `ParseRequests` for the
 batch; `jrpc2` uses `ParseRequests` for all; `mcp` uses `DecodeMessage`
 (single-message only — it cannot parse a batch array, so the `Batch/mcp` row is
 absent by design).
 
-| Input | ours ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs | Winner |
+| Input | jsonrpc2 ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs | Winner |
 |-------|----------------------|-----------------------|---------------------|--------|
-| Minimal | 99.3 / 88 / 2  | 1719 / 1504 / 31 | 4617 / 33034 / 8 | ours |
-| Medium  | 226.1 / 192 / 3 | 3000 / 1824 / 36 | 5166 / 33147 / 9 | ours |
-| Batch   | 1094 / 1032 / 25 | 9562 / 7256 / 144 | n/a | ours |
+| Minimal | 99.3 / 88 / 2  | 1719 / 1504 / 31 | 4617 / 33034 / 8 | jsonrpc2 |
+| Medium  | 226.1 / 192 / 3 | 3000 / 1824 / 36 | 5166 / 33147 / 9 | jsonrpc2 |
+| Batch   | 1094 / 1032 / 25 | 9562 / 7256 / 144 | n/a | jsonrpc2 |
 
-### ParseRequests-only (ours vs jrpc2, batch-capable entry point on all inputs)
+### ParseRequests-only (jsonrpc2 vs jrpc2, batch-capable entry point on all inputs)
 
-| Input | ours ns / B / allocs | jrpc2 ns / B / allocs | Winner |
+| Input | jsonrpc2 ns / B / allocs | jrpc2 ns / B / allocs | Winner |
 |-------|----------------------|-----------------------|--------|
-| Minimal | 117.7 / 128 / 4 | 1751 / 1504 / 31 | ours |
-| Medium  | 257.4 / 232 / 5 | 2986 / 1824 / 36 | ours |
-| Batch   | 1117 / 1032 / 25 | 9575 / 7256 / 144 | ours |
+| Minimal | 117.7 / 128 / 4 | 1751 / 1504 / 31 | jsonrpc2 |
+| Medium  | 257.4 / 232 / 5 | 2986 / 1824 / 36 | jsonrpc2 |
+| Batch   | 1117 / 1032 / 25 | 9575 / 7256 / 144 | jsonrpc2 |
 
 ### Decode allocation floor (AC-P2 / AC-P4 status)
 
@@ -580,7 +580,7 @@ from the same inline-dispatch and write-buffer changes).
 
 ### AC status (truthful)
 
-- **AC-P1 (headline void round-trip): MET, decisively.** ours is ≥ 20% lower
+- **AC-P1 (headline void round-trip): MET, decisively.** jsonrpc2 is ≥ 20% lower
   ns/op and ≤ the lower rival allocs/op vs *both* rivals — now ~2.4x faster than
   jrpc2 (native) at 12 harness allocs/op (10 root) vs jrpc2's 100 and mcp's 46.
 - **AC-P2 (ParseRequests): speed MET (~15x faster than jrpc2); ≤ 1 alloc/op NOT
@@ -588,7 +588,7 @@ from the same inline-dispatch and write-buffer changes).
   decode-floor note above).
 - **AC-P3 (never slower than either rival on any benchmarked workload): MET** on
   every measured apples-to-apples workload (void RT, params S/M/L, notify, decode,
-  encode); ours is the lowest on each.
+  encode); jsonrpc2 is the lowest on each.
 - **AC-P4 (encode ≤ 1 alloc/op MET at 1; decode ≤ 1 alloc/op NOT MET at 2)** —
   encode meets the target; standalone decode's floor is 2 (struct + method copy)
   under the ownership invariant and is documented as infeasible without API damage.
@@ -631,14 +631,14 @@ from the same inline-dispatch and write-buffer changes).
 
 ## Pure ENCODE on identical messages
 
-`ours.EncodeMessage` vs `mcp.EncodeMessage` on an equivalent `Foo.Bar` call with
+`jsonrpc2.EncodeMessage` vs `mcp.EncodeMessage` on an equivalent `Foo.Bar` call with
 the same ~50 B params. `jrpc2` exposes no public single-message encoder
 (`EncodeMessage`/`AppendMessage` equivalent) — its wire encoding is internal to
-the client/server — so the encode comparison is `ours` vs `mcp` only.
+the client/server — so the encode comparison is `jsonrpc2` vs `mcp` only.
 
 | Library | ns/op | B/op | allocs/op | Winner |
 |---------|------:|-----:|----------:|--------|
-| **ours** | **47.0** | **112** | **1** | ours |
+| **jsonrpc2** | **47.0** | **112** | **1** | jsonrpc2 |
 | mcp  | 436.4 | 288 | 3 | — |
 
 ## Reproduction caveats
@@ -665,23 +665,23 @@ On this `darwin/arm64` machine, `go.lsp.dev/jsonrpc2` is the lowest-cost
 library on every measured workload and on every axis (ns/op, B/op, allocs/op),
 across both the native and the shared-transport families, **with one explicit
 exclusion: the Batch (1/4/16) rows.** The harness deliberately gives `jrpc2` its
-zero-framing `channel.Direct` transport on the native path and routes `ours`
+zero-framing `channel.Direct` transport on the native path and routes `jsonrpc2`
 through real `net.Pipe` framing everywhere.
 
 > **Batch is excluded from the "lowest-cost on every workload" claim.** As
 > disclosed in the [Batch](#batch-1--4--16-void-calls) section, the batch
 > mechanics differ per library: `jrpc2` issues a true single batch
 > request/response via `Client.Batch`, `mcp` bursts N concurrent independent
-> `Call`s, and `ours` hand-frames the JSON-RPC array and reads the single
+> `Call`s, and `jsonrpc2` hand-frames the JSON-RPC array and reads the single
 > response-array frame. Because those are not the same protocol operation, the
 > batch numbers are **not** an apples-to-apples comparison and are therefore
-> **not** part of the lowest-cost-on-every-workload claim, even though `ours`
+> **not** part of the lowest-cost-on-every-workload claim, even though `jsonrpc2`
 > happens to post the lowest figures there too. The claim covers the
 > apples-to-apples workloads: void round-trip, params (small/medium/large),
 > parallel round-trip, notify, pure decode/ParseRequests, and pure encode.
 
 After the hot-path optimization pass, the headline void round-trip is
-**12 harness allocs/op (10 on the root bench) for `ours` vs 100 (jrpc2) and 46
+**12 harness allocs/op (10 on the root bench) for `jsonrpc2` vs 100 (jrpc2) and 46
 (mcp)**, at ~3270 ns/op vs ~7990 (jrpc2) and ~22500 (mcp). The pre-optimization
 figure was 20 harness allocs/op (18 root); the four kept optimizations
 (documented in the [Optimization log](#optimization-log-hot-path-allocations))

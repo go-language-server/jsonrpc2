@@ -239,9 +239,9 @@ the current developer baseline for the latest local optimization pass.
 `linux/amd64`, Intel Xeon Platinum 8481C (GCE c3, 44 vCPU), Debian 13, Go 1.26.4,
 `benchstat` over `-count=10`:
 
-| Library | ns/op | B/op | allocs/op | vs ours |
+| Library | ns/op | B/op | allocs/op | vs jsonrpc2 |
 |---------|------:|-----:|----------:|---------|
-| **jsonrpc2 (ours)** | **~4780** | **585** | **12** | — (fastest) |
+| **jsonrpc2** | **~4780** | **585** | **12** | — (fastest) |
 | jrpc2 | ~12330 | 4480 | 100 | 2.6× slower, 8.3× allocs |
 | mcp | ~44220 | 100919 | 46 | 9.3× slower |
 
@@ -256,7 +256,7 @@ ns/op fell correspondingly.
 
 | Library | ns/op | B/op | allocs/op (root) |
 |---------|------:|-----:|----------:|
-| **jsonrpc2 (ours)** | **~2900** | **408** | **6** |
+| **jsonrpc2** | **~2900** | **408** | **6** |
 | jrpc2 | ~7990 | 4469 | 100 |
 | mcp | ~22500 | 100550 | 46 |
 
@@ -285,7 +285,7 @@ caller hand-off (the third goroutine hop) a concurrent `Conn` pays. On the same
 serializes its calls (one outstanding at a time). It is therefore reported
 separately — the same integrity reason the batch rows are excluded — and is **not**
 a head-to-head claim against jrpc2's `channel.Direct` (which keeps a client-side
-reader). A lower number here means "ours' fastest in-process request path," not
+reader). A lower number here means "jsonrpc2's fastest in-process request path," not
 that the bidirectional `Conn` got faster. Use `Conn` with `Conn.Go` when you need
 concurrent calls or server-to-client requests.
 
@@ -318,13 +318,13 @@ is not a bidirectional `Conn` replacement.
 
 ### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
 
-| Input | ours ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs |
+| Input | jsonrpc2 ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs |
 |-------|----------------------|-----------------------|---------------------|
 | Minimal | **175 / 88 / 2** | 3228 / 1504 / 31 (18.4×) | 7127 / 33032 / 8 (40.7×) |
 | Medium | **399 / 192 / 3** | 5189 / 1781 / 36 | 9041 / 33147 / 9 |
 | Batch | **1857 / 1008 / 25** | 17290 / 7256 / 144 (9.3×) | n/a |
 
-`Encode` is **85 ns / 112 B / 1 alloc** for `ours` vs `mcp` 898 ns / 289 B / 3
+`Encode` is **85 ns / 112 B / 1 alloc** for `jsonrpc2` vs `mcp` 898 ns / 289 B / 3
 (10.6×); `jrpc2` exposes no single-message encoder.
 
 ### Caveats (read before quoting these numbers)
@@ -339,9 +339,9 @@ flatter the library.
   GOOS/GOARCH, CPU, git SHA, and mode disclosure whenever publishing numbers.
 - **Batch rows are excluded from the "lowest-cost on every workload" claim.** The
   batch mechanics differ by library — `jrpc2` issues a true single
-  batch request/response, `mcp` bursts N concurrent independent calls, and `ours`
+  batch request/response, `mcp` bursts N concurrent independent calls, and `jsonrpc2`
   hand-frames the JSON-RPC array — so the batch numbers are **not** an
-  apples-to-apples protocol comparison even though `ours` posts the lowest
+  apples-to-apples protocol comparison even though `jsonrpc2` posts the lowest
   figures there too.
 - **A documented standalone-decode allocation floor.** `DecodeMessage` and
   `ParseRequests` sit at a 2–4 alloc/op floor (message struct + copied

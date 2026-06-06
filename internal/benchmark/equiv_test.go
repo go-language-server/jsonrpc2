@@ -14,7 +14,7 @@ import (
 
 // decoded captures the library-independent view of a parsed single request, so
 // the three decoders can be compared on identical input. It is the anti-gaming
-// guard for the pure-decode benchmarks: it proves ours, jrpc2, and mcp all do
+// guard for the pure-decode benchmarks: it proves jsonrpc2, jrpc2, and mcp all do
 // the same parsing work (same method, same params bytes) rather than one library
 // cheating by skipping fields.
 type decoded struct {
@@ -22,7 +22,7 @@ type decoded struct {
 	params string
 }
 
-// TestDecodeEquivalence verifies that ours.DecodeMessage, jrpc2.ParseRequests,
+// TestDecodeEquivalence verifies that jsonrpc2.DecodeMessage, jrpc2.ParseRequests,
 // and mcp.DecodeMessage extract the same method name and params bytes from
 // identical single-message inputs. It uses go-cmp to compare the normalized
 // views.
@@ -49,18 +49,18 @@ func TestDecodeEquivalence(t *testing.T) {
 			msg := []byte(tt.input)
 			want := decoded{method: tt.method, params: tt.params}
 
-			// ours
-			oursMsg, err := jsonrpc2.DecodeMessage(msg)
+			// jsonrpc2
+			jsonrpc2Msg, err := jsonrpc2.DecodeMessage(msg)
 			if err != nil {
-				t.Fatalf("ours.DecodeMessage: %v", err)
+				t.Fatalf("jsonrpc2.DecodeMessage: %v", err)
 			}
-			oursReq, ok := oursMsg.(jsonrpc2.Request)
+			jsonrpc2Req, ok := jsonrpc2Msg.(jsonrpc2.Request)
 			if !ok {
-				t.Fatalf("ours.DecodeMessage: not a request: %T", oursMsg)
+				t.Fatalf("jsonrpc2.DecodeMessage: not a request: %T", jsonrpc2Msg)
 			}
-			gotOurs := decoded{method: oursReq.Method(), params: string(oursReq.Params())}
-			if diff := gocmp.Diff(want, gotOurs, gocmp.AllowUnexported(decoded{})); diff != "" {
-				t.Errorf("ours decode mismatch (-want +got):\n%s", diff)
+			gotJSONRPC2 := decoded{method: jsonrpc2Req.Method(), params: string(jsonrpc2Req.Params())}
+			if diff := gocmp.Diff(want, gotJSONRPC2, gocmp.AllowUnexported(decoded{})); diff != "" {
+				t.Errorf("jsonrpc2 decode mismatch (-want +got):\n%s", diff)
 			}
 
 			// jrpc2

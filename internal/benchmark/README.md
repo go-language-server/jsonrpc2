@@ -68,7 +68,7 @@ Quick smoke check:
 ```sh
 GOFLAGS=-mod=vendor GOPROXY=off \
   internal/benchmark/bench-artifacts.sh \
-  --bench 'BenchmarkDecode/Minimal/ours' \
+  --bench 'BenchmarkDecode/Minimal/jsonrpc2' \
   --count 1 \
   --no-profiles
 ```

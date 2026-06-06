@@ -16,18 +16,18 @@
 // families:
 //
 //   - "native": the fastest in-memory transport each library natively offers.
-//     ours and mcp run over an in-memory net.Pipe with newline-delimited JSON
+//     jsonrpc2 and mcp run over an in-memory net.Pipe with newline-delimited JSON
 //     framing; jrpc2 runs over channel.Direct (server.NewLocal), which passes
 //     message buffers in memory with no framing or encoding and is therefore
 //     strictly faster than a piped, framed transport. This deliberately does
-//     not advantage ours.
+//     not advantage jsonrpc2.
 //
 //   - "common": all three libraries run over the SAME net.Pipe pair with
-//     newline-delimited JSON framing (one goroutine per endpoint). ours uses
+//     newline-delimited JSON framing (one goroutine per endpoint). jsonrpc2 uses
 //     NewNDJSONStream, jrpc2 uses channel.RawJSON, and mcp uses the ndjson
 //     Reader/Writer implemented in this file. No library gets an in-memory
 //     channel here; if anything the shared net.Pipe path biases slightly
-//     against ours, which is the intent.
+//     against jsonrpc2, which is the intent.
 //
 // Every adapter answers a single no-op "void" method (matching jrpc2's
 // BenchmarkRoundTrip) and each adapter's constructor runs a sanity round-trip
@@ -68,14 +68,14 @@ type rpcClient interface {
 
 	// Batch sends n calls to voidMethod as a single logical batch and waits for
 	// all responses. Implementations that lack a public batch-send API write the
-	// batch frame directly through the transport; see the mcp and ours adapters.
+	// batch frame directly through the transport; see the mcp and jsonrpc2 adapters.
 	Batch(ctx context.Context, n int) error
 
 	// Close tears down the connection and its goroutines.
 	Close() error
 }
 
-// framedStream is the raw framed surface used by the ours adapter's batch path.
+// framedStream is the raw framed surface used by the jsonrpc2 adapter's batch path.
 // It matches the built-in framers as well as the benchmark-local direct transport.
 type framedStream interface {
 	jsonrpc2.Stream
@@ -84,7 +84,7 @@ type framedStream interface {
 }
 
 // ---------------------------------------------------------------------------
-// ours adapter
+// jsonrpc2 adapter
 // ---------------------------------------------------------------------------
 
 // oursAdapter drives go.lsp.dev/jsonrpc2 over a configurable framed transport.
@@ -101,7 +101,7 @@ type oursAdapter struct {
 	batchClient framedStream
 }
 
-// newOursAdapter builds an ours client/server pair over a fresh net.Pipe with
+// newOursAdapter builds a jsonrpc2 client/server pair over a fresh net.Pipe with
 // NDJSON framing and verifies a void round-trip. It also wires the dedicated
 // batch transport used by Batch.
 func newOursAdapter(ctx context.Context) (*oursAdapter, error) {
@@ -111,7 +111,7 @@ func newOursAdapter(ctx context.Context) (*oursAdapter, error) {
 	})
 }
 
-// newOursHeaderAdapter builds an ours adapter that uses the LSP header framing
+// newOursHeaderAdapter builds a jsonrpc2 adapter that uses the LSP header framing
 // on both the main and batch transports.
 func newOursHeaderAdapter(ctx context.Context) (*oursAdapter, error) {
 	return newOursAdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
@@ -120,7 +120,7 @@ func newOursHeaderAdapter(ctx context.Context) (*oursAdapter, error) {
 	})
 }
 
-// newOursDirectAdapter builds an ours adapter over the benchmark-local direct
+// newOursDirectAdapter builds a jsonrpc2 adapter over the benchmark-local direct
 // transport. The transport bypasses net.Pipe while still exercising the same
 // jsonrpc2 Conn and batch code paths.
 func newOursDirectAdapter(ctx context.Context) (*oursAdapter, error) {
@@ -159,7 +159,7 @@ func newOursAdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Stream, j
 	}
 	if err := sanityCheck(ctx, a); err != nil {
 		_ = a.Close()
-		return nil, fmt.Errorf("ours adapter: %w", err)
+		return nil, fmt.Errorf("jsonrpc2 adapter: %w", err)
 	}
 	return a, nil
 }
@@ -202,7 +202,7 @@ func (a *oursAdapter) Batch(ctx context.Context, n int) error {
 		return err
 	}
 	if got := countTopLevelObjects(line); got != n {
-		return fmt.Errorf("ours batch: got %d responses, want %d", got, n)
+		return fmt.Errorf("jsonrpc2 batch: got %d responses, want %d", got, n)
 	}
 	return nil
 }
@@ -276,7 +276,7 @@ func (a *jrpc2NativeAdapter) Batch(ctx context.Context, n int) error {
 func (a *jrpc2NativeAdapter) Close() error { return a.loc.Close() }
 
 // jrpc2CommonAdapter drives jrpc2 over the SAME net.Pipe transport family used
-// by the ours and mcp common adapters: a net.Pipe pair with channel.RawJSON
+// by the jsonrpc2 and mcp common adapters: a net.Pipe pair with channel.RawJSON
 // (newline/JSON-syntax framing). This is the apples-to-apples transport.
 type jrpc2CommonAdapter struct {
 	client *jrpc2.Client
@@ -499,7 +499,7 @@ func sanityCheck(ctx context.Context, c rpcClient) error {
 	return nil
 }
 
-// rawParams wraps pre-encoded params for ours/mcp APIs. A nil slice means "no
+// rawParams wraps pre-encoded params for jsonrpc2/mcp APIs. A nil slice means "no
 // params"; both libraries treat a nil/raw value as already-encoded JSON.
 func rawParams(params []byte) any {
 	if params == nil {

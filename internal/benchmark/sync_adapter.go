@@ -11,8 +11,8 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-// oursSyncAdapter drives the ours SyncClient — the A1c synchronous-client mode —
-// against an ordinary ours Conn server over a net.Pipe with NDJSON framing.
+// oursSyncAdapter drives the jsonrpc2 SyncClient — the A1c synchronous-client mode —
+// against an ordinary jsonrpc2 Conn server over a net.Pipe with NDJSON framing.
 //
 // MODE DISCLOSURE (do not quote the number without this qualifier): the
 // SyncClient removes the CLIENT's background read goroutine; the calling
@@ -20,12 +20,12 @@ import (
 // the dedicated-reader-to-Call hand-off (the third goroutine hop) that the
 // concurrent Conn pays. The server is a normal Conn with a background reader, so
 // this is a real RPC over a real net.Pipe transport — but it is NOT the same
-// execution model as the concurrent Conn (ours/native) or as jrpc2's
+// execution model as the concurrent Conn (jsonrpc2/native) or as jrpc2's
 // channel.Direct, which keep a client-side reader. The tradeoff is that a
 // SyncClient cannot receive server-initiated requests and serializes its calls
 // (one outstanding at a time). This row is therefore reported as a distinct
 // mode, analogous to how the batch rows are excluded from the strict
-// apples-to-apples claim; it is "ours' fastest in-process request path," not a
+// apples-to-apples claim; it is "jsonrpc2's fastest in-process request path," not a
 // statement that the concurrent Conn got faster.
 type oursSyncAdapter struct {
 	client *jsonrpc2.SyncClient
@@ -36,7 +36,7 @@ func newOursSyncAdapter(ctx context.Context) (*oursSyncAdapter, error) {
 	ca, cb := net.Pipe()
 	client, err := jsonrpc2.NewSyncClient(jsonrpc2.NewNDJSONStream(ca))
 	if err != nil {
-		return nil, fmt.Errorf("ours sync adapter: %w", err)
+		return nil, fmt.Errorf("jsonrpc2 sync adapter: %w", err)
 	}
 	server := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(cb))
 	server.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
@@ -46,7 +46,7 @@ func newOursSyncAdapter(ctx context.Context) (*oursSyncAdapter, error) {
 	a := &oursSyncAdapter{client: client, server: server}
 	if err := sanityCheck(ctx, a); err != nil {
 		_ = a.Close()
-		return nil, fmt.Errorf("ours sync adapter: %w", err)
+		return nil, fmt.Errorf("jsonrpc2 sync adapter: %w", err)
 	}
 	return a, nil
 }
@@ -67,7 +67,7 @@ func (a *oursSyncAdapter) Notify(ctx context.Context, method string, params []by
 // calls and has no batch-send API); the sync row is not part of the batch
 // comparison.
 func (a *oursSyncAdapter) Batch(ctx context.Context, n int) error {
-	return fmt.Errorf("ours sync adapter: Batch is not supported by SyncClient")
+	return fmt.Errorf("jsonrpc2 sync adapter: Batch is not supported by SyncClient")
 }
 
 func (a *oursSyncAdapter) Close() error {
