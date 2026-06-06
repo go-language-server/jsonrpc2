@@ -142,38 +142,41 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > explicit high-inflight latency caveat, **not** as a strict latency win for
 > every inflight level on every host.
 
-> **Update — queued-writer pipelined-client evidence (2026-06-06).** The
-> reusable queued writer supersedes the earlier high-inflight caveat for
+> **Update — final-head queued-writer pipelined-client evidence (2026-06-06).**
+> The reusable queued writer supersedes the earlier high-inflight caveat for
 > `PipelineClient`. It drains concurrent call bursts through one writer goroutine
 > instead of letting every caller contend on the stream write mutex, while keeping
 > the single-call path direct. Arm64 raw artifact:
-> `internal/benchmark/artifacts/20260606T034802Z-darwin-arm64-pipeline-queued-writer-final-head`
+> `internal/benchmark/artifacts/20260606T050739Z-darwin-arm64-pipeline-final-head`
 > (`go test -run '^$' -bench
-> 'Benchmark(PipelineClientVoidRoundTrip|ConnPipelinedVoidRoundTrip)$' -benchmem
-> -count=10 .`, clean source tar-expanded from HEAD, Go `go1.26.4
-> darwin/arm64`, Apple M3 Max). Normalized benchstat: inflight `1` −4.55%
-> ns/op, `8` −17.81%, `64` −30.18%, `256` −21.18%, geomean −18.94%; allocs
-> fall at every level (`6/57/451/1810` → `4/43/331/1323`) and bytes fall by
-> −5.17% geomean, with `Inflight64`/`Inflight256` B/op increases. Linux/amd64
-> raw artifact:
-> `internal/benchmark/artifacts/20260606T034558Z-linux-amd64-pipeline-queued-writer-final-head`
-> (remote host `debian-13-trixie-mnx1`, Go `go1.26.3 linux/amd64`, Intel Xeon
-> Platinum 8481C, same clean source tar-expanded under `/tmp`). Normalized
-> benchstat: inflight `1` −7.55%, `8` −19.75%, `64` −30.20%, `256` −22.91%,
-> geomean −20.51%; allocs fall at every level (`6/57/450/1806` →
-> `4/42/330/1315`) and bytes fall by −5.62% geomean, with
+> 'Benchmark(ConnPipelinedVoidRoundTrip|PipelineClientVoidRoundTrip)$' -benchmem
+> -count=10 .`, final publication source HEAD captured in `env.txt`, Go
+> `go1.26.4 darwin/arm64`, Apple M3 Max). The artifact's
+> `benchstat-normalized.txt` is the exact source of truth; the rounded summary is
+> strict latency wins at inflight `1/8/64/256` (roughly `5%`, `17%`, `30%`, and
+> `21%`) with allocation-count reductions at every level (`6/57/451/1810` →
+> `4/43/331/1323`). Bytes/op fall by geomean, with `Inflight64`/`Inflight256`
+> B/op increases.
+> Linux/amd64 raw artifact:
+> `internal/benchmark/artifacts/20260606T050943Z-linux-amd64-pipeline-final-head`
+> (remote host `debian-13-trixie-mnx1.asia-northeast1-c.gaudiy-platform`, Go
+> `go1.26.3 linux/amd64`, Intel Xeon Platinum 8481C, same clean source archive
+> under `/tmp`). Its `benchstat-normalized.txt` is the exact source of truth; the
+> rounded summary is strict latency wins at inflight `1/8/64/256` (roughly `8%`,
+> `20%`, `30%`, and `23%`) with allocation-count reductions at every level
+> (`6/57/450/1806` → `4/42/330/1315`). Bytes/op fall by geomean, with
 > `Inflight64`/`Inflight256` B/op increases. Quote `PipelineClient` as a
 > client-only strict latency and allocation-count win across inflight
 > `{1,8,64,256}` for these two hosts; still report bytes/op per row because the
 > queued writer intentionally trades a few high-inflight bytes for lower wall
 > time.
 
-> **Update — borrowed-view decode status (2026-06-06).** The current-head
+> **Update — borrowed-view decode status (2026-06-06).** The historical
 > borrowed-view decode artifact is
 > `internal/benchmark/artifacts/20260606T040136Z-borrowed-view-decode-current-head`
 > (`go test -run '^$' -bench
 > 'BenchmarkDecode(Envelope|ViewEnvelope|RequestViewsEnvelope|AppendRequestViewsEnvelope)$'
-> -benchmem -count=10 .`, clean HEAD
+> -benchmem -count=10 .`, clean parser/test HEAD
 > `445ff15a8b73a6c4b18c76454a1f7d535eca3be6`, Go `go1.26.4
 > darwin/arm64`, Apple M3 Max). The zero-copy view paths eliminate allocations
 > on the comparable rows, but they do **not** satisfy the plan's universal

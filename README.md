@@ -292,22 +292,23 @@ concurrent calls or server-to-client requests.
 dispatch server-initiated calls. It uses dense generated-ID slots, pooled waiters,
 numeric response delivery, a reusable queued writer for call bursts, and a
 canonical success-response scanner before falling back to the borrowed
-`MessageView` scanner. The current-head arm64 artifact
-`internal/benchmark/artifacts/20260606T034802Z-darwin-arm64-pipeline-queued-writer-final-head`
-(`go1.26.4 darwin/arm64`, Apple M3 Max, `net.Pipe` + NDJSON, `-count=10`) shows:
+`MessageView` scanner. The final-head arm64 artifact
+`internal/benchmark/artifacts/20260606T050739Z-darwin-arm64-pipeline-final-head`
+(`go1.26.4 darwin/arm64`, Apple M3 Max, `net.Pipe` + NDJSON, `-count=10`) shows the rounded summary below; use the artifact's
+`benchstat-normalized.txt` for exact values:
 
 | Inflight | Conn ns/op | PipelineClient ns/op | B/op | allocs/op |
 |---------:|-----------:|---------------------:|-----:|----------:|
-| 1 | 2.966 µs | **2.831 µs** (-4.6%) | 408 → **324** | 6 → **4** |
-| 8 | 32.47 µs | **26.69 µs** (-17.8%) | 3.718 KiB → **3.300 KiB** | 57 → **43** |
-| 64 | 306.0 µs | **213.6 µs** (-30.2%) | 29.85 KiB → 32.66 KiB | 451 → **331** |
-| 256 | 1.277 ms | **1.007 ms** (-21.2%) | 123.1 KiB → 129.1 KiB | 1810 → **1323** |
+| 1 | ~2.9 µs | **~2.7–2.8 µs** (~5% faster) | 408 → **324** | 6 → **4** |
+| 8 | ~32 µs | **~26 µs** (~17% faster) | ~3.7 KiB → **~3.3 KiB** | 57 → **43** |
+| 64 | ~300 µs | **~205–210 µs** (~30% faster) | ~29.9 KiB → ~32.7 KiB | 451 → **331** |
+| 256 | ~1.2 ms | **~1.0 ms** (~21% faster) | ~123 KiB → ~129 KiB | 1810 → **1323** |
 
-A current-head linux/amd64 artifact was also captured at
-`internal/benchmark/artifacts/20260606T034558Z-linux-amd64-pipeline-queued-writer-final-head`
-(Go `1.26.3`, Debian 13, Intel Xeon Platinum 8481C). It shows the same strict
-latency wins at inflight `1/8/64/256` (`-7.55%`, `-19.75%`, `-30.20%`,
-`-22.91%`) and allocation-count reductions at every inflight level. Bytes/op
+A final-head linux/amd64 artifact was also captured at
+`internal/benchmark/artifacts/20260606T050943Z-linux-amd64-pipeline-final-head`
+(Go `1.26.3`, Debian 13, Intel Xeon Platinum 8481C). Its
+`benchstat-normalized.txt` shows the same strict latency wins at inflight
+`1/8/64/256` and allocation-count reductions at every inflight level. Bytes/op
 improve by geomean on both hosts, though individual high-inflight rows can trade
 a few bytes for the latency win (`Inflight64`/`Inflight256` on both hosts). It
 is not a bidirectional `Conn` replacement.
@@ -347,7 +348,7 @@ flatter the library.
   standalone API without breaking ownership or the public return types; the
   connection's round-trip decode is a separate, decisively winning path.
 - **Borrowed views are experimental parser tools, not the default decode path.**
-  The `20260606T040136Z-borrowed-view-decode-current-head` artifact shows
+  The historical `20260606T040136Z-borrowed-view-decode-current-head` artifact shows
   zero-allocation borrowed views, but `ScanMessageView` is slower than
   `DecodeMessage` on the small and invalid rows, and `AppendRequestViews` still
   loses several small or invalid rows despite a small geomean ns/op win. Keep

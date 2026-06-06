@@ -79,3 +79,46 @@ jobs:
         run: |-
           make lint
           git add -N . && git diff --exit-code
+
+
+  benchmark-artifacts:
+    name: benchmark artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Capture benchmark artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p _output/benchmarks
+          {
+            printf 'created_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'head=%s\n' "$(git rev-parse HEAD)"
+            printf 'status=%s\n' "$(git status --short --branch)"
+            go version
+            go env GOOS GOARCH GOFLAGS GOWORK GOPROXY GOMODCACHE GOVERSION
+            uname -a
+          } > _output/benchmarks/env.txt
+          go test -run '^$' \
+            -bench 'Benchmark(ConnPipelinedVoidRoundTrip|PipelineClientVoidRoundTrip)$' \
+            -benchmem -count=3 . | tee _output/benchmarks/pipeline.txt
+          go test -C internal/benchmark -mod=mod -run '^$' \
+            -bench 'Benchmark(RoundTripVoid|Decode|Encode)$' \
+            -benchtime=10x -benchmem -count=1 . \
+            | tee _output/benchmarks/internal-smoke.txt
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _output/benchmarks/
+          if-no-files-found: error
+          retention-days: 14
