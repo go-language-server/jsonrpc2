@@ -18,8 +18,10 @@ import (
 	"go.lsp.dev/jsonrpc2/codec/sonic"
 )
 
-var probeBytes []byte
-var probeMessage jsonrpc2.Message
+var (
+	probeBytes   []byte
+	probeMessage jsonrpc2.Message
+)
 
 type probeEnvelope struct {
 	JSONRPC string             `json:"jsonrpc"`

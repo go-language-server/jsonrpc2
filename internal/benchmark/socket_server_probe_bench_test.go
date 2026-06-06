@@ -405,7 +405,7 @@ func parseProbeResponseID(line []byte) (int, bool) {
 	return parseJSONIntField(line, []byte(`"id"`))
 }
 
-func parseJSONIntField(line []byte, field []byte) (int, bool) {
+func parseJSONIntField(line, field []byte) (int, bool) {
 	pos := bytes.Index(line, field)
 	if pos < 0 {
 		return 0, false
@@ -680,7 +680,8 @@ func startGnetRawProbeServer(tb testing.TB, network string) socketProbeServer {
 	h := &gnetProbeHandler{ready: make(chan gnet.Engine, 1)}
 	s := &gnetRawProbeServer{name: "GnetRaw", network: network, addr: addr, protoAddr: protoAddr, handler: h, done: make(chan error, 1)}
 	go func() {
-		s.done <- gnet.Run(h, protoAddr,
+		s.done <- gnet.Run(
+			h, protoAddr,
 			gnet.WithReuseAddr(true),
 			gnet.WithMulticore(false),
 			gnet.WithReadBufferCap(probeLineMax*4),
