@@ -154,6 +154,96 @@ type MessageView struct {
 	Error    ErrorView
 }
 
+// ParsedMessageView is the borrowed-view form of one request parsed from a
+// single-or-batch input.
+//
+// When Err is nil, View holds a borrowed call or notification view. When Err is
+// non-nil, View is invalid and Err describes the per-member parse/request
+// problem. Batch reports whether the member came from a JSON array. All byte
+// slices reachable from View alias the input passed to [ScanRequestViews] or
+// [AppendRequestViews].
+type ParsedMessageView struct {
+	View  MessageView
+	Err   *Error
+	Batch bool
+}
+
+// ScanRequestViews parses a single request or a batch of requests into borrowed
+// views.
+//
+// It mirrors [ParseRequests] but does not build owned [Call] or [Notification]
+// values. The returned views alias data and must not outlive the current
+// frame/callback lifetime unless cloned or converted to owned messages.
+func ScanRequestViews(data []byte) ([]ParsedMessageView, error) {
+	return AppendRequestViews(nil, data)
+}
+
+// AppendRequestViews appends borrowed request views parsed from data to dst.
+//
+// The top-level error behavior matches [ParseRequests]: malformed arrays return
+// an error for the whole input, while malformed single requests or malformed
+// batch members are represented by per-entry Err values.
+func AppendRequestViews(dst []ParsedMessageView, data []byte) ([]ParsedMessageView, error) {
+	i := skipSpace(data, 0)
+	if i >= len(data) {
+		return nil, ErrParse
+	}
+	if data[i] != '[' {
+		return append(dst, parseOneRequestView(data, false)), nil
+	}
+
+	origLen := len(dst)
+	i++
+	i = skipSpace(data, i)
+	if i < len(data) && data[i] == ']' {
+		if skipSpace(data, i+1) != len(data) {
+			return dst[:origLen], ErrInvalidRequest
+		}
+		return dst, nil
+	}
+	for {
+		i = skipSpace(data, i)
+		valStart := i
+		valEnd, ok := scanValue(data, i)
+		if !ok {
+			return dst[:origLen], ErrInvalidRequest
+		}
+		dst = append(dst, parseOneRequestView(data[valStart:valEnd], true))
+		i = skipSpace(data, valEnd)
+		if i >= len(data) {
+			return dst[:origLen], ErrInvalidRequest
+		}
+		switch data[i] {
+		case ',':
+			i++
+			continue
+		case ']':
+			if skipSpace(data, i+1) != len(data) {
+				return dst[:origLen], ErrInvalidRequest
+			}
+			return dst, nil
+		default:
+			return dst[:origLen], ErrInvalidRequest
+		}
+	}
+}
+
+func parseOneRequestView(data []byte, batch bool) ParsedMessageView {
+	var f fields
+	end, ok := scanObject(data, &f)
+	if !ok || skipSpace(data, end) != len(data) {
+		return ParsedMessageView{Err: ErrParse, Batch: batch}
+	}
+	if !f.hasMethod {
+		return ParsedMessageView{Err: ErrInvalidRequest, Batch: batch}
+	}
+	view, err := f.toRequestView()
+	if err != nil {
+		return ParsedMessageView{Err: ErrInvalidRequest, Batch: batch}
+	}
+	return ParsedMessageView{View: view, Batch: batch}
+}
+
 // MethodString decodes the method name as a Go string.
 //
 // It may allocate for escaped strings and for converting unescaped bytes to a

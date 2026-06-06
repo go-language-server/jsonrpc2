@@ -192,6 +192,61 @@ func TestFrameViewBorrowedAndOwnedLifetime(t *testing.T) {
 	}
 }
 
+func TestScanRequestViewsBorrowedBatch(t *testing.T) {
+	t.Parallel()
+
+	frame := []byte(`[{"jsonrpc":"2.0","method":"one","id":1},{"jsonrpc":"2.0","method":1,"id":2},{"jsonrpc":"2.0","id":3,"result":true},{"jsonrpc":"2.0","method":"note","params":{"x":1}}]`)
+	got, err := ScanRequestViews(frame)
+	if err != nil {
+		t.Fatalf("ScanRequestViews error: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("ScanRequestViews len = %d, want 4", len(got))
+	}
+	if got[0].Err != nil || !got[0].Batch || got[0].View.Kind != MessageViewCall {
+		t.Fatalf("entry 0 = %#v, want batch call", got[0])
+	}
+	if method := string(got[0].View.MethodBytes); method != "one" {
+		t.Fatalf("entry 0 method = %q, want one", method)
+	}
+	if id, ok := got[0].View.ID.Number(); !ok || id != 1 {
+		t.Fatalf("entry 0 id = %d, %v; want 1, true", id, ok)
+	}
+	if !errors.Is(got[1].Err, ErrInvalidRequest) || !got[1].Batch {
+		t.Fatalf("entry 1 err = %v, batch = %v; want invalid request in batch", got[1].Err, got[1].Batch)
+	}
+	if !errors.Is(got[2].Err, ErrInvalidRequest) || !got[2].Batch {
+		t.Fatalf("entry 2 err = %v, batch = %v; want invalid request in batch", got[2].Err, got[2].Batch)
+	}
+	if got[3].Err != nil || got[3].View.Kind != MessageViewNotification {
+		t.Fatalf("entry 3 = %#v, want notification", got[3])
+	}
+
+	frame[bytes.Index(frame, []byte("one"))] = 't'
+	if method := string(got[0].View.MethodBytes); method != "tne" {
+		t.Fatalf("borrowed method after frame mutation = %q, want tne", method)
+	}
+}
+
+func TestAppendRequestViewsReusesDestination(t *testing.T) {
+	t.Parallel()
+
+	dst := []ParsedMessageView{{Err: ErrUnknown}}
+	got, err := AppendRequestViews(dst, []byte(`{"jsonrpc":"2.0","method":"m","id":1}`))
+	if err != nil {
+		t.Fatalf("AppendRequestViews error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("AppendRequestViews len = %d, want 2", len(got))
+	}
+	if got[0].Err != ErrUnknown {
+		t.Fatalf("existing entry = %v, want ErrUnknown", got[0].Err)
+	}
+	if got[1].Err != nil || got[1].Batch || got[1].View.Kind != MessageViewCall {
+		t.Fatalf("appended entry = %#v, want non-batch call", got[1])
+	}
+}
+
 func TestScanMessageView_EscapedStringViews(t *testing.T) {
 	t.Parallel()
 

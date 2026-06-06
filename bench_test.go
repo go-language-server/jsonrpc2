@@ -17,6 +17,7 @@ var (
 
 	benchmarkMessage  Message
 	benchmarkRequests []*ParsedMessage
+	benchmarkViews    []ParsedMessageView
 	benchmarkView     MessageView
 	benchmarkFrame    FrameView
 )
@@ -174,6 +175,59 @@ func BenchmarkDecodeViewEnvelope(b *testing.B) {
 					b.Fatalf("ScanMessageView: %v", err)
 				}
 				benchmarkView = got
+			}
+		})
+	}
+}
+
+func BenchmarkDecodeRequestViewsEnvelope(b *testing.B) {
+	for _, tc := range benchmarkDecodeEnvelopeCases {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.input)))
+			for b.Loop() {
+				got, err := ScanRequestViews(tc.input)
+				if err != nil {
+					b.Fatalf("ScanRequestViews: %v", err)
+				}
+				if tc.wantErr {
+					if len(got) == 0 || got[0].Err == nil {
+						b.Fatalf("ScanRequestViews succeeded, want per-entry error")
+					}
+					benchmarkViews = got
+					continue
+				}
+				benchmarkViews = got
+			}
+		})
+	}
+}
+
+func BenchmarkDecodeAppendRequestViewsEnvelope(b *testing.B) {
+	for _, tc := range benchmarkDecodeEnvelopeCases {
+		b.Run(tc.name, func(b *testing.B) {
+			var views []ParsedMessageView
+			if tc.batch {
+				views = make([]ParsedMessageView, 0, 8)
+			} else {
+				views = make([]ParsedMessageView, 0, 1)
+			}
+
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.input)))
+			for b.Loop() {
+				got, err := AppendRequestViews(views[:0], tc.input)
+				if err != nil {
+					b.Fatalf("AppendRequestViews: %v", err)
+				}
+				if tc.wantErr {
+					if len(got) == 0 || got[0].Err == nil {
+						b.Fatalf("AppendRequestViews succeeded, want per-entry error")
+					}
+					benchmarkViews = got
+					continue
+				}
+				benchmarkViews = got
 			}
 		})
 	}
