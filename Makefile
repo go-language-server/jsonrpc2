@@ -7,7 +7,7 @@
 # go
 
 GO_VERSION ?= $(shell grep -rh "^go " --include="go.mod" . 2>/dev/null | cut -d' ' -f2 | sort | uniq -c | sort -nr | head -1 | xargs | cut -d' ' -f2 | grep . || echo unknown)
-GO_STABLE_VERSION = $(shell curl -sSL "https://go.dev/dl/?mode=json" | jq -r '[ .[] | select(.stable == true) ][0].version' | /usr/bin/grep -oE '[0-9]+\.[0-9]+')
+GO_STABLE_VERSION = $(shell curl -sSL "https://go.dev/dl/?mode=json" | jq -r '[ .[] | select(.stable == true) ][0].version' | grep -oE '[0-9]+\.[0-9]+')
 GO_BUILDTAGS = osusergo,netgo,static
 GO_LDFLAGS = -s -w
 ifeq ($(GO_OS),linux)
@@ -28,7 +28,6 @@ TOOLS_DIR = ${CURDIR}/tools
 TOOLS_BIN = ${TOOLS_DIR}/bin
 TOOLS = $(shell go -C ${TOOLS_DIR} list tool)
 
-GO_PKGS = $(shell go list ./...)
 GO_TEST ?= ${TOOLS_BIN}/gotestsum --
 GO_TEST_PACKAGES = $(shell go list -f='{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 GO_TEST_FLAGS ?= -race -count=1
@@ -51,7 +50,7 @@ done
 endef
 
 define run_in_module
-@pushd $1 > /dev/null 2>&1 && \
+@cd $1 > /dev/null 2>&1 && \
 	$2
 endef
 
@@ -78,7 +77,7 @@ tidy: $(call GO_MODULE_TARGETS,tidy)
 
 .PHONY: test/%
 test/%: tools/bin/gotestsum
-	$(call run_in_module,$*,${GO_TEST} -- ${GO_TEST_FLAGS} -run=${GO_TEST_FUNC} $(strip ${GO_FLAGS}) ${GO_TEST_PACKAGES})
+	$(call run_in_module,$*,${GO_TEST} ${GO_TEST_FLAGS} -run=${GO_TEST_FUNC} $(strip ${GO_FLAGS}) ${GO_TEST_PACKAGES})
 
 .PHONY: test
 test:  ## Run go test with race detector to all modules.
@@ -94,7 +93,7 @@ bench: $(call GO_MODULE_TARGETS,bench)
 
 .PHONY: coverage/%
 coverage/%: tools/bin/gotestsum
-	$(call run_in_module,$*,${GO_TEST} -- ${GO_TEST_FLAGS} -cover -covermode=atomic -coverpkg=./... -coverprofile=${GO_COVERAGE_OUT} $(strip ${GO_FLAGS}) ./...)
+	$(call run_in_module,$*,${GO_TEST} ${GO_TEST_FLAGS} -cover -covermode=atomic -coverpkg=./... -coverprofile=${GO_COVERAGE_OUT} $(strip ${GO_FLAGS}) ./...)
 
 .PHONY: coverage
 coverage:  ## Takes test coverage to all modules. This target is for CI only.
