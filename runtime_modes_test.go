@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -61,6 +62,132 @@ func TestPipelineClientModeBridgeRoundTrip(t *testing.T) {
 	}
 	if string(got) != `{"mode":"pipeline"}` {
 		t.Fatalf("PipelineClient result = %q, want pipeline mode result", got)
+	}
+}
+
+func TestPipelineClientContextCancelStopsWaiting(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	ca, cb := net.Pipe()
+	client := NewPipelineClient(NewNDJSONStream(ca))
+	server := NewServer(NewNDJSONStream(cb))
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var releaseOnce sync.Once
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+		close(started)
+		<-release
+		return reply(ctx, nil, nil)
+	}))
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		closeBoth(t, client, server)
+	})
+
+	callCtx, cancel := context.WithCancel(ctx)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := client.Call(callCtx, "slow", nil, nil)
+		errc <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient slow call did not reach server")
+	}
+
+	cancel()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("PipelineClient.Call after cancel: got %v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient.Call did not return after ctx cancel")
+	}
+}
+
+func TestPipelineClientCanceledCallLateResponseDoesNotReachLaterCall(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	ca, cb := net.Pipe()
+	client := NewPipelineClient(NewNDJSONStream(ca))
+	server := NewServer(NewNDJSONStream(cb))
+
+	slowStarted := make(chan struct{})
+	slowRelease := make(chan struct{})
+	slowReplied := make(chan error, 1)
+	var slowReleaseOnce sync.Once
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+		switch req.Method() {
+		case "slow":
+			close(slowStarted)
+			<-slowRelease
+			err := reply(ctx, "late", nil)
+			slowReplied <- err
+			return err
+		case "fast":
+			return reply(ctx, "fast", nil)
+		default:
+			return reply(ctx, nil, ErrMethodNotFound)
+		}
+	}))
+	t.Cleanup(func() {
+		slowReleaseOnce.Do(func() { close(slowRelease) })
+		closeBoth(t, client, server)
+	})
+
+	callCtx, cancel := context.WithCancel(ctx)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := client.Call(callCtx, "slow", nil, nil)
+		errc <- err
+	}()
+
+	select {
+	case <-slowStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient slow call did not reach server")
+	}
+	cancel()
+	select {
+	case err := <-errc:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("PipelineClient canceled Call error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient canceled Call did not return")
+	}
+
+	var got string
+	if _, err := client.Call(ctx, "fast", nil, &got); err != nil {
+		t.Fatalf("PipelineClient second Call: %v", err)
+	}
+	if got != "fast" {
+		t.Fatalf("PipelineClient second Call result = %q, want fast", got)
+	}
+
+	slowReleaseOnce.Do(func() { close(slowRelease) })
+	select {
+	case err := <-slowReplied:
+		if err != nil {
+			t.Fatalf("PipelineClient late reply: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PipelineClient late reply did not flush")
+	}
+
+	got = ""
+	if _, err := client.Call(ctx, "fast", nil, &got); err != nil {
+		t.Fatalf("PipelineClient third Call after late response: %v", err)
+	}
+	if got != "fast" {
+		t.Fatalf("PipelineClient third Call result = %q, want fast", got)
 	}
 }
 

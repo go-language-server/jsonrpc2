@@ -6,6 +6,8 @@ package jsonrpc2
 import (
 	"context"
 	"net"
+	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -362,6 +364,73 @@ func BenchmarkSyncClientVoidRoundTrip(b *testing.B) {
 	for b.Loop() {
 		if _, err := client.Call(ctx, "void", nil, nil); err != nil {
 			b.Fatalf("Call: %v", err)
+		}
+	}
+}
+
+func BenchmarkPipelineClientVoidRoundTrip(b *testing.B) {
+	for _, inflight := range []int{1, 8, 64, 256} {
+		b.Run("Inflight"+strconv.Itoa(inflight), func(b *testing.B) {
+			benchmarkPipelineClientVoidRoundTrip(b, inflight)
+		})
+	}
+}
+
+func benchmarkPipelineClientVoidRoundTrip(b *testing.B, inflight int) {
+	ctx := b.Context()
+	ca, cb := net.Pipe()
+	client := NewPipelineClient(NewNDJSONStream(ca))
+	server := NewServer(NewNDJSONStream(cb))
+	client.Go(ctx, MethodNotFoundHandler)
+	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+		return reply(ctx, nil, nil)
+	})
+	defer func() {
+		_ = client.Close()
+		<-client.Done()
+		_ = server.Close()
+		<-server.Done()
+	}()
+
+	if _, err := client.Call(ctx, "void", nil, nil); err != nil {
+		b.Fatalf("warmup: %v", err)
+	}
+
+	var firstErr error
+	var firstErrMu sync.Mutex
+	recordErr := func(err error) {
+		if err == nil {
+			return
+		}
+		firstErrMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		firstErrMu.Unlock()
+	}
+
+	b.ReportAllocs()
+	b.ReportMetric(float64(inflight), "calls/op")
+	for b.Loop() {
+		if inflight == 1 {
+			if _, err := client.Call(ctx, "void", nil, nil); err != nil {
+				b.Fatalf("Call: %v", err)
+			}
+			continue
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(inflight)
+		for range inflight {
+			go func() {
+				defer wg.Done()
+				_, err := client.Call(ctx, "void", nil, nil)
+				recordErr(err)
+			}()
+		}
+		wg.Wait()
+		if firstErr != nil {
+			b.Fatalf("Call: %v", firstErr)
 		}
 	}
 }
