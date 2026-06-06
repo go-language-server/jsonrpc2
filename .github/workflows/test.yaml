@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,8 +13,15 @@ concurrency:
 
 jobs:
   test:
-    name: test
-    runs-on: ubuntu-slim
+    name: test/${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-slim
+          - ubuntu-24.04-arm
 
     permissions:
       contents: read
@@ -42,7 +50,7 @@ jobs:
           make coverage
 
       - name: Upload coverage to Codecov
-        if: success()
+        if: success() && matrix.runner == 'ubuntu-slim'
         uses: codecov/codecov-action@v6
         with:
           use_oidc: true
@@ -51,11 +59,11 @@ jobs:
           verbose: true
 
       - name: Upload test results
-        if: always()
+        if: always() && matrix.runner == 'ubuntu-slim'
         uses: codecov/codecov-action@v6
         with:
           name: test-results
-          path: _output/
+          directory: _output/
 
   lint:
     name: lint
@@ -75,8 +83,15 @@ jobs:
           git add -N . && git diff --exit-code
 
   benchmark-artifacts:
-    name: benchmark artifacts
-    runs-on: ubuntu-slim
+    name: benchmark/${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-slim
+          - ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@v6
@@ -110,7 +125,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: benchmark-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          name: benchmark-artifacts-${{ matrix.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: _output/benchmarks/
           if-no-files-found: error
           retention-days: 14
