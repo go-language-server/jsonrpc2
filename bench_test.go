@@ -371,15 +371,27 @@ func BenchmarkSyncClientVoidRoundTrip(b *testing.B) {
 func BenchmarkPipelineClientVoidRoundTrip(b *testing.B) {
 	for _, inflight := range []int{1, 8, 64, 256} {
 		b.Run("Inflight"+strconv.Itoa(inflight), func(b *testing.B) {
-			benchmarkPipelineClientVoidRoundTrip(b, inflight)
+			benchmarkPipelinedVoidRoundTrip(b, inflight, func(stream Stream) Conn {
+				return NewPipelineClient(stream)
+			})
 		})
 	}
 }
 
-func benchmarkPipelineClientVoidRoundTrip(b *testing.B, inflight int) {
+func BenchmarkConnPipelinedVoidRoundTrip(b *testing.B) {
+	for _, inflight := range []int{1, 8, 64, 256} {
+		b.Run("Inflight"+strconv.Itoa(inflight), func(b *testing.B) {
+			benchmarkPipelinedVoidRoundTrip(b, inflight, func(stream Stream) Conn {
+				return NewConn(stream)
+			})
+		})
+	}
+}
+
+func benchmarkPipelinedVoidRoundTrip(b *testing.B, inflight int, newClient func(Stream) Conn) {
 	ctx := b.Context()
 	ca, cb := net.Pipe()
-	client := NewPipelineClient(NewNDJSONStream(ca))
+	client := newClient(NewNDJSONStream(ca))
 	server := NewServer(NewNDJSONStream(cb))
 	client.Go(ctx, MethodNotFoundHandler)
 	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {

@@ -101,6 +101,24 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > classification/extraction only, excludes batch arrays, and keeps the new
 > dependencies inside the nested benchmark module.
 
+> **Update — pipelined-client allocation probe (2026-06-06).** Phase 3 now has
+> an apples-to-apples root benchmark for generic `Conn` versus the client-only
+> `PipelineClient` over the same `net.Pipe` + NDJSON harness and inflight
+> `{1,8,64,256}`. Raw artifact:
+> `internal/benchmark/artifacts/20260606T011300Z-root-pipeline-vs-conn`
+> (`go test -run '^$' -bench
+> 'Benchmark(ConnPipelinedVoidRoundTrip|PipelineClientVoidRoundTrip)$'
+> -benchtime=200x -benchmem -count=10 .`, Go `go1.26.4 darwin/arm64`,
+> Apple M3 Max, committed HEAD captured in `env.txt`). The result is an
+> allocation win, **not** a universal latency win: `PipelineClient` reduced
+> allocation counts from `6/57/451/1811` to `4/41/322/1295 allocs/op` at
+> inflight `1/8/64/256`, and bytes by roughly `18%` geomean, but ns/op was
+> neutral at inflight `1` and `64` and slower in that run at inflight `8` and
+> `256`. Treat this as evidence that the borrowed response reader and pooled
+> dense slots reduce GC pressure; do **not** quote it as satisfying a blanket
+> latency win until the high-inflight scheduler/write path is improved and
+> re-measured.
+
 ## Libraries under test
 
 | Label | Module | Notes |
