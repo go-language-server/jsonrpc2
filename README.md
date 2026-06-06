@@ -60,10 +60,13 @@ interchangeable:
   batch array and want to write/read one frame without routing each member
   through `Conn.Call`.
 
-For parser-only fast paths, `ScanMessageView`, `ScanFrameView`, and
+For parser-only experimental fast paths, `ScanMessageView`, `ScanFrameView`, and
 `AppendRequestViews` return borrowed spans over caller-owned frame bytes. Those
 views are valid only while the source frame remains valid and unmodified; call
-`Clone`/`Owned` before retaining data beyond the callback or read iteration.
+`Clone`/`Owned` before retaining data beyond the callback or read iteration. They
+are not a default replacement for `DecodeMessage`/`ParseRequests`: the current
+corpus proves zero allocations and targeted wins, but not a universal ns/op win
+across invalid and small single-message inputs.
 
 ## Quickstart
 
@@ -343,6 +346,13 @@ flatter the library.
   `≤ 1 alloc/op` decode target is therefore documented as infeasible for the
   standalone API without breaking ownership or the public return types; the
   connection's round-trip decode is a separate, decisively winning path.
+- **Borrowed views are experimental parser tools, not the default decode path.**
+  The `20260606T040136Z-borrowed-view-decode-current-head` artifact shows
+  zero-allocation borrowed views, but `ScanMessageView` is slower than
+  `DecodeMessage` on the small and invalid rows, and `AppendRequestViews` still
+  loses several small or invalid rows despite a small geomean ns/op win. Keep
+  these APIs behind explicit parser/view use until a workload-specific benchmark
+  justifies replacing an owned decode path.
 
 The full methodology, the `native` vs `common` transport families, the
 per-workload tables, the optimization log, and the honest AC status are in

@@ -13,9 +13,11 @@
 // performs no reflection and copies each payload at most once.
 //
 // [EncodeMessage], [DecodeMessage], and [ParseRequests] return owned values.
-// For callback-scoped fast paths, [ScanMessageView], [ScanFrameView], and
-// [AppendRequestViews] expose borrowed views over caller-owned frame bytes; those
-// views are valid only while the source frame remains valid and unmodified.
+// For callback-scoped experimental parser fast paths, [ScanMessageView],
+// [ScanFrameView], and [AppendRequestViews] expose borrowed views over
+// caller-owned frame bytes; those views are valid only while the source frame
+// remains valid and unmodified. They are not the default owned decode path unless
+// a caller's benchmark proves that the borrowed lifetime trade-off wins.
 //
 // Runtime modes are explicit: [Conn]/[Peer] is bidirectional, [SingleClient]
 // serializes calls with a caller-owned read loop, [PipelineClient] keeps

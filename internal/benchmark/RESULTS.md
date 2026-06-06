@@ -168,6 +168,29 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > queued writer intentionally trades a few high-inflight bytes for lower wall
 > time.
 
+> **Update — borrowed-view decode status (2026-06-06).** The current-head
+> borrowed-view decode artifact is
+> `internal/benchmark/artifacts/20260606T040136Z-borrowed-view-decode-current-head`
+> (`go test -run '^$' -bench
+> 'BenchmarkDecode(Envelope|ViewEnvelope|RequestViewsEnvelope|AppendRequestViewsEnvelope)$'
+> -benchmem -count=10 .`, clean HEAD
+> `445ff15a8b73a6c4b18c76454a1f7d535eca3be6`, Go `go1.26.4
+> darwin/arm64`, Apple M3 Max). The zero-copy view paths eliminate allocations
+> on the comparable rows, but they do **not** satisfy the plan's universal
+> borrowed-decode speed gate. `ScanMessageView` is slower than `DecodeMessage` on
+> the common small rows (`Call` +15.72%, `StringID` +20.73%, `Notification`
+> +27.56%, `Response` +41.09%) and on invalid rows (`InvalidJSON` +70.96%,
+> `InvalidJSONRPC` +136.11%); it wins large-payload rows (`LargeParams64KiB`
+> -10.68%, `LargeParams1MiB` -8.61%). `AppendRequestViews` posts a small
+> geomean ns/op win (-1.77%) and zero allocations, but still loses `Call`,
+> `StringID`, `Notification`, `NestedMethodInParams`, duplicate-field, and
+> invalid rows. Therefore AC-P3's fallback applies: borrowed views remain
+> experimental, parser-only surfaces and are **not** promoted as the default
+> replacement for `DecodeMessage` or `ParseRequests`. Correctness is covered by
+> `TestScanMessageView_DifferentialCorpus`, which compares the borrowed scanner
+> with the owned decode/parser oracles over malformed, escaped, duplicate, batch,
+> and large-payload corpus rows.
+
 ## Libraries under test
 
 | Label | Module | Notes |
