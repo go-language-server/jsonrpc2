@@ -287,26 +287,27 @@ concurrent calls or server-to-client requests.
 
 `PipelineClient` keeps many client-originated calls in flight, but it does not
 dispatch server-initiated calls. It uses dense generated-ID slots, pooled waiters,
-numeric response delivery, and a canonical success-response scanner before
-falling back to the borrowed `MessageView` scanner. The current-head arm64
-artifact
-`internal/benchmark/artifacts/20260606T025048Z-root-pipeline-lazy-base-current-head`
+numeric response delivery, a reusable queued writer for call bursts, and a
+canonical success-response scanner before falling back to the borrowed
+`MessageView` scanner. The current-head arm64 artifact
+`internal/benchmark/artifacts/20260606T034802Z-darwin-arm64-pipeline-queued-writer-final-head`
 (`go1.26.4 darwin/arm64`, Apple M3 Max, `net.Pipe` + NDJSON, `-count=10`) shows:
 
-| Inflight | Conn ns/op | PipelineClient ns/op | allocs/op |
-|---------:|-----------:|---------------------:|----------:|
-| 1 | 3.028 µs | **2.801 µs** (-7.5%) | 6 → **4** |
-| 8 | 32.20 µs | 31.86 µs (statistically neutral, p=0.063) | 57 → **41** |
-| 64 | 302.6 µs | **262.9 µs** (-13.1%) | 450 → **321** |
-| 256 | 1.240 ms | 1.261 ms (statistically neutral, p=0.123) | 1804 → **1290** |
+| Inflight | Conn ns/op | PipelineClient ns/op | B/op | allocs/op |
+|---------:|-----------:|---------------------:|-----:|----------:|
+| 1 | 2.966 µs | **2.831 µs** (-4.6%) | 408 → **324** | 6 → **4** |
+| 8 | 32.47 µs | **26.69 µs** (-17.8%) | 3.718 KiB → **3.300 KiB** | 57 → **43** |
+| 64 | 306.0 µs | **213.6 µs** (-30.2%) | 29.85 KiB → 32.66 KiB | 451 → **331** |
+| 256 | 1.277 ms | **1.007 ms** (-21.2%) | 123.1 KiB → 129.1 KiB | 1810 → **1323** |
 
 A current-head linux/amd64 artifact was also captured at
-`internal/benchmark/artifacts/20260606T025258Z-linux-amd64-root-pipeline-lazy-base-current-head`
-(Go `1.26.3`, Debian 13, Intel Xeon Platinum 8481C). It shows latency wins at
-inflight `1/8/64`, an inflight `256` latency regression on that host, and
-allocation/byte reductions at every inflight level. Quote the pipelined result as
-a **geomean latency win plus allocation-pressure win**, not as a strict latency
-win at every concurrency level. It is not a bidirectional `Conn` replacement.
+`internal/benchmark/artifacts/20260606T034558Z-linux-amd64-pipeline-queued-writer-final-head`
+(Go `1.26.3`, Debian 13, Intel Xeon Platinum 8481C). It shows the same strict
+latency wins at inflight `1/8/64/256` (`-7.55%`, `-19.75%`, `-30.20%`,
+`-22.91%`) and allocation-count reductions at every inflight level. Bytes/op
+improve by geomean on both hosts, though individual high-inflight rows can trade
+a few bytes for the latency win (`Inflight64`/`Inflight256` on both hosts). It
+is not a bidirectional `Conn` replacement.
 
 ### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
 
