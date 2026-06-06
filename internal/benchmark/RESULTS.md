@@ -694,3 +694,64 @@ gated on `-race` and on a no-regression void round-trip before being kept.
 > marketing claim.
 
 Raw per-run data: [`bench.txt`](./bench.txt).
+
+## Event-loop socket-server probe (netpoll/gnet, 2026-06-06)
+
+This probe answers one narrow question: should `github.com/cloudwego/netpoll`
+or `github.com/panjf2000/gnet/v2` be adopted as a production dependency for a
+future high-connection socket-server mode? It does **not** justify a stdio, LSP
+single-connection, MCP pipe, client-mode, or universal JSON-RPC speed claim.
+Both packages are benchmark-only dependencies in the nested
+`internal/benchmark` module; the root module does not import or require either
+framework.
+
+Artifacts:
+
+- darwin/arm64: [`internal/benchmark/artifacts/20260606T071532Z-darwin-arm64-netpoll-gnet-server-probe`](./artifacts/20260606T071532Z-darwin-arm64-netpoll-gnet-server-probe)
+- linux/amd64: [`internal/benchmark/artifacts/20260606T071707Z-linux-amd64-netpoll-gnet-server-probe`](./artifacts/20260606T071707Z-linux-amd64-netpoll-gnet-server-probe)
+
+Raw benchmark commands and environment metadata are in each artifact's
+`env.txt`, `command-tests.txt`, `command-bench.txt`, `raw.txt`, `tests.txt`,
+`cpu.out`, `mem.out`, `pprof-top.txt`, and benchstat comparison files. The
+linux/amd64 run used an Intel Xeon Platinum 8481C host with `go1.26.3`; the
+local darwin/arm64 run used Apple M3 Max with `go1.26.4`.
+
+### Decision
+
+| Candidate | Decision | Evidence summary |
+|-----------|----------|------------------|
+| cloudwego/netpoll | **Reject for production adoption now; keep benchmark-only.** | linux/amd64 improved the TCP Conn100 latency row, but did not beat `StdNetRaw` on the required high-connection TCP Conn1000 p99 row and increased allocation counts. Benchstat for linux/amd64 reports `SocketServerLatency/TCP/Conn1000` p99 as statistically unchanged versus `StdNetRaw`, while `allocs/op` rose about 22%; close-during-inflight was about 7.6% slower and allocated about 60% more. |
+| panjf2000/gnet/v2 | **Reject for production adoption now; keep benchmark-only.** | gnet reduced allocations, but linux/amd64 TCP Conn1000 was materially slower: benchstat reports about +227% `sec/op` and about +380% p99 versus `StdNetRaw`. Backpressure and close-during-inflight rows were slower than `StdNetRaw` on linux/amd64. |
+
+### Median latency rows from the captured summaries
+
+| Host | Row | StdNetRaw median p99 | NetpollRaw median p99 | GnetRaw median p99 |
+|------|-----|---------------------:|----------------------:|-------------------:|
+| linux/amd64 | TCP Conn100 | 503,773 ns | 290,779 ns | 441,968 ns |
+| linux/amd64 | TCP Conn1000 | 814,547 ns | 1,525,618 ns | 3,897,668 ns |
+| darwin/arm64 | TCP Conn100 | 648,333 ns | 488,625 ns | 1,220,416 ns |
+| darwin/arm64 | TCP Conn1000 | 5,013,791 ns | 4,373,584 ns | 5,191,542 ns |
+
+### Correctness and scope notes
+
+- `TestSocketServerProbeCorrectness` verifies success responses and malformed
+  frames across `StdNetRaw`, `StdNetProd`, `NetpollRaw`, and `GnetRaw` on TCP and
+  Unix sockets.
+- `TestSocketServerBackpressureSlowReader` verifies that a slow-reader connection
+  does not prevent a fresh fast connection from completing.
+- `TestSocketServerCloseDuringInFlight` verifies that a close storm does not
+  prevent a surviving request from succeeding.
+- `TestSocketServerShutdownRejectsNewConnections` verifies that shutdown stops
+  accepting new TCP connections.
+- `StdNetProd` is only a production-shaped NDJSON control row. Equivalent-work
+  comparisons use `StdNetRaw` versus `NetpollRaw`/`GnetRaw` because those rows
+  parse the same request bytes and emit the same canonical response bytes.
+- The backpressure benchmark is a smoke probe, not an exhaustive kernel-buffer or
+  queue-bound saturation proof. The CPU profiles include client and harness cost;
+  a later ADR would need server-isolated profiling before proposing an optional
+  socket-server mode.
+
+Conclusion: event-loop frameworks stay out of production dependencies for this
+repository. A future ADR may reopen only an optional high-connection socket
+server mode if a more isolated server workload demonstrates a clear p99/CPU
+benefit without backpressure or allocation regressions.
