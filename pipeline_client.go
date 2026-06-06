@@ -376,14 +376,6 @@ func isJSONArray(frame []byte) bool {
 	return i < len(frame) && frame[i] == '['
 }
 
-func scanPipelineResultResponse(frame []byte) (id ID, result RawMessage, ok bool, err error) {
-	n, result, ok, err := scanPipelineResultResponseNumber(frame)
-	if !ok || err != nil {
-		return ID{}, result, ok, err
-	}
-	return NewNumberID(n), result, true, nil
-}
-
 func scanPipelineResultResponseNumber(frame []byte) (id int64, result RawMessage, ok bool, err error) {
 	i := skipSpace(frame, 0)
 	id, result, next, ok, err := scanPipelineResultResponseNumberAt(frame, i)

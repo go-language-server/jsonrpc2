@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func TestScanPipelineResultResponse(t *testing.T) {
+func TestScanPipelineResultResponseNumber(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
@@ -38,15 +38,15 @@ func TestScanPipelineResultResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			id, result, ok, err := scanPipelineResultResponse([]byte(tt.frame))
+			id, result, ok, err := scanPipelineResultResponseNumber([]byte(tt.frame))
 			if err != nil {
-				t.Fatalf("scanPipelineResultResponse error: %v", err)
+				t.Fatalf("scanPipelineResultResponseNumber error: %v", err)
 			}
 			if !ok {
-				t.Fatal("scanPipelineResultResponse ok = false, want true")
+				t.Fatal("scanPipelineResultResponseNumber ok = false, want true")
 			}
-			if got, ok := id.Number(); !ok || got != tt.id {
-				t.Fatalf("id = %v, %v; want %d, true", got, ok, tt.id)
+			if id != tt.id {
+				t.Fatalf("id = %d; want %d", id, tt.id)
 			}
 			if string(result) != tt.result {
 				t.Fatalf("result = %q, want %q", result, tt.result)
@@ -55,7 +55,7 @@ func TestScanPipelineResultResponse(t *testing.T) {
 	}
 }
 
-func TestScanPipelineResultResponseFallbacks(t *testing.T) {
+func TestScanPipelineResultResponseNumberFallbacks(t *testing.T) {
 	t.Parallel()
 
 	for _, frame := range [][]byte{
@@ -66,21 +66,21 @@ func TestScanPipelineResultResponseFallbacks(t *testing.T) {
 		[]byte(`{"id":1,"jsonrpc":"2.0","result":null}`),
 		[]byte(`[{"jsonrpc":"2.0","id":1,"result":null}]`),
 	} {
-		if _, _, ok, err := scanPipelineResultResponse(frame); ok || err != nil {
-			t.Fatalf("scanPipelineResultResponse(%q) = ok %v, err %v; want fallback", frame, ok, err)
+		if _, _, ok, err := scanPipelineResultResponseNumber(frame); ok || err != nil {
+			t.Fatalf("scanPipelineResultResponseNumber(%q) = ok %v, err %v; want fallback", frame, ok, err)
 		}
 	}
 }
 
-func TestScanPipelineResultResponseInvalid(t *testing.T) {
+func TestScanPipelineResultResponseNumberInvalid(t *testing.T) {
 	t.Parallel()
 
 	for _, frame := range [][]byte{
 		[]byte(`{"jsonrpc":"2.0","id":1,"result":`),
 		[]byte(`{"jsonrpc":"2.0","id":1,"result":null} trailing`),
 	} {
-		if _, _, ok, err := scanPipelineResultResponse(frame); ok || err == nil {
-			t.Fatalf("scanPipelineResultResponse(%q) = ok %v, err %v; want invalid/parse", frame, ok, err)
+		if _, _, ok, err := scanPipelineResultResponseNumber(frame); ok || err == nil {
+			t.Fatalf("scanPipelineResultResponseNumber(%q) = ok %v, err %v; want invalid/parse", frame, ok, err)
 		}
 	}
 }
