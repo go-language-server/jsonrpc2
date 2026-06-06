@@ -21,9 +21,9 @@ func NewSingleClient(stream Stream, opts ...Option) (*SingleClient, error) {
 //
 // This first prototype deliberately delegates protocol execution to [Conn] so
 // it preserves today's bidirectional semantics while tests and benchmarks grow
-// around the new mode name. The dense generated-ID slot prototype lives in
-// denseCallSlots below; replacing Conn's open-addressed slots with it is the
-// next integration step once the mode boundary is accepted.
+// around the new mode name. [Conn] now uses denseCallSlots for its generated
+// numeric IDs; a future PipelineClient can still own a narrower client-only
+// read/write loop without changing the mode constructor.
 type PipelineClient struct {
 	Conn
 }
@@ -109,13 +109,12 @@ func NewBatchServer(stream Stream, opts ...Option) *BatchServer {
 
 const errFrameStreamRequired = constError("jsonrpc2: batch mode requires a frame-capable stream")
 
-// denseCallSlots is a prototype slot table for generated, monotonically
-// increasing numeric call IDs.
+// denseCallSlots stores waiters for generated, monotonically increasing numeric
+// call IDs.
 //
 // Unlike outgoingCallSlots, it does not need tombstones or probing for generated
 // dense IDs. It keeps a power-of-two ring window from base through base+len-1
-// and advances base as low IDs are retired. It is intentionally package-local
-// until PipelineClient owns the full read/write loop.
+// and advances base as low IDs are retired.
 type denseCallSlots struct {
 	slots []denseCallSlot
 	base  int64

@@ -156,7 +156,7 @@ type inFlightState struct {
 	closer   io.Closer
 	closeErr error
 
-	outgoingCalls outgoingCallSlots // outstanding generated numeric calls
+	outgoingCalls denseCallSlots // outstanding generated numeric calls
 
 	incoming     int                     // incoming requests not yet fully processed
 	incomingByID map[ID]*incomingRequest // outstanding incoming calls, keyed by id
