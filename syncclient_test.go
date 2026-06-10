@@ -25,7 +25,7 @@ func syncClientServer(t *testing.T, framer Framer) (*SyncClient, func()) {
 		t.Fatalf("NewSyncClient: %v", err)
 	}
 	server := NewConn(framer(cb))
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
 		switch req.Method() {
 		case "echo":
@@ -37,7 +37,6 @@ func syncClientServer(t *testing.T, framer Framer) (*SyncClient, func()) {
 		}
 	})
 	cleanup := func() {
-		cancel()
 		_ = client.Close()
 		_ = server.Close()
 		<-server.Done()
@@ -117,7 +116,7 @@ func TestSyncClientNotifyThenCall(t *testing.T) {
 	notes.Add(1)
 	var seen string
 	var seenMu sync.Mutex
-	serverCtx, cancel := context.WithCancel(context.Background())
+	serverCtx := t.Context()
 	server.Go(serverCtx, func(ctx context.Context, reply Replier, req Request) error {
 		if req.Method() == "note" {
 			seenMu.Lock()
@@ -129,7 +128,6 @@ func TestSyncClientNotifyThenCall(t *testing.T) {
 		return reply(ctx, nil, nil)
 	})
 	defer func() {
-		cancel()
 		_ = client.Close()
 		_ = server.Close()
 		<-server.Done()
@@ -176,13 +174,12 @@ func TestSyncClientEquivalentToConn(t *testing.T) {
 	ca, cb := net.Pipe()
 	cc := NewConn(NewNDJSONStream(ca))
 	server := NewConn(NewNDJSONStream(cb))
-	connCtx, cancel := context.WithCancel(context.Background())
+	connCtx := t.Context()
 	cc.Go(connCtx, MethodNotFoundHandler)
 	server.Go(connCtx, func(ctx context.Context, reply Replier, req Request) error {
 		return reply(ctx, raw(`{"got":`+string(orNull(req.Params()))+`}`), nil)
 	})
 	defer func() {
-		cancel()
 		_ = cc.Close()
 		<-cc.Done()
 		_ = server.Close()

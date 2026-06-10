@@ -351,7 +351,7 @@ func TestBatchClientRawFrame(t *testing.T) {
 	readc := make(chan []byte, 1)
 	errc := make(chan error, 1)
 	go func() {
-		frame, _, err := serverStream.(frameStream).ReadFrame(context.Background())
+		frame, _, err := serverStream.(frameStream).ReadFrame(t.Context())
 		if err != nil {
 			errc <- err
 			return

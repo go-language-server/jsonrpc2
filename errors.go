@@ -20,8 +20,9 @@ type Error struct {
 	Message string `json:"message"`
 
 	// Data is an optional primitive or structured value that carries additional
-	// information about the error. It is omitted from the wire form when nil.
-	Data RawMessage `json:"data,omitempty"`
+	// information about the error. It is omitted from the wire form when the
+	// zero value.
+	Data RawMessage `json:"data,omitzero"`
 
 	// Code is a number indicating the error type that occurred.
 	Code Code `json:"code"`

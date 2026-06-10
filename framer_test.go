@@ -649,7 +649,7 @@ func benchmarkFramerRoundTrip(b *testing.B, framer Framer) {
 	b.Helper()
 	conn := &bufConn{}
 	s := framer(conn)
-	ctx := context.Background()
+	ctx := b.Context()
 	msg := NewCall(NewNumberID(1), "textDocument/hover", RawMessage(`{"line":10,"character":4}`))
 
 	b.ReportAllocs()

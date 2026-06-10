@@ -62,8 +62,9 @@ func TestChannelStreamCloseUnblocksWrite(t *testing.T) {
 	a, b := NewChannelStreamPair(0)
 	defer b.Close()
 	writeDone := make(chan error, 1)
+	ctx := t.Context()
 	go func() {
-		_, err := a.(frameStream).WriteFrame(context.Background(), []byte(`{"jsonrpc":"2.0","method":"blocked"}`))
+		_, err := a.(frameStream).WriteFrame(ctx, []byte(`{"jsonrpc":"2.0","method":"blocked"}`))
 		writeDone <- err
 	}()
 
@@ -90,8 +91,9 @@ func TestChannelStreamCloseUnblocksRead(t *testing.T) {
 	a, b := NewChannelStreamPair(0)
 	defer a.Close()
 	readDone := make(chan error, 1)
+	ctx := t.Context()
 	go func() {
-		_, _, err := a.(frameStream).ReadFrame(context.Background())
+		_, _, err := a.(frameStream).ReadFrame(ctx)
 		readDone <- err
 	}()
 

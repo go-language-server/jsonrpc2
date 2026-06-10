@@ -761,7 +761,7 @@ func TestCloseRacesConcurrentWrites(t *testing.T) {
 		ea, eb := memTransport(NewNDJSONStream)(t)
 		client := NewConn(ea.stream)
 		server := NewConn(eb.stream)
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		client.Go(ctx, MethodNotFoundHandler)
 		server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
 			return reply(ctx, nil, nil)
@@ -802,7 +802,7 @@ func TestCloseRacesConcurrentWrites(t *testing.T) {
 }
 
 func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	frame := []byte(`{"jsonrpc":"2.0","id":7,"result":{"ok":true}}`)
 	stream := &singleFrameStream{frame: frame}
 	c := &conn{stream: stream, codec: DefaultCodec, done: make(chan struct{})}
@@ -835,6 +835,19 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	if !got.OK {
 		t.Fatalf("direct-unmarshaled result OK = false, want true")
 	}
+
+	// Evidence for direct-unmarshal safety on the numeric fast path (used by Conn
+	// for small responses): the result bytes from the frame were unmarshaled into
+	// user memory. Simulate the stream reusing its read buffer for the next frame
+	// (as headerStream/ndjsonStream do); the previously unmarshaled value must
+	// remain valid and not observe mutation.
+	for i := range frame {
+		frame[i] = 'X'
+	}
+	if !got.OK {
+		t.Fatalf("direct-unmarshaled result corrupted after frame reuse simulation")
+	}
+
 	if c.state.outgoingCalls.Len() != 0 {
 		t.Fatalf("outgoing calls len = %d, want 0", c.state.outgoingCalls.Len())
 	}
@@ -842,7 +855,7 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 }
 
 func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	large := strings.Repeat("x", maxConnDirectUnmarshalResult+1)
 	frame := []byte(`{"jsonrpc":"2.0","id":9,"result":"` + large + `"}`)
 	stream := &singleFrameStream{frame: frame}

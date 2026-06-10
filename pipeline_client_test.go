@@ -257,7 +257,7 @@ func TestPipelineClientQueuedCanceledCallDelivers(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err := client.writeQueuedCallFrames(context.Background(), []pipelineQueuedCall{{
+	err := client.writeQueuedCallFrames(t.Context(), []pipelineQueuedCall{{
 		ctx:    ctx,
 		id:     1,
 		method: "void",
