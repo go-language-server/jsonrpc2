@@ -190,17 +190,29 @@ func (s *inFlightState) shuttingDown(errClosing error) error {
 // pool after it has been removed from the slots, so the peer can never deliver
 // to a recycled waiter.
 type waiter struct {
-	ready chan *Response // buffered, capacity 1
+	ready chan struct{} // buffered, capacity 1
+
+	// response is set for the general DecodeMessage path. resultReady is set for
+	// the borrowed-frame fast path after the read goroutine has unmarshaled the
+	// response result directly into result.
+	response    *Response
+	result      any
+	resultReady bool
+	err         error
 }
 
 // waiterPool recycles waiters to cut a per-call allocation.
 var waiterPool = sync.Pool{
 	New: func() any {
-		return &waiter{ready: make(chan *Response, 1)}
+		return &waiter{ready: make(chan struct{}, 1)}
 	},
 }
 
-func getWaiter() *waiter { return waiterPool.Get().(*waiter) }
+func getWaiter(result any) *waiter {
+	w := waiterPool.Get().(*waiter)
+	w.result = result
+	return w
+}
 
 func putWaiter(w *waiter) {
 	// Drain a delivered-but-unread response so the channel is empty for reuse.
@@ -208,6 +220,10 @@ func putWaiter(w *waiter) {
 	case <-w.ready:
 	default:
 	}
+	w.response = nil
+	w.result = nil
+	w.resultReady = false
+	w.err = nil
 	waiterPool.Put(w)
 }
 
@@ -361,7 +377,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 
 	id := NewNumberID(c.seq.Add(1))
 
-	w := getWaiter()
+	w := getWaiter(result)
 
 	var shutErr error
 	c.updateInFlight(func(s *inFlightState) {
@@ -389,15 +405,23 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 	}
 
 	select {
-	case resp := <-w.ready:
+	case <-w.ready:
 		// The read goroutine delivered the response and removed the waiter from the
 		// slot table, so we own it again.
+		resp, waitErr, resultReady := w.response, w.err, w.resultReady
 		putWaiter(w)
-		if resp.err != nil {
-			return id, resp.err
+		if waitErr != nil {
+			return id, waitErr
 		}
-		if err := unmarshalResult(c.codec, resp.result, result); err != nil {
-			return id, fmt.Errorf("jsonrpc2: unmarshaling result: %w", err)
+		if resp != nil {
+			if resp.err != nil {
+				return id, resp.err
+			}
+			if !resultReady {
+				if err := unmarshalResult(c.codec, resp.result, result); err != nil {
+					return id, fmt.Errorf("jsonrpc2: unmarshaling result: %w", err)
+				}
+			}
 		}
 		return id, nil
 
@@ -600,7 +624,31 @@ func (c *conn) readIncoming(ctx context.Context, handler Handler) {
 // deliver signals the waiter with resp. The ready channel has capacity one and
 // the waiter is delivered to exactly once (guarded by the outgoing call slots),
 // so the send never blocks.
-func (w *waiter) deliver(resp *Response) { w.ready <- resp }
+func (w *waiter) deliver(resp *Response) {
+	w.response = resp
+	w.ready <- struct{}{}
+}
+
+// deliverResult unmarshals a borrowed-frame result directly into the caller's
+// destination before the next read can invalidate result. It is used only after
+// the response has been removed from outgoingCalls, so the waiter is delivered
+// exactly once and can safely carry the outcome back to Call.
+func (w *waiter) deliverResult(codec Codec, result RawMessage, respErr error) {
+	if respErr != nil {
+		w.err = respErr
+		w.ready <- struct{}{}
+		return
+	}
+	if w.result != nil {
+		if err := unmarshalResult(codec, result, w.result); err != nil {
+			w.err = fmt.Errorf("jsonrpc2: unmarshaling result: %w", err)
+			w.ready <- struct{}{}
+			return
+		}
+	}
+	w.resultReady = true
+	w.ready <- struct{}{}
+}
 
 // deliverResponse routes an incoming response to its waiting call. The lookup
 // and removal happen together under the state lock so that the canceling Call
@@ -612,6 +660,21 @@ func (c *conn) deliverResponse(resp *Response) {
 	})
 	if w != nil {
 		w.deliver(resp)
+	}
+	// An unmatched response (no pending call) is dropped: it answers a call that
+	// was already canceled or never made.
+}
+
+// deliverNumberResponse routes an already-scanned numeric response to its waiter
+// and unmarshals the borrowed result bytes before the next frame read.
+func (c *conn) deliverNumberResponse(idNum int64, result RawMessage, respErr error) {
+	id := NewNumberID(idNum)
+	var w *waiter
+	c.updateInFlight(func(s *inFlightState) {
+		w, _ = s.outgoingCalls.Take(id)
+	})
+	if w != nil {
+		w.deliverResult(c.codec, result, respErr)
 	}
 	// An unmatched response (no pending call) is dropped: it answers a call that
 	// was already canceled or never made.

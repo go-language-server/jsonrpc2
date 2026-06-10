@@ -120,4 +120,4 @@ func TestOutgoingCallSlotsDrain(t *testing.T) {
 	}
 }
 
-func newSlotTestWaiter() *waiter { return &waiter{ready: make(chan *Response, 1)} }
+func newSlotTestWaiter() *waiter { return &waiter{ready: make(chan struct{}, 1)} }

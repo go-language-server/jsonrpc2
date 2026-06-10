@@ -334,10 +334,7 @@ func (c *PipelineClient) readResponse(ctx context.Context) error {
 	if isJSONArray(frame) {
 		return c.deliverBatchResponse(frame)
 	}
-	if id, result, ok, err := scanPipelineResultResponseNumber(frame); ok || err != nil {
-		if err != nil {
-			return err
-		}
+	if id, result, ok, _ := scanPipelineResultResponseNumber(frame); ok {
 		c.deliverNumberResponse(id, result, nil)
 		return nil
 	}
@@ -461,15 +458,16 @@ func (c *PipelineClient) deliverFastBatchResponse(frame []byte) (ok bool, err er
 		}
 		return true, ErrInvalidRequest
 	}
+	var results []pipelineNumberResult
 	for {
 		id, result, next, ok, err := scanPipelineResultResponseNumberAt(frame, i)
 		if !ok || err != nil {
-			return ok, err
+			return false, nil
 		}
-		c.deliverNumberResponse(id, result, nil)
+		results = append(results, pipelineNumberResult{id: id, result: result})
 		i = skipSpace(frame, next)
 		if i >= len(frame) {
-			return false, ErrInvalidRequest
+			return false, nil
 		}
 		switch frame[i] {
 		case ',':
@@ -479,11 +477,19 @@ func (c *PipelineClient) deliverFastBatchResponse(frame []byte) (ok bool, err er
 			if skipSpace(frame, i+1) != len(frame) {
 				return false, ErrInvalidRequest
 			}
+			for _, r := range results {
+				c.deliverNumberResponse(r.id, r.result, nil)
+			}
 			return true, nil
 		default:
-			return false, ErrInvalidRequest
+			return false, nil
 		}
 	}
+}
+
+type pipelineNumberResult struct {
+	id     int64
+	result RawMessage
 }
 
 func hasLiteralAt(data []byte, i int, lit string) bool {

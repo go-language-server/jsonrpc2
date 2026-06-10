@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -789,4 +791,232 @@ func TestCloseRacesConcurrentWrites(t *testing.T) {
 		cancel()
 		wg.Wait()
 	}
+}
+
+func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
+	ctx := context.Background()
+	frame := []byte(`{"jsonrpc":"2.0","id":7,"result":{"ok":true}}`)
+	stream := &singleFrameStream{frame: frame}
+	c := &conn{stream: stream, codec: DefaultCodec, done: make(chan struct{})}
+
+	var got struct {
+		OK bool `json:"ok"`
+	}
+	w := getWaiter(&got)
+	c.state.outgoingCalls.Add(NewNumberID(7), w)
+
+	req, msgs, resp, batch, err := c.readNext(ctx)
+	if err != nil {
+		t.Fatalf("readNext error: %v", err)
+	}
+	if req != nil || msgs != nil || resp != nil || batch {
+		t.Fatalf("readNext = req %T, msgs %d, resp %T, batch %v; want delivered response", req, len(msgs), resp, batch)
+	}
+
+	select {
+	case <-w.ready:
+	case <-time.After(time.Second):
+		t.Fatal("waiter was not delivered")
+	}
+	if w.err != nil {
+		t.Fatalf("waiter err = %v", w.err)
+	}
+	if !w.resultReady {
+		t.Fatal("waiter resultReady = false, want true")
+	}
+	if !got.OK {
+		t.Fatalf("direct-unmarshaled result OK = false, want true")
+	}
+	if c.state.outgoingCalls.Len() != 0 {
+		t.Fatalf("outgoing calls len = %d, want 0", c.state.outgoingCalls.Len())
+	}
+	putWaiter(w)
+}
+
+func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
+	ctx := context.Background()
+	large := strings.Repeat("x", maxConnDirectUnmarshalResult+1)
+	frame := []byte(`{"jsonrpc":"2.0","id":9,"result":"` + large + `"}`)
+	stream := &singleFrameStream{frame: frame}
+	c := &conn{stream: stream, codec: DefaultCodec, done: make(chan struct{})}
+
+	var got RawMessage
+	w := getWaiter(&got)
+	c.state.outgoingCalls.Add(NewNumberID(9), w)
+
+	req, msgs, resp, batch, err := c.readNext(ctx)
+	if err != nil {
+		t.Fatalf("readNext error: %v", err)
+	}
+	if req != nil || msgs != nil || resp == nil || batch {
+		t.Fatalf("readNext = req %T, msgs %d, resp %T, batch %v; want owned response fallback", req, len(msgs), resp, batch)
+	}
+	if len(resp.result) <= maxConnDirectUnmarshalResult {
+		t.Fatalf("response result len = %d, want > %d", len(resp.result), maxConnDirectUnmarshalResult)
+	}
+	select {
+	case <-w.ready:
+		t.Fatal("waiter delivered on oversized direct-unmarshal fallback")
+	default:
+	}
+	if c.state.outgoingCalls.Len() != 1 {
+		t.Fatalf("outgoing calls len = %d, want 1 before deliverResponse", c.state.outgoingCalls.Len())
+	}
+	if taken, ok := c.state.outgoingCalls.Take(NewNumberID(9)); !ok || taken != w {
+		t.Fatalf("outgoing call was not left pending for deliverResponse")
+	}
+	putWaiter(w)
+}
+
+func TestConnCallFallbackAcceptsExtraResponseFields(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name  string
+		frame string
+	}{
+		{
+			name:  "extra field after result",
+			frame: `{"jsonrpc":"2.0","id":1,"result":{"ok":true},"meta":1}`,
+		},
+		{
+			name:  "extra field before result",
+			frame: `{"jsonrpc":"2.0","id":1,"meta":1,"result":{"ok":true}}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := newScriptedFrameStream([]byte(tt.frame))
+			client := NewConn(stream)
+			client.Go(t.Context(), MethodNotFoundHandler)
+			defer func() {
+				_ = client.Close()
+				<-client.Done()
+			}()
+
+			var got struct {
+				OK bool `json:"ok"`
+			}
+			if _, err := client.Call(t.Context(), "ok", nil, &got); err != nil {
+				t.Fatalf("Call: %v", err)
+			}
+			if !got.OK {
+				t.Fatalf("result OK = false, want true")
+			}
+		})
+	}
+}
+
+func TestConnCallFallbackRejectsMalformedCanonicalResponse(t *testing.T) {
+	t.Parallel()
+
+	stream := newScriptedFrameStream([]byte(`{"jsonrpc":"2.0","id":1,"result":`))
+	client := NewConn(stream)
+	client.Go(t.Context(), MethodNotFoundHandler)
+	defer func() {
+		_ = client.Close()
+		<-client.Done()
+	}()
+
+	var got RawMessage
+	if _, err := client.Call(t.Context(), "broken", nil, &got); !errors.Is(err, ErrParse) {
+		t.Fatalf("Call malformed response error = %v, want ErrParse", err)
+	}
+	if !errors.Is(client.Err(), ErrParse) {
+		t.Fatalf("Conn.Err = %v, want ErrParse", client.Err())
+	}
+}
+
+type singleFrameStream struct {
+	frame []byte
+}
+
+func (s *singleFrameStream) ReadFrame(context.Context) ([]byte, int64, error) {
+	return s.frame, int64(len(s.frame)), nil
+}
+
+func (s *singleFrameStream) WriteFrame(context.Context, []byte) (int64, error) {
+	return 0, errors.New("unexpected WriteFrame")
+}
+
+func (s *singleFrameStream) Read(context.Context) (Message, int64, error) {
+	return nil, 0, errors.New("unexpected Read")
+}
+
+func (s *singleFrameStream) Write(context.Context, Message) (int64, error) {
+	return 0, errors.New("unexpected Write")
+}
+
+func (s *singleFrameStream) Close() error { return nil }
+
+type scriptedFrameStream struct {
+	frame  []byte
+	frames chan []byte
+	writes chan Message
+	closed chan struct{}
+	read   sync.Once
+	close  sync.Once
+}
+
+func newScriptedFrameStream(frame []byte) *scriptedFrameStream {
+	return &scriptedFrameStream{
+		frame:  frame,
+		frames: make(chan []byte, 1),
+		writes: make(chan Message, 1),
+		closed: make(chan struct{}),
+	}
+}
+
+func (s *scriptedFrameStream) ReadFrame(ctx context.Context) ([]byte, int64, error) {
+	select {
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	case <-s.closed:
+		return nil, 0, io.EOF
+	case frame, ok := <-s.frames:
+		if !ok {
+			return nil, 0, io.EOF
+		}
+		return frame, int64(len(frame)), nil
+	}
+}
+
+func (s *scriptedFrameStream) WriteFrame(ctx context.Context, data []byte) (int64, error) {
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-s.closed:
+		return 0, io.EOF
+	default:
+		return int64(len(data)), nil
+	}
+}
+
+func (s *scriptedFrameStream) Read(context.Context) (Message, int64, error) {
+	return nil, 0, errors.New("unexpected Read")
+}
+
+func (s *scriptedFrameStream) Write(ctx context.Context, msg Message) (int64, error) {
+	return s.write(ctx, msg)
+}
+
+func (s *scriptedFrameStream) write(ctx context.Context, msg Message) (int64, error) {
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-s.closed:
+		return 0, io.EOF
+	case s.writes <- msg:
+		s.read.Do(func() {
+			s.frames <- s.frame
+			close(s.frames)
+		})
+		return 1, nil
+	}
+}
+
+func (s *scriptedFrameStream) Close() error {
+	s.close.Do(func() { close(s.closed) })
+	return nil
 }

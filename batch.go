@@ -25,6 +25,12 @@ type frameStream interface {
 	WriteFrame(ctx context.Context, data []byte) (int64, error)
 }
 
+// maxConnDirectUnmarshalResult bounds the Conn response fast path that
+// unmarshals a borrowed result on the read goroutine. Larger results fall back
+// to DecodeMessage so expensive payload decoding remains on the caller's
+// goroutine and cannot head-of-line block unrelated incoming frames.
+const maxConnDirectUnmarshalResult = 64 << 10
+
 // readNext reads the next frame and classifies it. On success exactly one of
 // req, msgs, or resp is non-nil: resp is set for a single response, req for a
 // single request (the common, non-batch path, which carries no slice
@@ -65,6 +71,17 @@ func (c *conn) readNext(ctx context.Context) (req Request, msgs []Request, resp 
 			return reqs[0], nil, nil, false, nil
 		}
 		return nil, reqs, nil, isBatch, nil
+	}
+
+	// The scanner recognizes only the canonical response envelope emitted by
+	// this package. It is an optimization gate, not the correctness boundary:
+	// non-canonical but valid responses must fall through to DecodeMessage so
+	// extension members remain decoder-compatible.
+	if id, result, ok, _ := scanPipelineResultResponseNumber(frame); ok {
+		if len(result) <= maxConnDirectUnmarshalResult {
+			c.deliverNumberResponse(id, result, nil)
+			return nil, nil, nil, false, nil
+		}
 	}
 
 	msg, derr := DecodeMessage(frame)

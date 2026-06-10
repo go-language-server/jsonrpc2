@@ -482,7 +482,7 @@ func BenchmarkDenseCallSlotsAddTake(b *testing.B) {
 func makeBenchmarkWaiters(n int) []*waiter {
 	waiters := make([]*waiter, n)
 	for i := range waiters {
-		waiters[i] = &waiter{ready: make(chan *Response, 1)}
+		waiters[i] = &waiter{ready: make(chan struct{}, 1)}
 	}
 	return waiters
 }

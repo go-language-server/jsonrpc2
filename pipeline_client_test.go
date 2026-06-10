@@ -121,6 +121,87 @@ func TestPipelineClientDeliverBatchResponse(t *testing.T) {
 	}
 }
 
+func TestPipelineClientReadResponseFallbackAcceptsExtraFields(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name  string
+		frame string
+	}{
+		{
+			name:  "extra field after result",
+			frame: `{"jsonrpc":"2.0","id":1,"result":{"ok":true},"meta":1}`,
+		},
+		{
+			name:  "extra field before result",
+			frame: `{"jsonrpc":"2.0","id":1,"meta":1,"result":{"ok":true}}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := NewPipelineClient(&singleFrameStream{frame: []byte(tt.frame)})
+			var got struct {
+				OK bool `json:"ok"`
+			}
+			w := getPipelineWaiter(&got)
+			client.calls.Add(NewNumberID(1), w)
+			t.Cleanup(func() { putPipelineWaiter(w) })
+
+			if err := client.readResponse(t.Context()); err != nil {
+				t.Fatalf("readResponse: %v", err)
+			}
+			select {
+			case <-w.ready:
+				if w.err != nil {
+					t.Fatalf("waiter err = %v, want nil", w.err)
+				}
+			default:
+				t.Fatal("waiter was not delivered")
+			}
+			if !got.OK {
+				t.Fatalf("result OK = false, want true")
+			}
+		})
+	}
+}
+
+func TestPipelineClientDeliverBatchResponseFallbackAcceptsExtraFields(t *testing.T) {
+	t.Parallel()
+
+	client := NewPipelineClient(NewNDJSONStream(noopReadWriteCloser{}))
+	waiters := []*pipelineWaiter{
+		getPipelineWaiter(nil),
+		getPipelineWaiter(nil),
+	}
+	for i, w := range waiters {
+		client.calls.Add(NewNumberID(int64(i+1)), w)
+	}
+	t.Cleanup(func() {
+		for _, w := range waiters {
+			putPipelineWaiter(w)
+		}
+	})
+
+	err := client.deliverBatchResponse([]byte(`[
+		{"jsonrpc":"2.0","id":1,"result":null,"meta":1},
+		{"jsonrpc":"2.0","id":2,"meta":2,"result":null}
+	]`))
+	if err != nil {
+		t.Fatalf("deliverBatchResponse: %v", err)
+	}
+	for i, w := range waiters {
+		select {
+		case <-w.ready:
+			if w.err != nil {
+				t.Fatalf("waiter %d err = %v, want nil", i, w.err)
+			}
+		default:
+			t.Fatalf("waiter %d was not delivered", i)
+		}
+	}
+}
+
 func TestPipelineClientDeliverBatchErrorResponse(t *testing.T) {
 	t.Parallel()
 
