@@ -16,11 +16,11 @@
 // families:
 //
 //   - "native": the fastest in-memory transport each library natively offers.
-//     jsonrpc2 and mcp run over an in-memory net.Pipe with newline-delimited JSON
-//     framing; jrpc2 runs over channel.Direct (server.NewLocal), which passes
-//     message buffers in memory with no framing or encoding and is therefore
-//     strictly faster than a piped, framed transport. This deliberately does
-//     not advantage jsonrpc2.
+//     jsonrpc2 runs over its bounded in-memory channel stream, mcp runs over an
+//     in-memory net.Pipe with newline-delimited JSON framing, and jrpc2 runs over
+//     channel.Direct (server.NewLocal), which passes message buffers in memory
+//     with no framing or encoding and is therefore still strictly less work than
+//     jsonrpc2's encoded frame stream.
 //
 //   - "common": all three libraries run over the SAME net.Pipe pair with
 //     newline-delimited JSON framing (one goroutine per endpoint). jsonrpc2 uses
@@ -101,13 +101,12 @@ type jsonrpc2Adapter struct {
 	batchClient framedStream
 }
 
-// newJSONRPC2Adapter builds a jsonrpc2 client/server pair over a fresh net.Pipe with
-// NDJSON framing and verifies a void round-trip. It also wires the dedicated
-// batch transport used by Batch.
+// newJSONRPC2Adapter builds a jsonrpc2 client/server pair over the package's
+// bounded in-memory channel stream and verifies a void round-trip. It also wires
+// the dedicated batch transport used by Batch.
 func newJSONRPC2Adapter(ctx context.Context) (*jsonrpc2Adapter, error) {
 	return newJSONRPC2AdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
-		ca, cb := net.Pipe()
-		return jsonrpc2.NewNDJSONStream(ca), jsonrpc2.NewNDJSONStream(cb)
+		return jsonrpc2.NewChannelStreamPair(1)
 	})
 }
 

@@ -23,6 +23,8 @@
 // serializes calls with a caller-owned read loop, [PipelineClient] keeps
 // concurrent client-originated calls in flight without dispatching
 // server-initiated requests, and [BatchClient] exposes raw-frame batch I/O.
+// [NewChannelStreamPair] supplies an in-memory encoded-frame transport for
+// same-process peers that still want full JSON-RPC wire encoding and scanning.
 //
 // The message types are a closed set of [*Call], [*Notification], and
 // [*Response], all of which implement the [Message] interface.
