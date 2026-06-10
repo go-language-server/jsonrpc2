@@ -84,11 +84,17 @@ func AppendResponse(dst []byte, id ID, result RawMessage, err error) []byte {
 // those protocol roles should do so before calling AppendBatch.
 func AppendBatch(dst []byte, msgs []Message) []byte {
 	dst = append(dst, '[')
-	for i, msg := range msgs {
-		if i > 0 {
-			dst = append(dst, ',')
+	first := true
+	for _, msg := range msgs {
+		temp := dst
+		if !first {
+			temp = append(temp, ',')
 		}
-		dst = appendMessage(dst, msg)
+		next := appendMessage(temp, msg)
+		if len(next) > len(temp) {
+			dst = next
+			first = false
+		}
 	}
 	return append(dst, ']')
 }
