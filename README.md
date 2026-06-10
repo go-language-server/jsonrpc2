@@ -224,7 +224,7 @@ the codec entirely and is carried verbatim.
 
 `jsonrpc2` is benchmarked head-to-head against
 [`github.com/creachadair/jrpc2`](https://github.com/creachadair/jrpc2) and the
-Model Context Protocol Go SDK's `jsonrpc2`, using the harness in
+[`github.com/modelcontextprotocol/go-sdk/internal/jsonrpc2`](https://github.com/modelcontextprotocol/go-sdk/tree/main/internal/jsonrpc2), using the harness in
 [`internal/benchmark`](./internal/benchmark). The harness holds the workload
 constant, reports two transport families, and records raw `benchstat` artifacts
 for each optimization round.
@@ -238,7 +238,7 @@ Lower is better. Current Round 5 final artifacts:
 
 ### Current linux/amd64 headline rows
 
-| Workload | jsonrpc2 | jrpc2 | mcp | Winner |
+| Workload | jsonrpc2 | jrpc2 | go-sdk | Winner |
 |---|---:|---:|---:|---|
 | Void round trip, native | **3.37 us / 657 B / 11 allocs** | 13.10 us / 4478 B / 100 | 34.08 us / 67980 B / 46 | jsonrpc2 |
 | Void round trip, common | **3.33 us / 657 B / 11 allocs** | 18.87 us / 4572 B / 102 | 33.99 us / 67973 B / 46 | jsonrpc2 |
@@ -256,7 +256,7 @@ native/common row.
 
 ### Current darwin/arm64 headline rows
 
-| Workload | jsonrpc2 | jrpc2 | mcp | Winner |
+| Workload | jsonrpc2 | jrpc2 | go-sdk | Winner |
 |---|---:|---:|---:|---|
 | Void round trip, native | **1.77 us / 656 B / 11 allocs** | 7.73 us / 4469 B / 100 | 17.26 us / 67820 B / 46 | jsonrpc2 |
 | Void round trip, common | **1.78 us / 656 B / 11 allocs** | 9.84 us / 4565 B / 102 | 18.81 us / 67819 B / 46 | jsonrpc2 |
@@ -310,10 +310,9 @@ BSD-3-Clause. See [LICENSE](./LICENSE).
 [test]: https://github.com/go-language-server/jsonrpc2/actions/workflows/test.yaml
 [pkg.go.dev]: https://pkg.go.dev/go.lsp.dev/jsonrpc2
 [module]: https://github.com/go-language-server/jsonrpc2/releases/latest
-[codecov]: https://codecov.io/gh/go-language-server/jsonrpc2
-[ga]: https://github.com/go-language-server/jsonrpc2
+[codecov]: https://app.codecov.io/gh/go-language-server/jsonrpc2
 
 [test-badge]: https://img.shields.io/github/actions/workflow/status/go-language-server/jsonrpc2/test.yaml?branch=main&style=for-the-badge&label=TEST&logo=github
-[pkg.go.dev-badge]: https://bit.ly/shields-io-pkg-go-dev
-[module-badge]: https://img.shields.io/github/release/go-language-server/jsonrpc2.svg?color=00add8&label=MODULE&style=for-the-badge&logoWidth=25&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9Ijg1IDU1IDEyMCAxMjAiPjxwYXRoIGZpbGw9IiMwMEFERDgiIGQ9Ik00MC4yIDEwMS4xYy0uNCAwLS41LS4yLS4zLS41bDIuMS0yLjdjLjItLjMuNy0uNSAxLjEtLjVoMzUuN2MuNCAwIC41LjMuMy42bC0xLjcgMi42Yy0uMi4zLS43LjYtMSAuNmwtMzYuMi0uMXptLTE1LjEgOS4yYy0uNCAwLS41LS4yLS4zLS41bDIuMS0yLjdjLjItLjMuNy0uNSAxLjEtLjVoNDUuNmMuNCAwIC42LjMuNS42bC0uOCAyLjRjLS4xLjQtLjUuNi0uOS42bC00Ny4zLjF6bTI0LjIgOS4yYy0uNCAwLS41LS4zLS4zLS42bDEuNC0yLjVjLjItLjMuNi0uNiAxLS42aDIwYy40IDAgLjYuMy42LjdsLS4yIDIuNGMwIC40LS40LjctLjcuN2wtMjEuOC0uMXptMTAzLjgtMjAuMmMtNi4zIDEuNi0xMC42IDIuOC0xNi44IDQuNC0xLjUuNC0xLjYuNS0yLjktMS0xLjUtMS43LTIuNi0yLjgtNC43LTMuOC02LjMtMy4xLTEyLjQtMi4yLTE4LjEgMS41LTYuOCA0LjQtMTAuMyAxMC45LTEwLjIgMTkgLjEgOCA1LjYgMTQuNiAxMy41IDE1LjcgNi44LjkgMTIuNS0xLjUgMTctNi42LjktMS4xIDEuNy0yLjMgMi43LTMuN2gtMTkuM2MtMi4xIDAtMi42LTEuMy0xLjktMyAxLjMtMy4xIDMuNy04LjMgNS4xLTEwLjkuMy0uNiAxLTEuNiAyLjUtMS42aDM2LjRjLS4yIDIuNy0uMiA1LjQtLjYgOC4xLTEuMSA3LjItMy44IDEzLjgtOC4yIDE5LjYtNy4yIDkuNS0xNi42IDE1LjQtMjguNSAxNy05LjggMS4zLTE4LjktLjYtMjYuOS02LjYtNy40LTUuNi0xMS42LTEzLTEyLjctMjIuMi0xLjMtMTAuOSAxLjktMjAuNyA4LjUtMjkuMyA3LjEtOS4zIDE2LjUtMTUuMiAyOC0xNy4zIDkuNC0xLjcgMTguNC0uNiAyNi41IDQuOSA1LjMgMy41IDkuMSA4LjMgMTEuNiAxNC4xLjYuOS4yIDEuNC0xIDEuN3oiLz48cGF0aCBmaWxsPSIjMDBBREQ4IiBkPSJNMTg2LjIgMTU0LjZjLTkuMS0uMi0xNy40LTIuOC0yNC40LTguOC01LjktNS4xLTkuNi0xMS42LTEwLjgtMTkuMy0xLjgtMTEuMyAxLjMtMjEuMyA4LjEtMzAuMiA3LjMtOS42IDE2LjEtMTQuNiAyOC0xNi43IDEwLjItMS44IDE5LjgtLjggMjguNSA1LjEgNy45IDUuNCAxMi44IDEyLjcgMTQuMSAyMi4zIDEuNyAxMy41LTIuMiAyNC41LTExLjUgMzMuOS02LjYgNi43LTE0LjcgMTAuOS0yNCAxMi44LTIuNy41LTUuNC42LTggLjl6bTIzLjgtNDAuNGMtLjEtMS4zLS4xLTIuMy0uMy0zLjMtMS44LTkuOS0xMC45LTE1LjUtMjAuNC0xMy4zLTkuMyAyLjEtMTUuMyA4LTE3LjUgMTcuNC0xLjggNy44IDIgMTUuNyA5LjIgMTguOSA1LjUgMi40IDExIDIuMSAxNi4zLS42IDcuOS00LjEgMTIuMi0xMC41IDEyLjctMTkuMXoiLz48L3N2Zz4=
+[pkg.go.dev-badge]: https://img.shields.io/badge/pkg.go.dev-doc-00add8?style=for-the-badge&logo=go
+[module-badge]: https://img.shields.io/github/release/go-language-server/jsonrpc2.svg?color=00add8&label=MODULE&style=for-the-badge&logo=go
 [codecov-badge]: https://img.shields.io/codecov/c/github/go-language-server/jsonrpc2/main?logo=codecov&style=for-the-badge
