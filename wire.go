@@ -152,7 +152,7 @@ func appendResponseBatch(dst []byte, resps []responseWire) []byte {
 		if i > 0 {
 			dst = append(dst, ',')
 		}
-		dst = appendMessage(dst, resp)
+		dst = appendResponseFields(dst, resp.id, resp.result, resp.err)
 	}
 	return append(dst, ']')
 }
