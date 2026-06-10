@@ -211,7 +211,7 @@ func (c *conn) sendResponse(ctx context.Context, id ID, bc *batchCollector, resu
 	if err == nil {
 		raw, merr := marshalParams(c.codec, result)
 		if merr != nil {
-			resp.err = fmt.Errorf("jsonrpc2: marshaling response result: %w", Errorf(InternalError, "%v", merr))
+			resp.err = Errorf(InternalError, "jsonrpc2: marshaling response result: %v", merr)
 		} else {
 			resp.result = raw
 		}
