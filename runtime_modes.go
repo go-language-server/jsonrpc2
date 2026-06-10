@@ -106,8 +106,8 @@ type denseCallSlots struct {
 }
 
 type denseCallSlot struct {
-	id     int64
 	waiter *waiter
+	id     int64
 }
 
 func (s *denseCallSlots) Len() int { return s.live }

@@ -123,7 +123,7 @@ func (k MessageViewKind) String() string {
 // to avoid making borrowed bytes look like the package's ordinary owned decoded
 // message payloads.
 type MessageView struct {
-	Kind MessageViewKind
+	Error ErrorView
 
 	// JSONRPC is the borrowed raw value span of the "jsonrpc" member.
 	JSONRPC []byte
@@ -131,15 +131,13 @@ type MessageView struct {
 	// IDRaw is the borrowed raw value span of the "id" member. ID is the parsed
 	// view of the same span. For notifications and null IDs, ID is invalid.
 	IDRaw []byte
-	ID    IDView
 
 	// MethodRaw is the borrowed raw string value span, including quotes.
 	// MethodBytes is the borrowed unquoted string body. When MethodEscaped is
 	// true, MethodBytes contains raw escaped body bytes; use MethodString or
 	// Owned at explicit slow/owning boundaries.
-	MethodRaw     []byte
-	MethodBytes   []byte
-	MethodEscaped bool
+	MethodRaw   []byte
+	MethodBytes []byte
 
 	// Params and Result are borrowed raw JSON value spans. Params is nil when the
 	// request omits params or explicitly sets params to null. Result preserves a
@@ -151,7 +149,11 @@ type MessageView struct {
 	// parsed borrowed view of the same error object when Kind is
 	// MessageViewResponseError.
 	ErrorRaw []byte
-	Error    ErrorView
+	ID       IDView
+
+	Kind MessageViewKind
+
+	MethodEscaped bool
 }
 
 // ParsedMessageView is the borrowed-view form of one request parsed from a
@@ -163,8 +165,8 @@ type MessageView struct {
 // slices reachable from View alias the input passed to [ScanRequestViews] or
 // [AppendRequestViews].
 type ParsedMessageView struct {
-	View  MessageView
 	Err   *Error
+	View  MessageView
 	Batch bool
 }
 
@@ -325,9 +327,9 @@ func (v *MessageView) Owned() (Message, error) {
 // When StringEscaped is true, those bytes are raw escaped body bytes, not decoded
 // text; decode on demand with StringValue or ID.
 type IDView struct {
-	num     int64
 	raw     []byte
 	str     []byte
+	num     int64
 	kind    idKind
 	escaped bool
 }
@@ -399,18 +401,19 @@ type ErrorView struct {
 	// Raw is the borrowed raw error-object span.
 	Raw []byte
 
-	Code    Code
 	CodeRaw []byte
 
 	// MessageRaw is the borrowed raw string value span, including quotes.
 	// MessageBytes is the borrowed unquoted string body. When MessageEscaped is
 	// true, MessageBytes contains raw escaped body bytes.
-	MessageRaw     []byte
-	MessageBytes   []byte
-	MessageEscaped bool
+	MessageRaw   []byte
+	MessageBytes []byte
 
 	// Data is the borrowed raw "data" value span, or nil when absent or null.
 	Data []byte
+
+	Code           Code
+	MessageEscaped bool
 }
 
 // MessageString decodes the error message as a Go string.

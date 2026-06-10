@@ -191,6 +191,14 @@ type asyncKey struct{}
 // request; the inline handoff only ever runs on the read goroutine, since the
 // inline handler runs there.
 type releaser struct {
+	ctx context.Context
+
+	// ch, when non-nil, marks the batch-member mode: release closes it.
+	ch chan struct{}
+
+	// The remaining fields drive the inline single-message handoff (ch == nil).
+	conn     *conn
+	handler  Handler
 	mu       sync.Mutex
 	released bool
 
@@ -201,13 +209,6 @@ type releaser struct {
 	// out for the asyncKey{} context value.
 	active bool
 
-	// ch, when non-nil, marks the batch-member mode: release closes it.
-	ch chan struct{}
-
-	// The remaining fields drive the inline single-message handoff (ch == nil).
-	conn      *conn
-	ctx       context.Context
-	handler   Handler
 	handedOff bool // set by a hard release so the inline reader loop returns
 }
 

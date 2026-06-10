@@ -120,10 +120,10 @@ func (c *conn) dispatch(ctx context.Context, handler Handler, req Request, msgs 
 // writes them as one array frame when the batch is fully handled.
 type batchCollector struct {
 	c        *conn
-	mu       sync.Mutex
 	resps    []responseWire // response envelopes, one per call member
 	pending  int            // call members not yet replied
-	released bool           // the dispatch loop has finished enqueuing members
+	mu       sync.Mutex
+	released bool // the dispatch loop has finished enqueuing members
 }
 
 // dispatchBatch parses, validates, and handles each member of a batch, then

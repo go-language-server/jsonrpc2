@@ -19,8 +19,8 @@ type outgoingCallSlots struct {
 }
 
 type outgoingCallSlot struct {
-	id     int64
 	waiter *waiter
+	id     int64
 	used   bool
 }
 

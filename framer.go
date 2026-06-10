@@ -102,16 +102,16 @@ type headerStream struct {
 	conn    io.ReadWriteCloser
 	in      *bufio.Reader
 	rbuf    []byte     // reusable body buffer, re-sized per frame
-	writeMu sync.Mutex // serializes Write so each frame is one contiguous write
 	wbuf    []byte     // reusable header+body compose buffer, guarded by writeMu
+	writeMu sync.Mutex // serializes Write so each frame is one contiguous write
 }
 
 // ndjsonStream implements [Stream] with newline-delimited JSON framing.
 type ndjsonStream struct {
 	conn    io.ReadWriteCloser
 	in      *bufio.Reader
-	writeMu sync.Mutex // serializes Write so payload+'\n' is one contiguous write
 	wbuf    []byte     // reusable payload+'\n' compose buffer, guarded by writeMu
+	writeMu sync.Mutex // serializes Write so payload+'\n' is one contiguous write
 }
 
 // Read implements [Stream]. It parses one LSP header block, reads the declared

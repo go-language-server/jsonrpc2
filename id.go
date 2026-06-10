@@ -32,8 +32,8 @@ const (
 // JSON null literal and is used for notifications and for error responses that
 // have no associated request id.
 type ID struct {
-	num  int64
 	str  string
+	num  int64
 	kind idKind
 }
 

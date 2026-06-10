@@ -38,9 +38,9 @@ func NewChannelStreamPair(capacity int) (left, right Stream) {
 
 type channelStreamPair struct {
 	done chan struct{}
-	once sync.Once
 	aToB chan []byte
 	bToA chan []byte
+	once sync.Once
 }
 
 type channelStream struct {
@@ -48,8 +48,9 @@ type channelStream struct {
 	out  chan<- []byte
 	pair *channelStreamPair
 
+	wbuf []byte
+
 	writeMu sync.Mutex
-	wbuf    []byte
 }
 
 func (s *channelStream) Read(ctx context.Context) (Message, int64, error) {

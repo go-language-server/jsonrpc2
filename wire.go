@@ -23,9 +23,9 @@ type notificationWire struct {
 }
 
 type responseWire struct {
+	err    error
 	id     ID
 	result RawMessage
-	err    error
 }
 
 func (callWire) jsonrpc2Message() {}

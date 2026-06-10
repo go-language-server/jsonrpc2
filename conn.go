@@ -130,36 +130,38 @@ func NewConn(stream Stream, opts ...Option) Conn {
 // updateInFlight under a single mutex, so that idle detection, shutdown, and
 // write-error propagation observe a consistent view.
 type conn struct {
-	seq atomic.Int64 // last allocated outgoing call id
+	state inFlightState // mutated only inside updateInFlight
 
 	stream    Stream
 	fw        frameWriter // stream's concrete-write extension, resolved once; nil if unsupported
 	codec     Codec
 	preempter Preempter // optional, consulted before the handler
 
+	done chan struct{} // closed when the connection is fully terminated
+	seq  atomic.Int64  // last allocated outgoing call id
+
 	stateMu sync.Mutex
-	state   inFlightState // mutated only inside updateInFlight
-	done    chan struct{} // closed when the connection is fully terminated
 }
 
 // inFlightState records the in-flight calls and requests of a [conn]. It is the
 // single source of truth for idle detection and shutdown and is mutated only
 // inside conn.updateInFlight while holding conn.stateMu.
 type inFlightState struct {
-	connClosing bool  // Close has been called
-	reading     bool  // the read goroutine is running
-	readErr     error // set when the read goroutine exits
-	writeErr    error // set when a write fails for a non-canceled reason
+	readErr  error // set when the read goroutine exits
+	writeErr error // set when a write fails for a non-canceled reason
 
 	// closer shuts down the stream. It is invoked once, when the connection is
 	// idle and shutting down, then set to nil and its result recorded in closeErr.
 	closer   io.Closer
 	closeErr error
 
+	incomingByID map[ID]*incomingRequest // outstanding incoming calls, keyed by id
+
 	outgoingCalls denseCallSlots // outstanding generated numeric calls
 
-	incoming     int                     // incoming requests not yet fully processed
-	incomingByID map[ID]*incomingRequest // outstanding incoming calls, keyed by id
+	incoming    int  // incoming requests not yet fully processed
+	connClosing bool // Close has been called
+	reading     bool // the read goroutine is running
 }
 
 // idle reports whether no work is in flight. The read goroutine may still be
@@ -190,15 +192,15 @@ func (s *inFlightState) shuttingDown(errClosing error) error {
 // pool after it has been removed from the slots, so the peer can never deliver
 // to a recycled waiter.
 type waiter struct {
-	ready chan struct{} // buffered, capacity 1
+	result any
+	err    error
+	ready  chan struct{} // buffered, capacity 1
 
 	// response is set for the general DecodeMessage path. resultReady is set for
 	// the borrowed-frame fast path after the read goroutine has unmarshaled the
 	// response result directly into result.
 	response    *Response
-	result      any
 	resultReady bool
-	err         error
 }
 
 // waiterPool recycles waiters to cut a per-call allocation.
@@ -240,10 +242,10 @@ func putWaiter(w *waiter) {
 // common void path) pays nothing. Deadline and Value delegate to the parent
 // without locking so they stay allocation-free.
 type incomingRequest struct {
-	req    Request
-	parent context.Context
-	id     ID
-	isCall bool
+	req        Request
+	parent     context.Context
+	realCtx    context.Context    // lazily created on first Done
+	realCancel context.CancelFunc // cancels realCtx; nil until realCtx is created
 
 	// rel and replied are value fields, not separate heap objects: folding them
 	// into incomingRequest means one dispatch-path allocation (this struct) backs
@@ -252,13 +254,15 @@ type incomingRequest struct {
 	// the asyncKey{} value and the dispatch handoff; replied is reached via
 	// &ir.replied. The merged struct stays GC-managed exactly as before, so a
 	// handler may still retain the request context with no lifetime change.
-	rel     releaser
+	rel releaser
+	id  ID
+
+	mu      sync.Mutex
 	replied repliedFlag
 
-	mu         sync.Mutex
-	canceled   bool               // cancel was called before realCtx existed
-	realCtx    context.Context    // lazily created on first Done
-	realCancel context.CancelFunc // cancels realCtx; nil until realCtx is created
+	isCall bool
+
+	canceled bool // cancel was called before realCtx existed
 }
 
 // compile-time check that *incomingRequest satisfies context.Context.

@@ -28,20 +28,22 @@ type PipelineClient struct {
 	fw     frameWriter
 	codec  Codec
 
+	readErr  error
+	writeErr error
+	closeErr error
+	done     chan struct{}
+
+	writeQueue []pipelineQueuedCall
+	calls      densePipelineCallSlots
+
 	seq atomic.Int64 // last allocated outgoing call id
 
-	mu         sync.Mutex
-	calls      densePipelineCallSlots
-	reading    bool
-	closing    bool
-	doneClosed bool
-	readErr    error
-	writeErr   error
-	closeErr   error
-	done       chan struct{}
+	mu sync.Mutex
 
 	writeQueueMu sync.Mutex
-	writeQueue   []pipelineQueuedCall
+	reading      bool
+	closing      bool
+	doneClosed   bool
 	writeRunning bool
 }
 
@@ -139,9 +141,9 @@ func (c *PipelineClient) Notify(ctx context.Context, method string, params any) 
 
 type pipelineQueuedCall struct {
 	ctx    context.Context
-	id     int64
 	method string
 	params RawMessage
+	id     int64
 }
 
 func (c *PipelineClient) enqueueCall(call pipelineQueuedCall) {
@@ -488,8 +490,8 @@ func (c *PipelineClient) deliverFastBatchResponse(frame []byte) (ok bool, err er
 }
 
 type pipelineNumberResult struct {
-	id     int64
 	result RawMessage
+	id     int64
 }
 
 func hasLiteralAt(data []byte, i int, lit string) bool {
@@ -733,8 +735,8 @@ type densePipelineCallSlots struct {
 }
 
 type densePipelineCallSlot struct {
-	id     int64
 	waiter *pipelineWaiter
+	id     int64
 }
 
 func (s *densePipelineCallSlots) Len() int { return s.live }

@@ -16,15 +16,15 @@ import (
 // it preserves its [Code] across the error<->wire mapping performed by
 // [toWireError].
 type Error struct {
-	// Code is a number indicating the error type that occurred.
-	Code Code `json:"code"`
-
 	// Message is a short description of the error.
 	Message string `json:"message"`
 
 	// Data is an optional primitive or structured value that carries additional
 	// information about the error. It is omitted from the wire form when nil.
 	Data RawMessage `json:"data,omitempty"`
+
+	// Code is a number indicating the error type that occurred.
+	Code Code `json:"code"`
 }
 
 // compile-time check that *Error implements error.
