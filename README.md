@@ -225,142 +225,81 @@ the codec entirely and is carried verbatim.
 `jsonrpc2` is benchmarked head-to-head against
 [`github.com/creachadair/jrpc2`](https://github.com/creachadair/jrpc2) and the
 Model Context Protocol Go SDK's `jsonrpc2`, using the harness in
-[`internal/benchmark`](./internal/benchmark). The harness holds the transport
-constant per comparison, isolates rival dependencies in a separate module, and
-asserts (via `go-cmp`) that all three decoders extract the same method and params
-from identical input, so the comparison measures equivalent work.
+[`internal/benchmark`](./internal/benchmark). The harness holds the workload
+constant, reports two transport families, and records raw `benchstat` artifacts
+for each optimization round.
 
-Lower is better; the winner is per row. The **`amd64`** table is a measured
-historical claim anchor; the `arm64` table and mode-specific artifacts below are
-the current developer baseline for the latest local optimization pass.
+Lower is better. Current Round 5 final artifacts:
 
-### Headline: void round-trip (nil params) — amd64 (historical claim arch)
+- linux/amd64: `internal/benchmark/artifacts/20260610T113339Z-g011-linux-amd64-final`
+  (`go1.26.4`, Debian 13, Intel Xeon Platinum 8481C, `-count=10`).
+- darwin/arm64: `internal/benchmark/artifacts/20260610T111717Z-combined-regression-gate`
+  (`go1.26.4`, Apple M3 Max, `-count=10`).
 
-`linux/amd64`, Intel Xeon Platinum 8481C (GCE c3, 44 vCPU), Debian 13, Go 1.26.4,
-`benchstat` over `-count=10`:
+### Current linux/amd64 headline rows
 
-| Library | ns/op | B/op | allocs/op | vs jsonrpc2 |
-|---------|------:|-----:|----------:|---------|
-| **jsonrpc2** | **~4780** | **585** | **12** | — (fastest) |
-| jrpc2 | ~12330 | 4480 | 100 | 2.6× slower, 8.3× allocs |
-| mcp | ~44220 | 100919 | 46 | 9.3× slower |
+| Workload | jsonrpc2 | jrpc2 | mcp | Winner |
+|---|---:|---:|---:|---|
+| Void round trip, native | **3.37 us / 657 B / 11 allocs** | 13.10 us / 4478 B / 100 | 34.08 us / 67980 B / 46 | jsonrpc2 |
+| Void round trip, common | **3.33 us / 657 B / 11 allocs** | 18.87 us / 4572 B / 102 | 33.99 us / 67973 B / 46 | jsonrpc2 |
+| Parallel void P4, native | **3.87 us / 658 B / 11 allocs** | 13.22 us / 4486 B / 100 | 31.24 us / 67896 B / 44 | jsonrpc2 |
+| Parallel void P12, native | **3.91 us / 658 B / 11 allocs** | 13.83 us / 4488 B / 100 | 29.93 us / 67835 B / 44 | jsonrpc2 |
+| Params small, native | **3.55 us / 809 B / 13 allocs** | 14.29 us / 4883 B / 108 | 33.90 us / 68279 B / 50 | jsonrpc2 |
+| Params medium, native | **3.98 us / 1210 B / 13 allocs** | 18.89 us / 5678 B / 109 | 36.56 us / 69484 B / 50 | jsonrpc2 |
+| Params large, native | **12.95 us / 9608 B / 13 allocs** | 96.63 us / 22530 B / 109 | 78.73 us / 97636 B / 53 | jsonrpc2 |
+| Notify, native | **1.00 us / 276 B / 4 allocs** | 4.26 us / 2072 B / 42 | 12.22 us / 33831 B / 20 | jsonrpc2 |
 
-### Same, on `arm64` (Apple M3 Max, secondary baseline)
+The same linux/amd64 artifact records every affected `common` row as a jsonrpc2
+win as well. The cross-library check in `internal-affected-fastest-check.txt`
+shows jsonrpc2 fastest by sec/op mean on every affected apples-to-apples
+native/common row.
 
-These arm64 numbers reflect the **next-layer allocation pass** (the concurrent
-`Conn` void round trip fell from 10 to **6 allocs/op** on the root benchmark via
-two general, GC-safe changes: a concrete non-interface write path that drops the
-per-send envelope box, and folding the per-request releaser and replied flag into
-the request struct — no pooling, no `unsafe`, no ownership change). The B/op and
-ns/op fell correspondingly.
+### Current darwin/arm64 headline rows
 
-| Library | ns/op | B/op | allocs/op (root) |
-|---------|------:|-----:|----------:|
-| **jsonrpc2** | **~2900** | **408** | **6** |
-| jrpc2 | ~7990 | 4469 | 100 |
-| mcp | ~22500 | 100550 | 46 |
+| Workload | jsonrpc2 | jrpc2 | mcp | Winner |
+|---|---:|---:|---:|---|
+| Void round trip, native | **1.77 us / 656 B / 11 allocs** | 7.73 us / 4469 B / 100 | 17.26 us / 67820 B / 46 | jsonrpc2 |
+| Void round trip, common | **1.78 us / 656 B / 11 allocs** | 9.84 us / 4565 B / 102 | 18.81 us / 67819 B / 46 | jsonrpc2 |
+| Params large, native | **6.93 us / 9602 B / 13 allocs** | 63.748 us / 22600 B / 109 | 46.583 us / 98149 B / 54 | jsonrpc2 |
+| Notify, native | **0.61 us / 276 B / 4 allocs** | 2.61 us / 2068 B / 42 | 7.11 us / 33801 B / 20 | jsonrpc2 |
 
-> **amd64 refresh caveat.** The amd64 headline table above is a measured artifact,
-> but the full comparative table has not been refreshed for the latest local
-> allocation/runtime-mode pass. `PipelineClient` has its own current-head amd64
-> artifact below; re-run the comparative bench harness on an amd64 host before
-> quoting full comparative amd64 numbers for the new six-allocation `Conn` state.
-> The arm64 row here is the directly measured secondary baseline for the new state.
+Root repository benchmarks use the ordinary `Conn` over stream transports and
+show the server/client hot path allocation floor independently of the comparative
+harness. On darwin/arm64, root `BenchmarkVoidRoundTrip` is **2.885 us / 324 B /
+4 allocs**, down from 6 allocs before the Round 5 direct-unmarshal survivor; the
+high-inflight rows were statistically neutral in the combined gate. On
+linux/amd64, the reverse-order root rerun is neutral or improved on sec/op and
+reduces every root affected row from 6 to **4 allocs/op**.
 
-### Synchronous-client mode (`SyncClient`) — a distinct, lower-latency request path
+### Transport-family disclosure
 
-`SyncClient` is a synchronous client that **owns its read loop** instead of
-running a background reader goroutine: each `Call` writes the request and reads
-its own response on the caller's goroutine, collapsing the dedicated-reader-to-
-caller hand-off (the third goroutine hop) a concurrent `Conn` pays. On the same
-`net.Pipe` + NDJSON transport against an ordinary `Conn` server:
+The `native` family is each implementation's fastest in-memory transport. Round
+5 adds `jsonrpc2.NewChannelStreamPair`, so `jsonrpc2/native` now uses a bounded
+in-memory encoded-frame channel stream. It still performs JSON encode/decode and
+frame scanning; `jrpc2/native` remains `server.NewLocal` / `channel.Direct`,
+which passes message buffers in memory with no framing. The `common` family keeps
+all three libraries on the same `net.Pipe` + NDJSON-style framing path.
 
-| Path | ns/op | B/op | allocs/op |
-|------|------:|-----:|----------:|
-| `Conn` round trip (concurrent) | ~2900 | 408 | 6 |
-| `SyncClient` round trip | **~2030** | 408 | 6 |
+The channel stream copies queued frames to preserve single-owner buffer semantics.
+That is why small/void/notify harness rows allocate more than the old net.Pipe
+native rows (`RoundTripVoid` moved from 8 to 11 harness allocs/op), even though
+wall-clock time improves sharply. Root `Conn` allocation counts improve because
+the direct-unmarshal survivor removes response allocation on the ordinary stream
+path.
 
-**Read this as a mode, not a speedup of `Conn`.** `SyncClient` removes the
-*client's* reader goroutine; it cannot receive server-initiated requests and
-serializes its calls (one outstanding at a time). It is therefore reported
-separately — the same integrity reason the batch rows are excluded — and is **not**
-a head-to-head claim against jrpc2's `channel.Direct` (which keeps a client-side
-reader). A lower number here means "jsonrpc2's fastest in-process request path," not
-that the bidirectional `Conn` got faster. Use `Conn` with `Conn.Go` when you need
-concurrent calls or server-to-client requests.
+### Caveats
 
-### Pipelined-client mode (`PipelineClient`) — concurrent client-only path
+- Keep claims artifact-scoped: quote the raw artifact path, host, Go version,
+  GOOS/GOARCH, command, and transport family with any number.
+- Batch rows are excluded from the lowest-cost-on-every-workload claim because
+  the three libraries expose different batch mechanics.
+- Standalone `DecodeMessage` and `ParseRequests` intentionally own their returned
+  bytes. Their allocation floor is documented in
+  [`internal/benchmark/RESULTS.md`](./internal/benchmark/RESULTS.md); connection
+  round trips use a separate fast path.
 
-`PipelineClient` keeps many client-originated calls in flight, but it does not
-dispatch server-initiated calls. It uses dense generated-ID slots, pooled waiters,
-numeric response delivery, a reusable queued writer for call bursts, and a
-canonical success-response scanner before falling back to the borrowed
-`MessageView` scanner. The final-head arm64 artifact
-`internal/benchmark/artifacts/20260606T050739Z-darwin-arm64-pipeline-final-head`
-(`go1.26.4 darwin/arm64`, Apple M3 Max, `net.Pipe` + NDJSON, `-count=10`) shows the rounded summary below; use the artifact's
-`benchstat-normalized.txt` for exact values:
-
-| Inflight | Conn ns/op | PipelineClient ns/op | B/op | allocs/op |
-|---------:|-----------:|---------------------:|-----:|----------:|
-| 1 | ~2.9 µs | **~2.7–2.8 µs** (~5% faster) | 408 → **324** | 6 → **4** |
-| 8 | ~32 µs | **~26 µs** (~17% faster) | ~3.7 KiB → **~3.3 KiB** | 57 → **43** |
-| 64 | ~300 µs | **~205–210 µs** (~30% faster) | ~29.9 KiB → ~32.7 KiB | 451 → **331** |
-| 256 | ~1.2 ms | **~1.0 ms** (~21% faster) | ~123 KiB → ~129 KiB | 1810 → **1323** |
-
-A final-head linux/amd64 artifact was also captured at
-`internal/benchmark/artifacts/20260606T050943Z-linux-amd64-pipeline-final-head`
-(Go `1.26.3`, Debian 13, Intel Xeon Platinum 8481C). Its
-`benchstat-normalized.txt` shows the same strict latency wins at inflight
-`1/8/64/256` and allocation-count reductions at every inflight level. Bytes/op
-improve by geomean on both hosts, though individual high-inflight rows can trade
-a few bytes for the latency win (`Inflight64`/`Inflight256` on both hosts). It
-is not a bidirectional `Conn` replacement.
-
-### Pure decode on identical bytes (no transport, AC-P2 anchor) — amd64
-
-| Input | jsonrpc2 ns / B / allocs | jrpc2 ns / B / allocs | mcp ns / B / allocs |
-|-------|----------------------|-----------------------|---------------------|
-| Minimal | **175 / 88 / 2** | 3228 / 1504 / 31 (18.4×) | 7127 / 33032 / 8 (40.7×) |
-| Medium | **399 / 192 / 3** | 5189 / 1781 / 36 | 9041 / 33147 / 9 |
-| Batch | **1857 / 1008 / 25** | 17290 / 7256 / 144 (9.3×) | n/a |
-
-`Encode` is **85 ns / 112 B / 1 alloc** for `jsonrpc2` vs `mcp` 898 ns / 289 B / 3
-(10.6×); `jrpc2` exposes no single-message encoder.
-
-### Caveats (read before quoting these numbers)
-
-These caveats are load-bearing; the benchmark is reported honestly rather than to
-flatter the library.
-
-- **Keep fastest claims artifact-scoped.** The amd64 headline above was measured
-  directly on an Intel Xeon 8481C server (Debian 13, Go 1.26.4, `-count=10`), but
-  it is not a substitute for current-head artifacts when quoting newer
-  allocation/runtime-mode work. Use the raw artifact path, command, Go version,
-  GOOS/GOARCH, CPU, git SHA, and mode disclosure whenever publishing numbers.
-- **Batch rows are excluded from the "lowest-cost on every workload" claim.** The
-  batch mechanics differ by library — `jrpc2` issues a true single
-  batch request/response, `mcp` bursts N concurrent independent calls, and `jsonrpc2`
-  hand-frames the JSON-RPC array — so the batch numbers are **not** an
-  apples-to-apples protocol comparison even though `jsonrpc2` posts the lowest
-  figures there too.
-- **A documented standalone-decode allocation floor.** `DecodeMessage` and
-  `ParseRequests` sit at a 2–4 alloc/op floor (message struct + copied
-  method/params, plus the public slice shape for `ParseRequests`) because their
-  returned `RawMessage` must own its bytes and never alias a pooled buffer. The
-  `≤ 1 alloc/op` decode target is therefore documented as infeasible for the
-  standalone API without breaking ownership or the public return types; the
-  connection's round-trip decode is a separate, decisively winning path.
-- **Borrowed views are experimental parser tools, not the default decode path.**
-  The historical `20260606T040136Z-borrowed-view-decode-current-head` artifact shows
-  zero-allocation borrowed views, but `ScanMessageView` is slower than
-  `DecodeMessage` on the small and invalid rows, and `AppendRequestViews` still
-  loses several small or invalid rows despite a small geomean ns/op win. Keep
-  these APIs behind explicit parser/view use until a workload-specific benchmark
-  justifies replacing an owned decode path.
-
-The full methodology, the `native` vs `common` transport families, the
-per-workload tables, the optimization log, and the honest AC status are in
-[`internal/benchmark/RESULTS.md`](./internal/benchmark/RESULTS.md).
+The full methodology, per-workload tables, keep/kill ledger, and reproduction
+commands live in [`internal/benchmark/RESULTS.md`](./internal/benchmark/RESULTS.md).
 
 ## License
 
