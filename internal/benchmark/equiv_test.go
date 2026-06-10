@@ -8,6 +8,7 @@ import (
 
 	jrpc2 "github.com/creachadair/jrpc2"
 	gocmp "github.com/google/go-cmp/cmp"
+
 	"go.lsp.dev/jsonrpc2"
 	mcp "go.lsp.dev/jsonrpc2/internal/benchmark/mcpref"
 )

@@ -389,6 +389,8 @@ func TestPipelineClientConcurrentCalls(t *testing.T) {
 
 type noopReadWriteCloser struct{}
 
-func (noopReadWriteCloser) Read([]byte) (int, error)    { return 0, errors.New("read unsupported") }
+func (noopReadWriteCloser) Read([]byte) (int, error) { return 0, errors.New("read unsupported") }
+
 func (noopReadWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
-func (noopReadWriteCloser) Close() error                { return nil }
+
+func (noopReadWriteCloser) Close() error { return nil }

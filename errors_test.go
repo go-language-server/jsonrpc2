@@ -186,3 +186,21 @@ func TestError_CodePreservedThroughResponse(t *testing.T) {
 		t.Errorf("decoded code = %d, want %d", werr.Code, MethodNotFound)
 	}
 }
+
+func TestToWireError_PreservesData(t *testing.T) {
+	t.Parallel()
+
+	inner := &Error{
+		Code:    InvalidParams,
+		Message: "invalid params",
+		Data:    RawMessage(`{"field":"name"}`),
+	}
+	wrapped := fmt.Errorf("bad request: %w", inner)
+	got := toWireError(wrapped)
+	if got.Code != InvalidParams {
+		t.Errorf("got code %v, want %v", got.Code, InvalidParams)
+	}
+	if string(got.Data) != `{"field":"name"}` {
+		t.Errorf("got data %q, want %q", got.Data, `{"field":"name"}`)
+	}
+}

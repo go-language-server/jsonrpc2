@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	jrpc2 "github.com/creachadair/jrpc2"
+
 	"go.lsp.dev/jsonrpc2"
 	mcp "go.lsp.dev/jsonrpc2/internal/benchmark/mcpref"
 )

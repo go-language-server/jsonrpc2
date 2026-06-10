@@ -13,6 +13,7 @@ import (
 
 	jsonv2 "github.com/go-json-experiment/json"
 	segjson "github.com/segmentio/encoding/json"
+
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/jsonrpc2/codec/goccy"
 	"go.lsp.dev/jsonrpc2/codec/sonic"

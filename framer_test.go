@@ -57,9 +57,11 @@ type countingConn struct {
 	writes atomic.Int64
 }
 
-func (c *countingConn) Read(p []byte) (int, error)  { return c.buf.Read(p) }
+func (c *countingConn) Read(p []byte) (int, error) { return c.buf.Read(p) }
+
 func (c *countingConn) Write(p []byte) (int, error) { c.writes.Add(1); return c.buf.Write(p) }
-func (c *countingConn) Close() error                { return nil }
+
+func (c *countingConn) Close() error { return nil }
 
 // streamPair connects two streams produced by framer over an in-memory pipe.
 type streamPair struct {
@@ -637,9 +639,11 @@ type bufConn struct {
 	buf bytes.Buffer
 }
 
-func (c *bufConn) Read(p []byte) (int, error)  { return c.buf.Read(p) }
+func (c *bufConn) Read(p []byte) (int, error) { return c.buf.Read(p) }
+
 func (c *bufConn) Write(p []byte) (int, error) { return c.buf.Write(p) }
-func (c *bufConn) Close() error                { return nil }
+
+func (c *bufConn) Close() error { return nil }
 
 func benchmarkFramerRoundTrip(b *testing.B, framer Framer) {
 	b.Helper()

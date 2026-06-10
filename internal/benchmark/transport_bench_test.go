@@ -241,7 +241,8 @@ type pipeConn struct {
 	w *os.File
 }
 
-func (c pipeConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c pipeConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
 func (c pipeConn) Write(p []byte) (int, error) { return c.w.Write(p) }
 
 func (c pipeConn) Close() error {
@@ -252,17 +253,21 @@ func (c pipeConn) Close() error {
 	return err
 }
 
-func (c pipeConn) LocalAddr() net.Addr  { return pipeAddr("local") }
+func (c pipeConn) LocalAddr() net.Addr { return pipeAddr("local") }
+
 func (c pipeConn) RemoteAddr() net.Addr { return pipeAddr("remote") }
 
-func (c pipeConn) SetDeadline(time.Time) error      { return nil }
-func (c pipeConn) SetReadDeadline(time.Time) error  { return nil }
+func (c pipeConn) SetDeadline(time.Time) error { return nil }
+
+func (c pipeConn) SetReadDeadline(time.Time) error { return nil }
+
 func (c pipeConn) SetWriteDeadline(time.Time) error { return nil }
 
 type pipeAddr string
 
 func (a pipeAddr) Network() string { return "pipe" }
-func (a pipeAddr) String() string  { return string(a) }
+
+func (a pipeAddr) String() string { return string(a) }
 
 // inflightName renders a stable sub-benchmark name for a concurrency level in
 // transportInflight.

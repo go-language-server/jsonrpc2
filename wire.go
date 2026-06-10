@@ -28,9 +28,11 @@ type responseWire struct {
 	err    error
 }
 
-func (callWire) jsonrpc2Message()         {}
+func (callWire) jsonrpc2Message() {}
+
 func (notificationWire) jsonrpc2Message() {}
-func (responseWire) jsonrpc2Message()     {}
+
+func (responseWire) jsonrpc2Message() {}
 
 // EncodeMessage encodes a [Message] into a freshly allocated JSON-RPC envelope.
 //

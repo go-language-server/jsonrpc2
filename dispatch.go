@@ -211,9 +211,10 @@ func (c *conn) sendResponse(ctx context.Context, id ID, bc *batchCollector, resu
 	if err == nil {
 		raw, merr := marshalParams(c.codec, result)
 		if merr != nil {
-			return merr
+			resp.err = fmt.Errorf("jsonrpc2: marshaling response result: %w", merr)
+		} else {
+			resp.result = raw
 		}
-		resp.result = raw
 	}
 	// The id may be reused by the peer as soon as the response is sent, so drop it
 	// from the incoming map before writing.

@@ -67,7 +67,8 @@ type fdConn struct {
 	w *os.File
 }
 
-func (c *fdConn) Read(p []byte) (int, error)  { return c.r.Read(p) }
+func (c *fdConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
 func (c *fdConn) Write(p []byte) (int, error) { return c.w.Write(p) }
 
 func (c *fdConn) Close() error {
@@ -102,6 +103,8 @@ func (h *echoHandler) handle(ctx context.Context, reply Replier, req Request) er
 		return reply(ctx, raw(`{"got":`+string(orNull(req.Params()))+`}`), nil)
 	case "fail":
 		return reply(ctx, nil, NewError(InvalidParams, "bad params"))
+	case "marshal-fail":
+		return reply(ctx, make(chan int), nil)
 	case "note":
 		h.mu.Lock()
 		h.recorded = append(h.recorded, string(orNull(req.Params())))
@@ -156,6 +159,11 @@ func TestCallRoundTrip(t *testing.T) {
 					method:  "fail",
 					params:  nil,
 					wantErr: NewError(InvalidParams, "bad params"),
+				},
+				"error: handler reply marshaling failure": {
+					method:  "marshal-fail",
+					params:  nil,
+					wantErr: NewError(0, ""),
 				},
 			}
 			for tn, tt := range tests {

@@ -38,6 +38,7 @@ func (c *Call) Method() string { return c.method }
 func (c *Call) Params() RawMessage { return c.params }
 
 func (*Call) jsonrpc2Message() {}
+
 func (*Call) jsonrpc2Request() {}
 
 // Notification is a request that does not expect a response and therefore
@@ -70,6 +71,7 @@ func (n *Notification) Method() string { return n.method }
 func (n *Notification) Params() RawMessage { return n.params }
 
 func (*Notification) jsonrpc2Message() {}
+
 func (*Notification) jsonrpc2Request() {}
 
 // Response is a reply to a [Call]. It carries the same [ID] as the call it

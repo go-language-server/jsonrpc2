@@ -47,6 +47,7 @@ import (
 	jchannel "github.com/creachadair/jrpc2/channel"
 	jhandler "github.com/creachadair/jrpc2/handler"
 	jserver "github.com/creachadair/jrpc2/server"
+
 	"go.lsp.dev/jsonrpc2"
 	mcp "go.lsp.dev/jsonrpc2/internal/benchmark/mcpref"
 )

@@ -135,6 +135,7 @@ func toWireError(err error) *Error {
 		// Outer message, inner code: a handler may wrap a coded error with extra
 		// context; keep the code so the peer still sees the classification.
 		result.Code = wire.Code
+		result.Data = wire.Data
 	}
 	return result
 }

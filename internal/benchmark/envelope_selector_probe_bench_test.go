@@ -10,6 +10,7 @@ import (
 	"github.com/buger/jsonparser"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"
+
 	"go.lsp.dev/jsonrpc2"
 )
 

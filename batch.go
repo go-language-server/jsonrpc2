@@ -124,7 +124,6 @@ type batchCollector struct {
 	resps    []responseWire // response envelopes, one per call member
 	pending  int            // call members not yet replied
 	released bool           // the dispatch loop has finished enqueuing members
-	failErr  error          // connection failure to publish after the batch is written
 }
 
 // dispatchBatch parses, validates, and handles each member of a batch, then
@@ -200,13 +199,6 @@ func (bc *batchCollector) write(ctx context.Context, resps []responseWire) {
 
 	_, err := fs.WriteFrame(ctx, buf)
 	bc.c.afterWrite(ctx, err)
-
-	bc.mu.Lock()
-	failErr := bc.failErr
-	bc.mu.Unlock()
-	if failErr != nil {
-		bc.c.fail(failErr)
-	}
 }
 
 // parseBatch parses a batch array into its request members and reports whether
@@ -252,10 +244,13 @@ type invalidRequest struct {
 	err *Error
 }
 
-func (*invalidRequest) Method() string     { return "" }
+func (*invalidRequest) Method() string { return "" }
+
 func (*invalidRequest) Params() RawMessage { return nil }
-func (*invalidRequest) jsonrpc2Message()   {}
-func (*invalidRequest) jsonrpc2Request()   {}
+
+func (*invalidRequest) jsonrpc2Message() {}
+
+func (*invalidRequest) jsonrpc2Request() {}
 
 // respondsInBatch reports whether req contributes a response body to a batch's
 // response array: calls and malformed members do, notifications do not.

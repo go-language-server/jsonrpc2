@@ -761,6 +761,8 @@ func (ic notDone) Value(key any) any {
 	return ic.ctx.Value(key)
 }
 
-func (notDone) Done() <-chan struct{}       { return nil }
-func (notDone) Err() error                  { return nil }
+func (notDone) Done() <-chan struct{} { return nil }
+
+func (notDone) Err() error { return nil }
+
 func (notDone) Deadline() (time.Time, bool) { return time.Time{}, false }

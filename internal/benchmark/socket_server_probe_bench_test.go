@@ -25,6 +25,7 @@ import (
 	cloudnetpoll "github.com/cloudwego/netpoll"
 	gnet "github.com/panjf2000/gnet/v2"
 	"github.com/panjf2000/gnet/v2/pkg/logging"
+
 	"go.lsp.dev/jsonrpc2"
 )
 
@@ -500,7 +501,8 @@ func startStdNetRawProbeServer(tb testing.TB, network string) socketProbeServer 
 	return s
 }
 
-func (s *stdNetRawProbeServer) Name() string   { return s.name }
+func (s *stdNetRawProbeServer) Name() string { return s.name }
+
 func (s *stdNetRawProbeServer) Addr() net.Addr { return s.ln.Addr() }
 
 func (s *stdNetRawProbeServer) Close() error {
@@ -638,7 +640,8 @@ func startNetpollRawProbeServer(tb testing.TB, network string) socketProbeServer
 	return s
 }
 
-func (s *netpollRawProbeServer) Name() string   { return s.name }
+func (s *netpollRawProbeServer) Name() string { return s.name }
+
 func (s *netpollRawProbeServer) Addr() net.Addr { return s.ln.Addr() }
 
 func (s *netpollRawProbeServer) Close() error {
@@ -699,7 +702,8 @@ func startGnetRawProbeServer(tb testing.TB, network string) socketProbeServer {
 	return s
 }
 
-func (s *gnetRawProbeServer) Name() string   { return s.name }
+func (s *gnetRawProbeServer) Name() string { return s.name }
+
 func (s *gnetRawProbeServer) Addr() net.Addr { return s.addr }
 
 func (s *gnetRawProbeServer) Close() error {
@@ -789,7 +793,8 @@ func reserveGnetAddr(tb testing.TB, network string) (protoAddr string, addr net.
 type unixAddr string
 
 func (a unixAddr) Network() string { return "unix" }
-func (a unixAddr) String() string  { return string(a) }
+
+func (a unixAddr) String() string { return string(a) }
 
 func init() {
 	// Keep the probe runner deterministic enough for comparisons while avoiding a
