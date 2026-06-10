@@ -803,12 +803,12 @@ func TestCloseRacesConcurrentWrites(t *testing.T) {
 
 func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	ctx := t.Context()
-	frame := []byte(`{"jsonrpc":"2.0","id":7,"result":{"ok":true}}`)
+	frame := []byte(`{"jsonrpc":"2.0","id":7,"result":{"val":"hello"}}`)
 	stream := &singleFrameStream{frame: frame}
 	c := &conn{stream: stream, codec: DefaultCodec, done: make(chan struct{})}
 
 	var got struct {
-		OK bool `json:"ok"`
+		Val string `json:"val"`
 	}
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(7), w)
@@ -832,8 +832,8 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	if !w.resultReady {
 		t.Fatal("waiter resultReady = false, want true")
 	}
-	if !got.OK {
-		t.Fatalf("direct-unmarshaled result OK = false, want true")
+	if got.Val != "hello" {
+		t.Fatalf("direct-unmarshaled result Val = %q, want %q", got.Val, "hello")
 	}
 
 	// Evidence for direct-unmarshal safety on the numeric fast path (used by Conn
@@ -844,8 +844,8 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	for i := range frame {
 		frame[i] = 'X'
 	}
-	if !got.OK {
-		t.Fatalf("direct-unmarshaled result corrupted after frame reuse simulation")
+	if got.Val != "hello" {
+		t.Fatalf("direct-unmarshaled result corrupted after frame reuse simulation: got %q", got.Val)
 	}
 
 	if c.state.outgoingCalls.Len() != 0 {
