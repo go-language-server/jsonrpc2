@@ -24,7 +24,7 @@ import (
 // returned by ReadFrame are owned by the receiving stream. Closing either stream
 // closes the pair, makes later reads and writes fail with io.EOF, and unblocks
 // pending reads and writes with io.EOF.
-func NewChannelStreamPair(capacity int) (Stream, Stream) {
+func NewChannelStreamPair(capacity int) (left, right Stream) {
 	if capacity < 0 {
 		panic("jsonrpc2: negative channel stream capacity")
 	}
@@ -72,7 +72,7 @@ func (s *channelStream) Write(ctx context.Context, msg Message) (int64, error) {
 	return s.sendFrame(ctx, frame)
 }
 
-func (s *channelStream) ReadFrame(ctx context.Context) ([]byte, int64, error) {
+func (s *channelStream) ReadFrame(ctx context.Context) (frame []byte, n int64, err error) {
 	if err := s.closedOrCanceled(ctx); err != nil {
 		return nil, 0, err
 	}

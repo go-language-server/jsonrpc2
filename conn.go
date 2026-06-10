@@ -395,12 +395,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 		// The write failed, so the peer will never answer. If we win the removal we
 		// own the waiter; otherwise the read goroutine retired it on a read-side
 		// failure and is committed to delivering once, so wait before pooling.
-		if c.retireCall(id) {
-			putWaiter(w)
-		} else {
-			<-w.ready
-			putWaiter(w)
-		}
+		c.retireCallWaiter(id, w)
 		return id, err
 	}
 
@@ -408,22 +403,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 	case <-w.ready:
 		// The read goroutine delivered the response and removed the waiter from the
 		// slot table, so we own it again.
-		resp, waitErr, resultReady := w.response, w.err, w.resultReady
-		putWaiter(w)
-		if waitErr != nil {
-			return id, waitErr
-		}
-		if resp != nil {
-			if resp.err != nil {
-				return id, resp.err
-			}
-			if !resultReady {
-				if err := unmarshalResult(c.codec, resp.result, result); err != nil {
-					return id, fmt.Errorf("jsonrpc2: unmarshaling result: %w", err)
-				}
-			}
-		}
-		return id, nil
+		return id, c.finishCallWaiter(w, result)
 
 	case <-ctx.Done():
 		// The caller gave up. If we win the lock-guarded removal we own the waiter
@@ -431,14 +411,41 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 		// goroutine already removed it from the slots and is committed to delivering
 		// exactly once, so wait for that delivery before pooling the waiter; pooling
 		// it early would let a reused waiter receive this call's late response.
-		if c.retireCall(id) {
-			putWaiter(w)
-		} else {
-			<-w.ready
-			putWaiter(w)
-		}
+		c.retireCallWaiter(id, w)
 		return id, ctx.Err()
 	}
+}
+
+// finishCallWaiter returns the delivered call outcome and returns w to the pool.
+func (c *conn) finishCallWaiter(w *waiter, result any) error {
+	resp, waitErr, resultReady := w.response, w.err, w.resultReady
+	putWaiter(w)
+	if waitErr != nil {
+		return waitErr
+	}
+	if resp == nil {
+		return nil
+	}
+	if resp.err != nil {
+		return resp.err
+	}
+	if resultReady {
+		return nil
+	}
+	if err := unmarshalResult(c.codec, resp.result, result); err != nil {
+		return fmt.Errorf("jsonrpc2: unmarshaling result: %w", err)
+	}
+	return nil
+}
+
+// retireCallWaiter retires id from outgoing calls before returning w to the pool.
+func (c *conn) retireCallWaiter(id ID, w *waiter) {
+	if c.retireCall(id) {
+		putWaiter(w)
+		return
+	}
+	<-w.ready
+	putWaiter(w)
 }
 
 // retireCall removes the outgoing call id from the numeric slots if it is still
