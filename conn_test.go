@@ -163,7 +163,7 @@ func TestCallRoundTrip(t *testing.T) {
 				"error: handler reply marshaling failure": {
 					method:  "marshal-fail",
 					params:  nil,
-					wantErr: NewError(0, ""),
+					wantErr: NewError(InternalError, ""),
 				},
 			}
 			for tn, tt := range tests {
