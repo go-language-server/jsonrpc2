@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-// This file is the AC-X2 downstream-compatibility shim. It exercises the public
-// surface the way a consumer such as go.lsp.dev/protocol would: a method map
+// This file exercises the public surface the way a downstream consumer such as
+// go.lsp.dev/protocol would: a method map
 // dispatched through a single [jsonrpc2.Handler], served by [jsonrpc2.Serve] +
 // [jsonrpc2.HandlerServer], and driven by a client [jsonrpc2.Conn.Call] with
 // typed params and results routed through the default codec.
@@ -68,7 +69,7 @@ func TestDownstreamCompatShim(t *testing.T) {
 			if err := jsonrpc2.DefaultCodec.Unmarshal(params, &p); err != nil {
 				return nil, jsonrpc2.ErrInvalidParams
 			}
-			return hoverResult{Contents: p.URI + " line " + itoa(p.Line)}, nil
+			return hoverResult{Contents: p.URI + " line " + strconv.Itoa(p.Line)}, nil
 		},
 		"math/sum": func(_ context.Context, params jsonrpc2.RawMessage) (any, error) {
 			var p sumParams
@@ -292,20 +293,4 @@ func TestDownstreamCancel(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Call never returned")
 	}
-}
-
-// itoa renders a small non-negative int without importing strconv into the test,
-// keeping the shim's surface dependencies minimal.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
