@@ -223,8 +223,8 @@ func TestListenAndServe(t *testing.T) {
 				runErr = jsonrpc2.ListenAndServe(ctx, network, addr, server, 0)
 			})
 
-			// ListenAndServe needs a moment to bind; retry the dial until it is up.
-			client, nc := dialWithRetry(t, network, addr)
+			// ListenAndServe needs a moment to bind; dialConn retries until it is up.
+			client, nc := dialConn(t, network, addr)
 			client.Go(ctx, jsonrpc2.MethodNotFoundHandler)
 
 			var got jsonrpc2.RawMessage
@@ -244,23 +244,5 @@ func TestListenAndServe(t *testing.T) {
 				t.Errorf("ListenAndServe returned %v, want context.Canceled", runErr)
 			}
 		})
-	}
-}
-
-// dialWithRetry dials addr, retrying briefly so a test does not race the server's
-// bind. It returns a client connection over the LSP header framing the server
-// uses, together with the underlying net.Conn for teardown.
-func dialWithRetry(t *testing.T, network, addr string) (jsonrpc2.Conn, net.Conn) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		nc, err := net.DialTimeout(network, addr, time.Second)
-		if err == nil {
-			return jsonrpc2.NewConn(jsonrpc2.NewStream(nc)), nc
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("dial %s %s: %v", network, addr, err)
-		}
-		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -28,15 +28,21 @@ func echoHandler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Reque
 
 // dialConn dials addr on network and returns a client [jsonrpc2.Conn] over the
 // LSP header framing that the server uses, together with the underlying net.Conn
-// so the caller can close it.
+// so the caller can close it. It retries briefly so a test does not race a
+// server that binds its listener asynchronously (such as ListenAndServe).
 func dialConn(t *testing.T, network, addr string) (jsonrpc2.Conn, net.Conn) {
 	t.Helper()
-	nc, err := net.DialTimeout(network, addr, 5*time.Second)
-	if err != nil {
-		t.Fatalf("dial %s %s: %v", network, addr, err)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		nc, err := net.DialTimeout(network, addr, time.Second)
+		if err == nil {
+			return jsonrpc2.NewConn(jsonrpc2.NewStream(nc)), nc
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dial %s %s: %v", network, addr, err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	conn := jsonrpc2.NewConn(jsonrpc2.NewStream(nc))
-	return conn, nc
 }
 
 // TestServeRoundTrip exercises the gopls-style serving surface end to end over a
