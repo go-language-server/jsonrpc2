@@ -62,7 +62,7 @@ func makeBenchmarkLargeCall(n int) []byte {
 	return out
 }
 
-// BenchmarkVoidRoundTrip measures the AC-P1 hot path: a call with nil params to
+// BenchmarkVoidRoundTrip measures the headline hot path: a call with nil params to
 // a handler that replies with a nil result, in the default synchronous dispatch
 // mode, over an in-memory net.Pipe. It reports ns/op and allocs/op.
 func BenchmarkVoidRoundTrip(b *testing.B) {

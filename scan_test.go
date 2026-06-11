@@ -810,7 +810,7 @@ func compactJSON(b []byte) ([]byte, error) {
 	return dst.Bytes(), nil
 }
 
-// Scanner / dispatch coverage gap review (AC-C5).
+// Scanner / dispatch coverage gap review.
 //
 // Package coverage is >= 90% of statements. The few statements that remain
 // uncovered are concentrated in the hand-written scanner and the dispatch state

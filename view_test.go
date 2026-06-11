@@ -68,7 +68,7 @@ func TestScanMessageView_DifferentialCorpus(t *testing.T) {
 
 	// FuzzScan in scan_test.go differentially checks DecodeMessage against an
 	// encoding/json oracle. This corpus ties the borrowed view scanner to that
-	// owned scanner over the benchmark shapes that matter for AC-C5: escaped
+	// owned scanner over the shapes the scanner must get right: escaped
 	// strings, duplicate fields, malformed inputs, batches, and large payloads.
 	type testCase struct {
 		name  string
