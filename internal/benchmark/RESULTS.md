@@ -76,6 +76,64 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 >   by an interface change to `Replier` that damages every handler call site for
 >   no ns gain.
 
+> **Update — Round 6 Phase 0 baseline + common-row harness correction
+> (2026-06-12).** Raw artifact:
+> `internal/benchmark/artifacts/20260612T031259Z-r6-baseline` (root + full
+> internal suite `-benchmem -count=10`, Go `go1.26.4 darwin/arm64`, Apple M3
+> Max, HEAD `7147e05`,
+> `GOEXPERIMENT=runtimefreegc,sizespecializedmalloc,runtimesecret`).
+> **Harness integrity correction:** Round 5's `a28452c` switched the shared
+> `newJSONRPC2Adapter` to `NewChannelStreamPair`, so every `jsonrpc2/common`
+> row silently measured the channel transport while jrpc2/mcp common rows
+> stayed on net.Pipe — the documented same-transport contract did not hold.
+> Fixed in `5a0a824` (`newJSONRPC2CommonAdapter`, net.Pipe + NDJSON); the
+> corrected common baseline is
+> `internal-benchmark-common-corrected.txt` (void `2.910 us`/336 B/6 allocs,
+> notify `1.034 us`/3 allocs, params large `9.514 us`/9 allocs). Round 5's
+> recorded common-row deltas (e.g. "common void -41.58%") were channel-backed
+> and are superseded. **A second harness hazard recorded for the protocol:**
+> the nested benchmark module vendors `go.lsp.dev/jsonrpc2`, so plain
+> `go test` builds run `-mod=vendor` against the vendored snapshot, not the
+> working tree; every Round 6 spike run uses `GOWORK=off GOFLAGS=-mod=mod`
+> (the same mode `bench-artifacts.sh` forces). Phase-0 numbers are valid
+> because vendor == HEAD at capture. **Phase-0 anchors (arm64):** root
+> `BenchmarkVoidRoundTrip` `2.914 us +/-1%`/308 B/4 allocs; channel-native
+> void `1.972 us`/640 B/11 allocs; notify native `681 ns`/4 allocs; params
+> large native `7.255 us`/9.36 KiB/13 allocs. Alloc census matches the
+> Round-6 plan exactly (replier closure 31.5%, `&Call{}` box 30.2%,
+> `incomingRequest` 28.2%, method string 9.8% of root-void objects).
+> **R6-C adjudication:** params-large CPU is ~87.6% scheduling, GC tax ~6-8%
+> (clone garbage: `cloneBytes` = 93.7% of alloc_space), codec < 2%, memmove
+> < 0.5% — the params-codec lever (R6-E) stays closed and no new asm is
+> justified (no compute-bound component >= 5% on any claim row).
+
+> **Update — Round 6 R6-B channel ownership-handoff kill-test: KEEP
+> (2026-06-12).** Raw artifact:
+> `internal/benchmark/artifacts/20260612T041514Z-r6-b-ownership-kill-test`
+> (`GOWORK=off GOFLAGS=-mod=mod go test -run '^$' -bench
+> '<channel-native rows>' -benchmem -count=10`, vs the Phase-0 anchors above).
+> The kept form replaces clone-on-queue with pooled-frame ownership transfer:
+> frames are `sync.Pool`-recycled `*frameBuf` boxes composed by the sender,
+> handed through the data channel, and recycled by the receiver at its next
+> read ("valid until next read", the documented frameStream contract);
+> `writeMu` is retained as a sender breakwater in front of the channel send.
+> Gate result on the channel-native family: `RoundTripVoid` ns neutral
+> (`1.973 us +/-3%` -> `1.977 us +/-1%`, p=0.362) with **11 -> 9 allocs/op,
+> 640 -> 546 B/op**; `RoundTripVoidParallel` **P4 -11.31%, P12 -7.86%**;
+> `RoundTripParams` small **-4.60%**, medium **-6.96%**, large **-20.83% ns,
+> -51.18% B/op** (9.36 KiB -> 4.57 KiB), all params rows -2 allocs;
+> `Notify` ns neutral, **4 -> 3 allocs**; `Batch` n1 -1.87%, n4 -0.58%,
+> n16 -3.10%; geomean **-5.98%**; no channel row regressed. Two rejected
+> forms are recorded with the artifact: a per-direction free-list channel
+> (P12 +42.59%) and the pool without the sender mutex (P12 +21.93%) — both
+> died of select-lock contention (`runtime.sellock` 34.5% of P12 CPU), which
+> is why the breakwater mutex stays. One `-race` finding during the spike:
+> the frame's length must be read before the channel send, because ownership
+> transfers at the send and a fast receiver can recycle the box before the
+> sender returns. Large-row note: B alone already clears the R6-C >= 10%
+> large-row gate on the channel family, confirming the copy-bound thesis via
+> the GC-pressure mechanism the Phase-0 profile predicted.
+
 > **Update — Round 5 Phase 4 final docs and linux/amd64 refresh (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T113339Z-g011-linux-amd64-final`.
