@@ -134,6 +134,44 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > large-row gate on the channel family, confirming the copy-bound thesis via
 > the GC-pressure mechanism the Phase-0 profile predicted.
 
+> **Update — Round 6 v2 component kill-tests A1/A2/A3/A4 + combined C gate:
+> ALL KEEP (2026-06-12).** Raw artifacts:
+> `internal/benchmark/artifacts/20260612T*-r6-a1-direct-return-kill-test`,
+> `...-r6-a2-c-combined-kill-test`, `...-r6-a3-scan-into-value-kill-test`,
+> `...-r6-a4-pooled-ir-kill-test` (all `-benchmem -count=10` vs the Round-6
+> Phase-0 baseline; internal rows under `GOWORK=off GOFLAGS=-mod=mod`).
+> Staged on top of the kept R6-B tree, the four v2 components each passed
+> their pre-registered gate on root `BenchmarkVoidRoundTrip`:
+> **A1 direct-return** (`HandlerV2`, no reply closure) 4 -> 3 allocs/op,
+> 308 -> 244 B/op, ns neutral (p=0.796) — the Round-5 L3b B/op regression
+> does not recur; **A2 borrowed method/params** (`unsafe.String` span borrow
+> + params alias) 3 -> 2 allocs/op, and on the internal families params rows
+> dropped two further allocs each (native 13 -> 9 with B, common 8 -> 6) with
+> native notify 4 -> 2; **A3 scan-into-value** (concrete `RequestV2` embedded
+> in the per-request struct, no `&Call{}` box) 2 -> 1 alloc/op, 256 B/op,
+> ns **-8.74%** (p=0.000); **A4 pooled request** (`irPool`, full field reset,
+> Async-detached requests never pooled) — **0 allocs/op, 0 B/op, ns -14.45%**
+> (`2.914 us +/-1%` -> `2.493 us +/-12%`, p=0.000). The **C combined gate**
+> (A2+B) passed on BOTH transport families: `RoundTripParams/large` native
+> **-29.41%** (`7.044 us` -> `4.972 us`), common **-10.91%** (`9.455 us` ->
+> `8.423 us`), small/medium rows -4.60% to -17.02%, no valid small-row
+> regression — the large-row copy-bound thesis is confirmed through the
+> GC-pressure mechanism the Phase-0 profile predicted (cloneBytes was 93.7%
+> of alloc_space; codec < 2%, so the conditional R6-E codec lever is closed).
+> Safety findings recorded with the artifacts: (1) `-race` caught the
+> Async-retention hazard exactly as pre-mortem'd — an `AsyncHandler` reading
+> borrowed params while the successor reader refilled the buffer — fixed by
+> making the hard release the single escape point (`cloneRequestOwned` runs
+> before the successor reader starts or the batch loop resumes); (2) the
+> `jsonrpc2poison` build scribbles pooled requests and its retention test
+> passes loudly (retention also trips `-race`, which is the intended
+> defense-in-depth); (3) `TestDecodeMessage_OwnsBuffer` fails by design while
+> the borrowed-span contract replaces owns-bytes — the v2 surface work
+> rewrites that contract and test. net.Pipe rows showed late-in-batch
+> anomalies (+66%/+68%) that vanish in isolation reruns (~neutral/-6%);
+> isolation runs are the binding measurements, consistent with Round 5's
+> recorded load/order sensitivity.
+
 > **Update — Round 5 Phase 4 final docs and linux/amd64 refresh (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T113339Z-g011-linux-amd64-final`.

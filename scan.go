@@ -472,7 +472,11 @@ func (f *fields) toRequest() (Message, error) {
 		return nil, ErrInvalidRequest
 	}
 
-	method, mok := unquoteJSONString(f.method)
+	// R6-A2 spike: the method string and params span are BORROWED from the
+	// scanned frame rather than copied. The borrow is valid until the handler
+	// returns (the read loop does not reuse the frame before then); retention
+	// requires a clone. Owns-bytes tests fail by design while this spike is in.
+	method, mok := borrowJSONString(f.method)
 	if !mok {
 		return nil, ErrInvalidRequest
 	}
@@ -486,16 +490,64 @@ func (f *fields) toRequest() (Message, error) {
 
 	// An absent or null id marks a notification; otherwise it is a call.
 	if !f.hasID || isNullLiteral(f.id) {
-		buf := cloneBytes(params)
-		return &Notification{method: method, params: RawMessage(buf)}, nil
+		return &Notification{method: method, params: RawMessage(params)}, nil
 	}
 
 	id, idok := decodeID(f.id)
 	if !idok {
 		return nil, ErrInvalidRequest
 	}
-	buf := cloneBytes(params)
-	return &Call{id: id, method: method, params: RawMessage(buf)}, nil
+	return &Call{id: id, method: method, params: RawMessage(params)}, nil
+}
+
+// scanRequestV2 scans frame as a single JSON-RPC request object directly into
+// a [RequestV2] value, allocating no message box. ok=false routes the frame to
+// the general decode path: responses, batches, and malformed objects all fall
+// through so their error semantics stay identical to [DecodeMessage].
+func scanRequestV2(frame []byte) (rv RequestV2, ok bool) {
+	var f fields
+	end, sok := scanObject(frame, &f)
+	if !sok || skipSpace(frame, end) != len(frame) {
+		return RequestV2{}, false
+	}
+	if !f.hasMethod || f.hasResult || f.hasError {
+		return RequestV2{}, false
+	}
+	if f.fillRequestV2(&rv) != nil {
+		return RequestV2{}, false
+	}
+	return rv, true
+}
+
+// fillRequestV2 validates a scanned request object and fills r with borrowed
+// method and params spans. It mirrors toRequest without the message-box and
+// payload allocations.
+func (f *fields) fillRequestV2(r *RequestV2) error {
+	if !f.validVersion() {
+		return ErrInvalidRequest
+	}
+
+	method, mok := borrowJSONString(f.method)
+	if !mok {
+		return ErrInvalidRequest
+	}
+
+	var params []byte
+	if f.hasParams && !isNullLiteral(f.params) {
+		params = f.params
+	}
+
+	if !f.hasID || isNullLiteral(f.id) {
+		*r = RequestV2{method: method, params: RawMessage(params)}
+		return nil
+	}
+
+	id, idok := decodeID(f.id)
+	if !idok {
+		return ErrInvalidRequest
+	}
+	*r = RequestV2{id: id, method: method, params: RawMessage(params), isCall: true}
+	return nil
 }
 
 // toResponse builds a [*Response] from a response object. A present "error"

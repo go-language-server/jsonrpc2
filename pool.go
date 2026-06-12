@@ -50,3 +50,49 @@ func cloneBytes(src []byte) []byte {
 	copy(dst, src)
 	return dst
 }
+
+// irPool recycles incomingRequest structs across the direct-return dispatch
+// path. A pooled request is the per-request context, release token, replied
+// flag, and request body in one allocation, so recycling it makes the
+// synchronous dispatch path allocation-free.
+var irPool = sync.Pool{
+	New: func() any {
+		return &incomingRequest{}
+	},
+}
+
+// getIncomingRequest returns a reset request from the pool.
+func getIncomingRequest() *incomingRequest {
+	return irPool.Get().(*incomingRequest)
+}
+
+// putIncomingRequestUnlessDetached recycles ir after dispatch finishes, except
+// when the request hard-released itself (Async): a detached request's
+// lifetime escaped the dispatch path, so it is left to the garbage collector
+// rather than risking reuse under a live reference.
+func putIncomingRequestUnlessDetached(ir *incomingRequest) {
+	if ir.rel.handedOff {
+		return
+	}
+	putIncomingRequest(ir)
+}
+
+// putIncomingRequest resets every field of ir (mirroring putWaiter's
+// discipline) and returns it to the pool. Under the jsonrpc2poison build tag
+// the request body is scribbled with loud sentinels instead of zeroed, so a
+// handler that illegally retained the request observes the poison rather than
+// silently reading a recycled request's data.
+func putIncomingRequest(ir *incomingRequest) {
+	ir.req = nil
+	ir.parent = nil
+	ir.realCtx = nil
+	ir.realCancel = nil
+	ir.reqV2 = RequestV2{}
+	ir.rel = releaser{}
+	ir.id = ID{}
+	ir.replied.done.Store(false)
+	ir.isCall = false
+	ir.canceled = false
+	poisonRequest(&ir.reqV2)
+	irPool.Put(ir)
+}

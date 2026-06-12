@@ -32,45 +32,57 @@ type frameStream interface {
 const maxConnDirectUnmarshalResult = 64 << 10
 
 // readNext reads the next frame and classifies it. On success exactly one of
-// req, msgs, or resp is non-nil: resp is set for a single response, req for a
-// single request (the common, non-batch path, which carries no slice
-// allocation), and msgs for a batch of one or more requests with batch=true. A
-// batch frame containing only malformed entries still yields the slice so the
-// dispatcher can answer with error responses.
+// req, msgs, resp, or hasRV is set: resp for a single response, req for a
+// single request on the v1 interface path, hasRV (filling *rv) for a single
+// request scanned into the caller's concrete value on the direct-return path,
+// and msgs for a batch of one or more requests with batch=true. A batch frame
+// containing only malformed entries still yields the slice so the dispatcher
+// can answer with error responses.
 //
 // When the stream does not support raw frames, readNext falls back to the
 // single-message [Stream.Read] and never reports a batch.
-func (c *conn) readNext(ctx context.Context) (req Request, msgs []Request, resp *Response, batch bool, err error) {
+func (c *conn) readNext(ctx context.Context, rv *RequestV2) (req Request, msgs []Request, resp *Response, batch, hasRV bool, err error) {
 	fs, ok := c.stream.(frameStream)
 	if !ok {
 		var msg Message
 		msg, _, err = c.stream.Read(ctx)
 		if err != nil {
-			return nil, nil, nil, false, err
+			return nil, nil, nil, false, false, err
 		}
 		if r, isResp := msg.(*Response); isResp {
-			return nil, nil, r, false, nil
+			return nil, nil, r, false, false, nil
 		}
-		return msg.(Request), nil, nil, false, nil
+		return msg.(Request), nil, nil, false, false, nil
 	}
 
 	frame, _, ferr := fs.ReadFrame(ctx)
 	if ferr != nil {
-		return nil, nil, nil, false, ferr
+		return nil, nil, nil, false, false, ferr
 	}
 
 	i := skipSpace(frame, 0)
 	if i < len(frame) && frame[i] == '[' {
 		reqs, isBatch, perr := parseBatch(frame)
 		if perr != nil {
-			return nil, nil, nil, true, perr
+			return nil, nil, nil, true, false, perr
 		}
 		// An empty array is answered with a single (unbracketed) error response, so
 		// it is routed through the non-batch path with a single synthetic member.
 		if !isBatch && len(reqs) == 1 {
-			return reqs[0], nil, nil, false, nil
+			return reqs[0], nil, nil, false, false, nil
 		}
-		return nil, reqs, nil, isBatch, nil
+		return nil, reqs, nil, isBatch, false, nil
+	}
+
+	// Direct-return mode scans a single request straight into the caller's
+	// concrete value, skipping the message box. Frames it does not recognize
+	// (responses, malformed objects) fall through to the general paths below
+	// so their semantics are unchanged.
+	if c.directHandler != nil {
+		if scanned, sok := scanRequestV2(frame); sok {
+			*rv = scanned
+			return nil, nil, nil, false, true, nil
+		}
 	}
 
 	// The scanner recognizes only the canonical response envelope emitted by
@@ -80,18 +92,18 @@ func (c *conn) readNext(ctx context.Context) (req Request, msgs []Request, resp 
 	if id, result, ok, _ := scanPipelineResultResponseNumber(frame); ok {
 		if len(result) <= maxConnDirectUnmarshalResult {
 			c.deliverNumberResponse(id, result, nil)
-			return nil, nil, nil, false, nil
+			return nil, nil, nil, false, false, nil
 		}
 	}
 
 	msg, derr := DecodeMessage(frame)
 	if derr != nil {
-		return nil, nil, nil, false, derr
+		return nil, nil, nil, false, false, derr
 	}
 	if r, isResp := msg.(*Response); isResp {
-		return nil, nil, r, false, nil
+		return nil, nil, r, false, false, nil
 	}
-	return msg.(Request), nil, nil, false, nil
+	return msg.(Request), nil, nil, false, false, nil
 }
 
 // dispatch handles one frame's worth of requests. A single request is handled
@@ -106,6 +118,12 @@ func (c *conn) readNext(ctx context.Context) (req Request, msgs []Request, resp 
 // keeps its goroutine-per-member dispatch and never hands off the reader, so it
 // always reports false.
 func (c *conn) dispatch(ctx context.Context, handler Handler, req Request, msgs []Request, batch bool) (handedOff bool) {
+	if handler == nil {
+		// Direct-return mode reaches dispatch only for boxed leftovers: batch
+		// members and the synthetic empty-batch error member, both of which
+		// reply through the closure machinery via the adapter built in goDirect.
+		handler = c.compatHandler
+	}
 	if !batch {
 		if req != nil {
 			return c.handleRequest(ctx, handler, req)

@@ -39,6 +39,15 @@ import (
 //     surfaced through [Conn.Err] rather than silently swallowed.
 type Handler func(ctx context.Context, reply Replier, req Request) error
 
+// HandlerV2 is the direct-return handler shape: the returned result (or error)
+// becomes the call's response, so dispatch needs no per-request reply closure.
+// The request is a concrete value embedded in the connection's per-request
+// bookkeeping; its method and params are borrowed and valid until the handler
+// returns. For a notification the result is discarded and a non-nil error
+// fails the connection, matching the [Handler] contract for handler-returned
+// errors.
+type HandlerV2 func(ctx context.Context, req *RequestV2) (result any, err error)
+
 // Replier sends the reply to a [Request]. It is passed to a [Handler] and must
 // be called exactly once for a [*Call].
 //
@@ -196,6 +205,12 @@ type releaser struct {
 	// ch, when non-nil, marks the batch-member mode: release closes it.
 	ch chan struct{}
 
+	// ir points back to the request this releaser belongs to. A hard release
+	// (Async) is the single escape point at which a request outlives the frame
+	// it borrows from, so release clones the request's borrowed spans in place
+	// before the read loop can advance to the next frame.
+	ir *incomingRequest
+
 	// The remaining fields drive the inline single-message handoff (ch == nil).
 	conn     *conn
 	handler  Handler
@@ -227,6 +242,15 @@ func (r *releaser) release(soft bool) {
 	}
 	r.released = true
 	r.mu.Unlock()
+
+	if !soft && r.ir != nil {
+		// The handler is detaching from the read loop, so the borrowed method and
+		// params spans must stop aliasing the transport frame before the loop can
+		// read (and thereby invalidate) the next frame. Cloning here -- before the
+		// successor reader starts or the batch dispatch loop resumes -- is what
+		// makes the hard release the single legal escape point for a request.
+		r.ir.cloneRequestOwned()
+	}
 
 	switch {
 	case r.ch != nil:

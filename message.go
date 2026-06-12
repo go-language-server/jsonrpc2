@@ -3,6 +3,30 @@
 
 package jsonrpc2
 
+// RequestV2 is the concrete request shape used by direct-return dispatch. It
+// is a value, not an interface: the scanner fills it in place and dispatch
+// embeds it in the per-request bookkeeping, so a request needs no message box.
+// Method and params spans are borrowed from the transport frame and are valid
+// until the handler returns.
+type RequestV2 struct {
+	id     ID
+	method string
+	params RawMessage
+	isCall bool
+}
+
+// ID returns the request id. It is the zero ID for a notification.
+func (r *RequestV2) ID() ID { return r.id }
+
+// Method returns the request method.
+func (r *RequestV2) Method() string { return r.method }
+
+// Params returns the request parameters, nil when absent or null.
+func (r *RequestV2) Params() RawMessage { return r.params }
+
+// IsCall reports whether the request expects a response.
+func (r *RequestV2) IsCall() bool { return r.isCall }
+
 // Call is a request that expects a [Response]. The response carries a matching
 // [ID].
 type Call struct {

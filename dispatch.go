@@ -124,13 +124,102 @@ func (c *conn) handleRequest(ctx context.Context, handler Handler, req Request) 
 	// The inline releaser carries the state for the Async handoff in typed fields
 	// (ch left nil). It is a value field of ir, so initializing it in place adds no
 	// allocation beyond ir itself.
-	ir.rel = releaser{active: true, conn: c, ctx: ctx, handler: handler}
+	ir.rel = releaser{active: true, conn: c, ctx: ctx, handler: handler, ir: ir}
 
 	reply, replied := c.replier(ir, nil)
 	c.runHandler(handler, ir, &ir.rel, reply, replied)
 	// handedOff is set by a hard release (Async) on this same read goroutine
 	// before runHandler returns, so the read carries no data race.
 	return ir.rel.handedOff
+}
+
+// setupRequestV2 registers a scanned concrete request as in-flight. It mirrors
+// setupRequest for the direct-return path: the request value is embedded in
+// the incomingRequest rather than boxed behind the v1 interface, and the
+// incomingRequest itself comes from the request pool. The optional Preempter
+// is not consulted on this path; direct mode is the v2 surface.
+func (c *conn) setupRequestV2(ctx context.Context, rv RequestV2) (ir *incomingRequest, done bool) {
+	ir = getIncomingRequest()
+	ir.parent = ctx
+	ir.id = rv.id
+	ir.isCall = rv.isCall
+	ir.reqV2 = rv
+
+	var shutErr error
+	c.updateInFlight(func(s *inFlightState) {
+		s.incoming++
+		if rv.isCall {
+			if s.incomingByID == nil {
+				s.incomingByID = make(map[ID]*incomingRequest)
+			}
+			s.incomingByID[rv.id] = ir
+			shutErr = s.shuttingDown(ErrServerClosing)
+		}
+	})
+
+	if shutErr != nil {
+		if ir.isCall && ir.replied.done.CompareAndSwap(false, true) {
+			_ = c.sendResponse(ir, ir.id, nil, nil, shutErr)
+		}
+		c.afterHandle(ir)
+		return nil, true
+	}
+
+	return ir, false
+}
+
+// handleRequestDirect dispatches a single (non-batch) incoming request through
+// the direct-return path: the handler's return values are sent as the response
+// directly, so no reply closure is allocated and no message box exists. The
+// duplicate-reply guard lives on ir.replied exactly as in the closure path,
+// shared with the panic fallback.
+func (c *conn) handleRequestDirect(ctx context.Context, rv RequestV2) (handedOff bool) {
+	ir, done := c.setupRequestV2(ctx, rv)
+	if done {
+		return false
+	}
+
+	// The successor handler is nil: a hard release (Async) hands the reader role
+	// to a fresh readIncoming with a nil handler, which keeps direct dispatch.
+	ir.rel = releaser{active: true, conn: c, ctx: ctx, ir: ir}
+
+	c.runHandlerDirect(ir)
+	return ir.rel.handedOff
+}
+
+// runHandlerDirect invokes the direct-return handler and answers the request
+// from its return values. The deferred recover answers an unanswered call and
+// fails the connection on panic, mirroring runHandler.
+//
+// The pool put is registered first so it runs last, strictly after afterHandle
+// has finished the request's bookkeeping. A hard-released (Async) request is
+// never pooled: its lifetime escaped the dispatch path, and a handler that
+// detached may legally hold the request until it returns on its own schedule.
+func (c *conn) runHandlerDirect(ir *incomingRequest) {
+	defer putIncomingRequestUnlessDetached(ir)
+	defer c.afterHandle(ir)
+	defer ir.rel.release(true)
+	defer func() {
+		if r := recover(); r != nil {
+			if ir.isCall && ir.replied.done.CompareAndSwap(false, true) {
+				_ = c.sendResponse(ir, ir.id, nil, nil, Errorf(InternalError, "jsonrpc2: handler panicked: %v", r))
+			}
+			c.fail(fmt.Errorf("jsonrpc2: handler for %q panicked: %v", ir.reqV2.method, r))
+		}
+	}()
+
+	result, err := c.directHandler(ir, &ir.reqV2)
+	if !ir.isCall {
+		// A notification has no response; a handler error is a connection-level
+		// failure, matching the closure path's contract.
+		if err != nil {
+			c.fail(err)
+		}
+		return
+	}
+	if ir.replied.done.CompareAndSwap(false, true) {
+		_ = c.sendResponse(ir, ir.id, nil, result, err)
+	}
 }
 
 // handleBatchMember dispatches one batch member. Unlike the inline
@@ -144,7 +233,7 @@ func (c *conn) handleBatchMember(ctx context.Context, handler Handler, req Reque
 		return
 	}
 
-	ir.rel = releaser{active: true, ch: make(chan struct{})}
+	ir.rel = releaser{active: true, ch: make(chan struct{}), ir: ir}
 
 	reply, replied := c.replier(ir, bc)
 

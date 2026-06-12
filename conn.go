@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -137,6 +138,14 @@ type conn struct {
 	codec     Codec
 	preempter Preempter // optional, consulted before the handler
 
+	// directHandler, when set, dispatches requests through the direct-return
+	// path: the handler's return values become the response, so no per-request
+	// reply closure is allocated. compatHandler adapts it to the closure-based
+	// [Handler] shape for the batch member path, which still funnels replies
+	// through the batch collector.
+	directHandler HandlerV2
+	compatHandler Handler
+
 	done chan struct{} // closed when the connection is fully terminated
 	seq  atomic.Int64  // last allocated outgoing call id
 
@@ -247,6 +256,12 @@ type incomingRequest struct {
 	realCtx    context.Context    // lazily created on first Done
 	realCancel context.CancelFunc // cancels realCtx; nil until realCtx is created
 
+	// reqV2 is the concrete request used by direct-return dispatch. It is a
+	// value field so the request body shares this struct's single allocation;
+	// the handler receives &ir.reqV2 (an interior pointer, no extra alloc).
+	// The v1 interface path leaves it zero and uses req instead.
+	reqV2 RequestV2
+
 	// rel and replied are value fields, not separate heap objects: folding them
 	// into incomingRequest means one dispatch-path allocation (this struct) backs
 	// the request context, the release token, and the replied flag together. The
@@ -317,6 +332,26 @@ func (ir *incomingRequest) Err() error {
 		return context.Canceled
 	default:
 		return ir.parent.Err()
+	}
+}
+
+// cloneRequestOwned replaces the request's borrowed method and params spans
+// with owned copies, in place, so the request remains valid after the read
+// loop reuses the transport frame. It runs at the hard-release (Async) escape
+// point, on the releasing goroutine, strictly before the read loop can read
+// the next frame.
+func (ir *incomingRequest) cloneRequestOwned() {
+	switch m := ir.req.(type) {
+	case *Call:
+		m.method = strings.Clone(m.method)
+		m.params = cloneBytes(m.params)
+	case *Notification:
+		m.method = strings.Clone(m.method)
+		m.params = cloneBytes(m.params)
+	case nil:
+		// Direct-return mode: the concrete request is embedded in ir.
+		ir.reqV2.method = strings.Clone(ir.reqV2.method)
+		ir.reqV2.params = cloneBytes(ir.reqV2.params)
 	}
 }
 
@@ -585,6 +620,29 @@ func (c *conn) Go(ctx context.Context, handler Handler) {
 	go c.readIncoming(ctx, handler)
 }
 
+// goDirect starts the read goroutine in direct-return dispatch mode: h2's
+// return values become the response and no reply closure is allocated per
+// request. The read loop runs with a nil [Handler]; dispatch routes single
+// requests through the direct path and adapts batch members through
+// compatHandler.
+func (c *conn) goDirect(ctx context.Context, h2 HandlerV2) {
+	c.directHandler = h2
+	c.compatHandler = func(ctx context.Context, reply Replier, req Request) error {
+		// Batch members and fallback paths still carry the boxed v1 request;
+		// adapt it to the concrete shape so one handler serves both.
+		rv := RequestV2{method: req.Method(), params: req.Params()}
+		if id, isCall := callID(req); isCall {
+			rv.id, rv.isCall = id, true
+		}
+		result, err := h2(ctx, &rv)
+		return reply(ctx, result, err)
+	}
+	c.updateInFlight(func(s *inFlightState) {
+		s.reading = true
+	})
+	go c.readIncoming(ctx, nil)
+}
+
 // readIncoming is the read goroutine. It reads frames from the stream,
 // correlates responses to waiters, and dispatches requests to the handler until
 // the stream returns an error.
@@ -605,13 +663,23 @@ func (c *conn) readIncoming(ctx context.Context, handler Handler) {
 			msgs  []Request
 			resp  *Response
 			batch bool
+			rv    RequestV2
+			hasRV bool
 		)
-		req, msgs, resp, batch, err = c.readNext(ctx)
+		req, msgs, resp, batch, hasRV, err = c.readNext(ctx, &rv)
 		if err != nil {
 			break
 		}
 		if resp != nil {
 			c.deliverResponse(resp)
+			continue
+		}
+		if hasRV {
+			if c.handleRequestDirect(ctx, rv) {
+				// The direct handler released itself with Async; a successor reader
+				// owns loop termination from here.
+				return
+			}
 			continue
 		}
 		if c.dispatch(ctx, handler, req, msgs, batch) {

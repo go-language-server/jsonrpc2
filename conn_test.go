@@ -813,7 +813,8 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(7), w)
 
-	req, msgs, resp, batch, err := c.readNext(ctx)
+	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(RequestV2))
+	_ = hasRV
 	if err != nil {
 		t.Fatalf("readNext error: %v", err)
 	}
@@ -865,7 +866,8 @@ func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(9), w)
 
-	req, msgs, resp, batch, err := c.readNext(ctx)
+	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(RequestV2))
+	_ = hasRV
 	if err != nil {
 		t.Fatalf("readNext error: %v", err)
 	}

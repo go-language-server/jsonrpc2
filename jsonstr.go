@@ -5,6 +5,7 @@ package jsonrpc2
 
 import (
 	"unicode/utf8"
+	"unsafe"
 )
 
 // hexDigits is the lookup table used when escaping control characters into the
@@ -65,6 +66,27 @@ func appendQuotedString(dst []byte, s string) []byte {
 	}
 	dst = append(dst, s[start:]...)
 	return append(dst, '"')
+}
+
+// borrowJSONString decodes a JSON string span like [unquoteJSONString], but on
+// the escape-free fast path it returns a string header aliasing the span's
+// bytes instead of copying them. The returned string is valid only as long as
+// the underlying buffer; callers own the lifetime contract.
+func borrowJSONString(span []byte) (s string, ok bool) {
+	if len(span) < 2 || span[0] != '"' || span[len(span)-1] != '"' {
+		return "", false
+	}
+	body := span[1 : len(span)-1]
+	for i := range len(body) {
+		if body[i] == '\\' {
+			// Escapes force the decoding copy; the result owns its bytes.
+			return unquoteJSONString(span)
+		}
+	}
+	if len(body) == 0 {
+		return "", true
+	}
+	return unsafe.String(unsafe.SliceData(body), len(body)), true
 }
 
 // unquoteJSONString decodes a JSON string span (including the surrounding double
