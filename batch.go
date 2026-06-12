@@ -74,26 +74,28 @@ func (c *conn) readNext(ctx context.Context, rv *Request) (req RequestMessage, m
 		return nil, reqs, nil, isBatch, false, nil
 	}
 
-	// A single request scans straight into the caller's concrete value,
-	// skipping the message box. Frames the scanner does not recognize
-	// (responses, malformed objects) fall through to the general paths below
-	// so their semantics are unchanged. Client-only connections have no
-	// handler and skip the request scan entirely.
-	if c.handler != nil {
-		if scanned, sok := scanRequest(frame); sok {
-			*rv = scanned
-			return nil, nil, nil, false, true, nil
-		}
-	}
-
-	// The scanner recognizes only the canonical response envelope emitted by
-	// this package. It is an optimization gate, not the correctness boundary:
-	// non-canonical but valid responses must fall through to DecodeMessage so
-	// extension members remain decoder-compatible.
-	if id, result, ok, _ := scanPipelineResultResponseNumber(frame); ok {
-		if len(result) <= maxConnDirectUnmarshalResult {
-			c.deliverNumberResponse(id, result, nil)
-			return nil, nil, nil, false, false, nil
+	// A single classification scan records the frame's top-level member spans
+	// once. Requests fill the caller's concrete value directly (no message
+	// box); numeric-id success responses deliver their borrowed result inline,
+	// before the next read can invalidate it. Everything the classifier does
+	// not recognize -- malformed objects, error responses, string ids,
+	// oversized results -- falls through to the general decode path below, so
+	// those semantics are unchanged. This is an optimization gate, not the
+	// correctness boundary.
+	var f fields
+	if end, ok := scanObject(frame, &f); ok && skipSpace(frame, end) == len(frame) && f.validVersion() {
+		switch {
+		case f.hasMethod && !f.hasResult && !f.hasError:
+			// Client-only connections have no handler; their peers do not send
+			// requests, and a stray one takes the boxed fallback.
+			if c.handler != nil && f.fillRequest(rv) == nil {
+				return nil, nil, nil, false, true, nil
+			}
+		case !f.hasMethod && f.hasResult && !f.hasError && f.hasID && !isNullLiteral(f.id):
+			if id, idok := decodeID(f.id); idok && id.IsNumber() && len(f.result) <= maxConnDirectUnmarshalResult {
+				c.deliverNumberResponse(id.num, f.result, nil)
+				return nil, nil, nil, false, false, nil
+			}
 		}
 	}
 
