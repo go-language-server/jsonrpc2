@@ -6,6 +6,7 @@ package jsonrpc2
 import (
 	"bytes"
 	stdjson "encoding/json"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -348,6 +349,46 @@ func TestDecodeMessage_BorrowedLifetime(t *testing.T) {
 			}
 			if owned.Method() != "m" {
 				t.Errorf("Clone().Method() = %q, want %q after input mutation", owned.Method(), "m")
+			}
+		})
+	}
+}
+
+// TestParseRequests_BorrowedLifetime pins ParseRequests' documented borrow:
+// parsed methods and params alias data and die with it, and copying before
+// reuse is the retention pattern.
+func TestParseRequests_BorrowedLifetime(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		wire string
+	}{
+		"success: parsed members borrow the input": {
+			wire: `[{"jsonrpc":"2.0","id":1,"method":"alpha","params":{"k":"v"}},{"jsonrpc":"2.0","method":"beta"}]`,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := []byte(tt.wire)
+			parsed, err := ParseRequests(in)
+			if err != nil {
+				t.Fatalf("ParseRequests: %v", err)
+			}
+			if len(parsed) != 2 || parsed[0].Err != nil || parsed[1].Err != nil {
+				t.Fatalf("ParseRequests = %+v, want two valid members", parsed)
+			}
+			ownedMethod := strings.Clone(parsed[0].Msg.Method())
+			ownedParams := string(parsed[0].Msg.Params())
+
+			for i := range in {
+				in[i] = 'Z'
+			}
+
+			if got := parsed[0].Msg.Method(); got == "alpha" {
+				t.Errorf("parsed method still reads %q after input mutation; the documented contract is a borrow", got)
+			}
+			if ownedMethod != "alpha" || ownedParams != `{"k":"v"}` {
+				t.Errorf("owned copies = (%q, %q), want (alpha, {\"k\":\"v\"}); copying before reuse must preserve the data", ownedMethod, ownedParams)
 			}
 		})
 	}

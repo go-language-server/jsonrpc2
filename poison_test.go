@@ -11,10 +11,12 @@ import (
 	"testing"
 )
 
-// TestPoisonRetainedRequestFailsLoudly proves the pooled-request poison mode:
-// a handler that illegally retains *Request past its return observes the
-// loud poison sentinels once the request has been recycled, instead of
-// silently reading a later request's data.
+// TestPoisonRetainedRequestFailsLoudly exercises the pooled-request poison
+// mode: a handler that illegally retains *Request past its return observes
+// either the poison sentinel or the next request's data -- never, silently,
+// its own stale request. Poison turns silent reuse into an attributable
+// failure on a best-effort basis; the deterministic guard is that the
+// original method must no longer be readable.
 func TestPoisonRetainedRequestFailsLoudly(t *testing.T) {
 	tests := map[string]struct {
 		method string

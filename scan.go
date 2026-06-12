@@ -476,10 +476,11 @@ func (f *fields) toRequest() (Message, error) {
 		return nil, ErrInvalidRequest
 	}
 
-	// R6-A2 spike: the method string and params span are BORROWED from the
-	// scanned frame rather than copied. The borrow is valid until the handler
-	// returns (the read loop does not reuse the frame before then); retention
-	// requires a clone. Owns-bytes tests fail by design while this spike is in.
+	// The method string and params span BORROW the scanned input rather than
+	// copying it; inside a connection the borrow is valid until the handler
+	// returns (the read loop does not reuse the frame before then), and
+	// retention requires a clone. This is the package's documented decode
+	// contract (see DecodeMessage and Handler).
 	method, mok := borrowJSONString(f.method)
 	if !mok {
 		return nil, ErrInvalidRequest
@@ -627,7 +628,11 @@ type ParsedMessage struct {
 // level (neither a single object nor an array of objects). Per-message problems
 // are reported in the Err field of the corresponding [ParsedMessage] rather than
 // failing the whole parse, mirroring the lenient behavior expected of a server
-// front-end. Each parsed message owns its bytes and aliases nothing in data.
+// front-end.
+//
+// Lifetime: each parsed message's method and params BORROW data (escape-bearing
+// strings are decoded into owned copies). They are valid only until data is
+// reused or mutated; copy what you retain. Ids and error members are owned.
 func ParseRequests(data []byte) ([]*ParsedMessage, error) {
 	i := skipSpace(data, 0)
 	if i >= len(data) {

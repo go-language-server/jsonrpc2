@@ -28,6 +28,10 @@ type Stream interface {
 	// Read decodes the next message from the stream. It returns [io.EOF] when
 	// the peer closes the connection at a clean frame boundary, and
 	// [io.ErrUnexpectedEOF] when the connection ends in the middle of a frame.
+	//
+	// A decoded request's method and params borrow the stream's read buffer
+	// and are valid only until the next Read; copy what you retain. Responses
+	// own their bytes.
 	Read(ctx context.Context) (Message, int64, error)
 
 	// Write frames msg and writes it to the stream as a single contiguous write.
@@ -115,9 +119,9 @@ type ndjsonStream struct {
 }
 
 // Read implements [Stream]. It parses one LSP header block, reads the declared
-// body into a reused buffer, and decodes the message. The decoder copies every
-// span it needs into the returned message, so reusing the body buffer across
-// reads is safe.
+// body into a reused buffer, and decodes the message. A decoded request's
+// method and params borrow that buffer and are valid only until the next
+// read; copy what you retain.
 func (s *headerStream) Read(ctx context.Context) (Message, int64, error) {
 	body, n, err := s.ReadFrame(ctx)
 	if err != nil {
@@ -290,7 +294,9 @@ func (s *headerStream) WriteFrame(ctx context.Context, data []byte) (int64, erro
 func (s *headerStream) Close() error { return s.conn.Close() }
 
 // Read implements [Stream]. It reads up to and including the next '\n', decodes
-// the JSON value that precedes it, and returns the decoded message.
+// the JSON value that precedes it, and returns the decoded message. A decoded
+// request's method and params borrow the read buffer and are valid only until
+// the next read; copy what you retain.
 func (s *ndjsonStream) Read(ctx context.Context) (Message, int64, error) {
 	body, n, err := s.ReadFrame(ctx)
 	if err != nil {

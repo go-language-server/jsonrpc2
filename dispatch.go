@@ -219,10 +219,11 @@ func (c *conn) runBatchMember(ir *incomingRequest, bc *batchCollector) {
 	}
 }
 
-// repliedFlag reports whether a request has been answered. It is shared
-// between the handler path (which answers from return values or the panic
-// fallback) and the complete path, so it is backed by an atomic to make the
-// first-answer race deterministic.
+// repliedFlag reports whether a request has been answered. Direct-return
+// dispatch answers in exactly one place per path, but an [Async]-detached
+// handler returns (and answers) on its own goroutine while connection
+// shutdown can answer the same call from another, so the first-answer claim
+// stays an atomic CAS rather than a plain bool.
 type repliedFlag struct {
 	done atomic.Bool
 }

@@ -173,8 +173,9 @@ type ParsedMessageView struct {
 // ScanRequestViews parses a single request or a batch of requests into borrowed
 // views.
 //
-// It mirrors [ParseRequests] but does not build owned [Call] or [Notification]
-// values. The returned views alias data and must not outlive the current
+// It mirrors [ParseRequests] but yields flat span views instead of boxed
+// [Call] or [Notification] messages (whose method and params likewise borrow
+// data). The returned views alias data and must not outlive the current
 // frame/callback lifetime unless cloned or converted to owned messages.
 func ScanRequestViews(data []byte) ([]ParsedMessageView, error) {
 	return AppendRequestViews(nil, data)

@@ -9,15 +9,21 @@
 // machine. The wire core encodes message envelopes by appending directly into a
 // byte buffer ([EncodeMessage], [AppendMessage], [AppendCall],
 // [AppendNotification], [AppendResponse], [AppendBatch]) and decodes them with
-// a single-pass span scanner ([DecodeMessage], [ParseRequests]), so the hot path
-// performs no reflection and copies each payload at most once.
+// a single-pass span scanner ([DecodeMessage], [ParseRequests]), so the hot
+// path performs no reflection and no payload copies: a served request borrows
+// its method and params straight from the transport frame, the request
+// bookkeeping is pooled, and dispatch is direct-return, which is what lets a
+// void round trip measure zero allocations.
 //
-// [EncodeMessage], [DecodeMessage], and [ParseRequests] return owned values.
-// For callback-scoped experimental parser fast paths, [ScanMessageView],
-// [ScanFrameView], and [AppendRequestViews] expose borrowed views over
-// caller-owned frame bytes; those views are valid only while the source frame
-// remains valid and unmodified. They are not the default owned decode path unless
-// a caller's benchmark proves that the borrowed lifetime trade-off wins.
+// The borrow has one rule: a [Handler]'s request, its Method, and its Params
+// are valid only until the handler returns. [Request.Clone] takes an owned
+// copy, [Async] clones automatically when a handler detaches, and
+// [DetachContext] keeps a context alive past the handler. The same contract
+// applies to requests decoded by [DecodeMessage] and [ParseRequests], whose
+// results borrow their input; responses and error members are owned. For
+// callback-scoped parser fast paths, [ScanMessageView], [ScanFrameView], and
+// [AppendRequestViews] expose the same kind of borrowed views over
+// caller-owned frame bytes.
 //
 // Runtime modes are explicit: [Conn]/[Peer] is bidirectional, [SingleClient]
 // serializes calls with a caller-owned read loop, [PipelineClient] keeps
@@ -26,8 +32,9 @@
 // [NewChannelStreamPair] supplies an in-memory encoded-frame transport for
 // same-process peers that still want full JSON-RPC wire encoding and scanning.
 //
-// The message types are a closed set of [*Call], [*Notification], and
-// [*Response], all of which implement the [Message] interface.
+// The wire-model message types are a closed set of [*Call], [*Notification],
+// and [*Response], all of which implement the [Message] interface; handlers
+// receive the concrete [Request] instead.
 //
 // # Framing
 //

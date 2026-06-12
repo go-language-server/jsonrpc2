@@ -76,6 +76,52 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 >   by an interface change to `Replier` that damages every handler call site for
 >   no ns gain.
 
+> **Update — Round 6 Phases 2-4: consolidated direct-return surface, final
+> combined gate (2026-06-12).** Raw artifact:
+> `internal/benchmark/artifacts/20260612T063407Z-r6-phase3-final-gate`
+> (root + internal `-benchmem -count=10`, HEAD `6f3bcfc`; two superseded gate
+> datasets retained alongside). Phase 2 shipped the survivors as ONE break,
+> then — per the maintainer's in-flight direction to drop every `V2` name —
+> the direct-return shape became THE API: the concrete struct is `Request`
+> (the wire-model interface is `RequestMessage`), `Handler` is
+> `func(ctx, *Request) (any, error)`, `Conn.Go` dispatches direct-return on
+> every connection, and `Replier`, `ReplyHandler`, `GoDirect`, and the whole
+> reply-closure machinery are deleted; batch members, the Preempter, and the
+> non-frame fallback flow through the same pooled request. `readNext` then
+> collapsed to a single classification scan per frame (one `scanObject` pass
+> serves request fill AND borrowed-result response delivery), which removed
+> the double scan client connections paid per response. Safety findings fixed
+> during the consolidation, all caught by `-race`: the batch gate channel is
+> captured before the member goroutine starts; the pool reset is factored out
+> of the put so tests never read a pooled struct; frame length reads precede
+> channel handoff. **Final claim rows (arm64, count=10 means, vs Phase 0):**
+> root `BenchmarkVoidRoundTrip` **2.480 us +/-5% (-14.88%), 0 B/op, 0
+> allocs/op**; channel-native void `1.831 us` (-7.17%), 236 B, **11 -> 5
+> allocs**; common void `2.835 us`, 28 B, 6 -> 2 allocs; `Notify` **0 B / 0
+> allocs on BOTH families** (native `584 ns` -14.29%, common `877 ns`
+> -14.70%); `RoundTripParams/large` native `5.068 us` (**-27.66%**, B/op
+> 9.36 KiB -> **262 B**), common -10.88%; `Batch/n16` **-55.8% / -54.4%**;
+> parallel P4/P12 native **-22.9% / -21.8%**; `ConnPipelined/Inflight1`
+> **0 B / 0 allocs** at -3.25%. Cross-library: jsonrpc2 is fastest by sec/op
+> mean on **27 of 27** apples-to-apples rows (`fastest-check.txt`).
+> Verification: `-race -count=2 .` green including the named concurrency
+> suites, conformance vectors green, `FuzzScan`/`FuzzRoundTrip` 30 s clean,
+> poison-build retention tests green. **Disclosures:** (1)
+> `ConnPipelinedVoidRoundTrip/Inflight256` regressed **+8.52%** (1.248 ms
+> +/-11% -> 1.354 ms +/-2%) while its allocations fell 1296 -> 261 and B/op
+> 97.4 KiB -> 17.6 KiB; the profile is 97.4% scheduling with `lock2` 31.8% +
+> `Mutex.lockSlow` 18.5% under `guardedWrite` — a 256-writer write-mutex
+> convoy that GC pauses no longer break up after the allocation wins. The
+> only fix class (write coalescing) is permanently banned by the Round-5
+> carry-forward ledger, so the row ships as a transparent cost note; every
+> shallower depth improves. (2) Parser micro guard rows
+> (`DecodeEnvelope/Response` +6.18%, `/ErrorResponse` +4.93%, DecodeView
+> rows <= +3.7%) drift by code layout; no Round-6 lever touches those paths
+> and the full-RPC response path improved everywhere
+> (`PipelineClientVoidRoundTrip` -6.7% to -10.0%). (3) The linux/amd64
+> confirmation leg did not run in this session (no CI/remote access);
+> AC-R6-3's second-arch check is deferred to the next amd64 refresh.
+
 > **Update — Round 6 Phase 0 baseline + common-row harness correction
 > (2026-06-12).** Raw artifact:
 > `internal/benchmark/artifacts/20260612T031259Z-r6-baseline` (root + full

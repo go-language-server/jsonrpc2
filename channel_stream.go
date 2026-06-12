@@ -99,6 +99,8 @@ type channelStream struct {
 	writeMu sync.Mutex
 }
 
+// Read implements [Stream]. A decoded request's method and params borrow the
+// delivered frame, which is recycled at the next read; copy what you retain.
 func (s *channelStream) Read(ctx context.Context) (Message, int64, error) {
 	frame, n, err := s.ReadFrame(ctx)
 	if err != nil {
@@ -120,7 +122,11 @@ func (s *channelStream) Write(ctx context.Context, msg Message) (int64, error) {
 	// array the frame carried is dropped for the collector.
 	fb := getFrameBuf()
 	fb.b = frame
-	return s.sendFrame(ctx, fb)
+	n, serr := s.sendFrame(ctx, fb)
+	if serr != nil {
+		putFrameBuf(fb)
+	}
+	return n, serr
 }
 
 func (s *channelStream) ReadFrame(ctx context.Context) (frame []byte, n int64, err error) {

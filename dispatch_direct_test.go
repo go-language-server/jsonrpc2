@@ -5,6 +5,7 @@ package jsonrpc2
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -215,6 +216,74 @@ func TestDirectAsyncClonesRequest(t *testing.T) {
 			got := <-gotMethod
 			if got[0] != tt.first || got[1] != tt.params {
 				t.Errorf("async handler observed (method, params) = (%q, %q), want (%q, %q); the hard release must clone the borrowed spans", got[0], got[1], tt.first, tt.params)
+			}
+		})
+	}
+}
+
+// TestDirectBatchAsyncMemberClonesRequest pins the batch arm of the
+// single-escape-point contract: a batch member that releases itself with
+// [Async] keeps valid method and params after later frames have reused the
+// transport buffer, because the hard release cloned the borrowed spans.
+func TestDirectBatchAsyncMemberClonesRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		frame  string
+		others int
+	}{
+		"success: async batch member survives later frames": {
+			frame:  `[{"jsonrpc":"2.0","id":1,"method":"pin","params":{"keep":"me"}},{"jsonrpc":"2.0","id":2,"method":"quick"}]`,
+			others: 8,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			a, b := NewChannelStreamPair(4)
+			observed := make(chan [2]string, 1)
+			release := make(chan struct{})
+
+			server := NewConn(b)
+			server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+				if req.Method() != "pin" {
+					return req.Method(), nil
+				}
+				Async(ctx)
+				<-release
+				observed <- [2]string{req.Method(), string(req.Params())}
+				return "pinned", nil
+			})
+			t.Cleanup(func() {
+				_ = server.Close()
+				<-server.Done()
+			})
+
+			fw := a.(frameStream)
+			if _, err := fw.WriteFrame(ctx, []byte(tt.frame)); err != nil {
+				t.Fatalf("WriteFrame: %v", err)
+			}
+			// Drive later single requests through the same frame pool while the
+			// async member is parked.
+			for i := range tt.others {
+				wire := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"later","params":{"overwrite":"frame %d"}}`, 100+i, i)
+				if _, err := fw.WriteFrame(ctx, []byte(wire)); err != nil {
+					t.Fatalf("later WriteFrame: %v", err)
+				}
+				if _, _, err := fw.ReadFrame(ctx); err != nil {
+					t.Fatalf("later ReadFrame: %v", err)
+				}
+			}
+			close(release)
+
+			got := <-observed
+			if got[0] != "pin" || got[1] != `{"keep":"me"}` {
+				t.Errorf("async batch member observed (method, params) = (%q, %q), want (pin, {\"keep\":\"me\"}); the hard release must clone the borrowed spans", got[0], got[1])
+			}
+			// Drain the batch response array.
+			if _, _, err := fw.ReadFrame(ctx); err != nil {
+				t.Fatalf("batch response ReadFrame: %v", err)
 			}
 		})
 	}
