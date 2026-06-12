@@ -70,6 +70,16 @@ type Conn interface {
 	// [Conn.Err].
 	Go(ctx context.Context, handler Handler)
 
+	// GoDirect starts the connection's read goroutine in direct-return
+	// dispatch mode: handler's return values become the response, no reply
+	// closure is allocated, and the request is a pooled concrete value whose
+	// method and params are borrowed from the transport frame. The borrow is
+	// valid until the handler returns; a handler that retains the request or
+	// releases itself with [Async] must take [RequestV2.Clone] first (Async
+	// clones automatically). Like [Conn.Go], it must be called exactly once
+	// per Conn, and the reentrancy and teardown contracts are identical.
+	GoDirect(ctx context.Context, handler HandlerV2)
+
 	// Close stops accepting new work, waits for in-flight calls and handlers to
 	// drain, closes the underlying stream, and blocks until the connection has
 	// fully terminated (the read goroutine has exited). It reports the stream's
@@ -620,12 +630,10 @@ func (c *conn) Go(ctx context.Context, handler Handler) {
 	go c.readIncoming(ctx, handler)
 }
 
-// goDirect starts the read goroutine in direct-return dispatch mode: h2's
-// return values become the response and no reply closure is allocated per
-// request. The read loop runs with a nil [Handler]; dispatch routes single
-// requests through the direct path and adapts batch members through
-// compatHandler.
-func (c *conn) goDirect(ctx context.Context, h2 HandlerV2) {
+// GoDirect implements [Conn]. The read loop runs with a nil [Handler];
+// dispatch routes single requests through the direct path and adapts batch
+// members through compatHandler.
+func (c *conn) GoDirect(ctx context.Context, h2 HandlerV2) {
 	c.directHandler = h2
 	c.compatHandler = func(ctx context.Context, reply Replier, req Request) error {
 		// Batch members and fallback paths still carry the boxed v1 request;

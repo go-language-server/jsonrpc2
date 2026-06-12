@@ -405,10 +405,14 @@ func scanErrorObject(span []byte, codeSpan, msgSpan, dataSpan *[]byte) (ok bool)
 //
 // The decoder uses a hand-written span scanner: it locates the recognized
 // top-level members without building a map or decoding into a reflection
-// struct, then copies the bytes it needs (id, method, params, result, error)
-// into a single right-sized allocation owned by the returned message. No
-// [RawMessage] in the result aliases data, so the caller may safely reuse or
-// mutate data after the call returns.
+// struct and builds the message from the recorded spans.
+//
+// Lifetime contract (v2): a decoded request's method string and params
+// [RawMessage] BORROW data — they are valid only until data is reused or
+// mutated. Inside a connection the borrow is bounded by "until the handler
+// returns"; a caller that needs the request afterward must copy what it
+// retains (see [RequestV2.Clone] for the concrete request shape). Response
+// results and error members are still copied into owned allocations.
 //
 // A batch (a value whose first non-whitespace byte is '[') is rejected; use
 // [ParseRequests] to handle single-or-batch request input.

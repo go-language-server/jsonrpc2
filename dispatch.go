@@ -184,19 +184,24 @@ func (c *conn) handleRequestDirect(ctx context.Context, rv RequestV2) (handedOff
 	ir.rel = releaser{active: true, conn: c, ctx: ctx, ir: ir}
 
 	c.runHandlerDirect(ir)
-	return ir.rel.handedOff
+
+	// The pool put is the LAST touch on ir: it must come after the handedOff
+	// read, because the instant ir is pooled another reader can recycle it and
+	// overwrite ir.rel. A hard-released (Async) request is never pooled -- its
+	// lifetime escaped the dispatch path and a detached handler may legally
+	// hold it until it returns on its own schedule.
+	handedOff = ir.rel.handedOff
+	if !handedOff {
+		putIncomingRequest(ir)
+	}
+	return handedOff
 }
 
 // runHandlerDirect invokes the direct-return handler and answers the request
 // from its return values. The deferred recover answers an unanswered call and
-// fails the connection on panic, mirroring runHandler.
-//
-// The pool put is registered first so it runs last, strictly after afterHandle
-// has finished the request's bookkeeping. A hard-released (Async) request is
-// never pooled: its lifetime escaped the dispatch path, and a handler that
-// detached may legally hold the request until it returns on its own schedule.
+// fails the connection on panic, mirroring runHandler. The caller owns the
+// pool put (after its final read of ir), so ir is fully alive throughout.
 func (c *conn) runHandlerDirect(ir *incomingRequest) {
-	defer putIncomingRequestUnlessDetached(ir)
 	defer c.afterHandle(ir)
 	defer ir.rel.release(true)
 	defer func() {

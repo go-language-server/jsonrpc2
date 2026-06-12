@@ -3,6 +3,8 @@
 
 package jsonrpc2
 
+import "strings"
+
 // RequestV2 is the concrete request shape used by direct-return dispatch. It
 // is a value, not an interface: the scanner fills it in place and dispatch
 // embeds it in the per-request bookkeeping, so a request needs no message box.
@@ -26,6 +28,22 @@ func (r *RequestV2) Params() RawMessage { return r.params }
 
 // IsCall reports whether the request expects a response.
 func (r *RequestV2) IsCall() bool { return r.isCall }
+
+// Clone returns a copy of the request whose method and params own their
+// bytes, safe to retain after the handler returns. It is the escape hatch for
+// the borrowed-lifetime contract: the original request's spans alias the
+// transport frame and die with the handler, and the original struct itself is
+// recycled, so any retention must go through Clone.
+func (r *RequestV2) Clone() *RequestV2 {
+	// The id already owns its bytes (decodeID copies string ids), so a plain
+	// copy suffices; only the method and params spans borrow from the frame.
+	return &RequestV2{
+		id:     r.id,
+		method: strings.Clone(r.method),
+		params: RawMessage(cloneBytes(r.params)),
+		isCall: r.isCall,
+	}
+}
 
 // Call is a request that expects a [Response]. The response carries a matching
 // [ID].

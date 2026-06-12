@@ -71,7 +71,7 @@ func BenchmarkVoidRoundTrip(b *testing.B) {
 	client := NewConn(NewNDJSONStream(ca))
 	server := NewConn(NewNDJSONStream(cb))
 	client.Go(ctx, MethodNotFoundHandler)
-	server.(*conn).goDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
+	server.GoDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
 		return nil, nil
 	})
 	defer func() {

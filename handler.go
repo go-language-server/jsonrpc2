@@ -46,7 +46,33 @@ type Handler func(ctx context.Context, reply Replier, req Request) error
 // returns. For a notification the result is discarded and a non-nil error
 // fails the connection, matching the [Handler] contract for handler-returned
 // errors.
+//
+// Lifetime contract: req, its Method, and its Params are valid only until the
+// handler returns; the struct is recycled afterward. The three legal retention
+// patterns are:
+//
+//  1. Copy what you need before returning (unmarshal params, copy the method).
+//  2. Take [RequestV2.Clone] and retain the owned clone.
+//  3. Release with [Async], which clones the request in place automatically;
+//     the request then remains valid until the (now concurrent) handler
+//     returns.
+//
+// The per-request ctx likewise dies with the handler; use [DetachContext] for
+// work that outlives it. Builds tagged jsonrpc2poison scribble recycled
+// requests so violations fail loudly in tests.
 type HandlerV2 func(ctx context.Context, req *RequestV2) (result any, err error)
+
+// DetachContext returns a context that is safe to retain after the handler
+// returns. The per-request context handed to a handler is pooled and recycled
+// with the request, so retaining it past the handler's return is illegal;
+// DetachContext steps up to the connection-lifetime parent, keeping its values
+// and deadline but dropping the request-scoped cancellation.
+func DetachContext(ctx context.Context) context.Context {
+	if ir, ok := ctx.(*incomingRequest); ok {
+		return ir.parent
+	}
+	return ctx
+}
 
 // Replier sends the reply to a [Request]. It is passed to a [Handler] and must
 // be called exactly once for a [*Call].

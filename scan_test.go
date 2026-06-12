@@ -305,25 +305,51 @@ func TestDecodeMessage_OpaqueContainerInterior(t *testing.T) {
 	}
 }
 
-// TestDecodeMessage_OwnsBuffer is the single test guarding pre-mortem #1: the
-// decoded message must not alias the input buffer.
-func TestDecodeMessage_OwnsBuffer(t *testing.T) {
+// TestDecodeMessage_BorrowedLifetime pins the v2 decode contract: a decoded
+// request's method and params BORROW the input buffer (they are valid only as
+// long as the input is unchanged), and the escape hatch for retention is
+// [RequestV2.Clone], which must own its bytes.
+func TestDecodeMessage_BorrowedLifetime(t *testing.T) {
 	t.Parallel()
 
-	in := []byte(`{"jsonrpc":"2.0","method":"m","params":{"k":"value"},"id":1}`)
-	msg, err := DecodeMessage(in)
-	if err != nil {
-		t.Fatalf("DecodeMessage error: %v", err)
+	tests := map[string]struct {
+		wire string
+	}{
+		"success: params borrow the input and Clone owns them": {
+			wire: `{"jsonrpc":"2.0","method":"m","params":{"k":"value"},"id":1}`,
+		},
 	}
-	call := msg.(*Call)
-	before := string(call.Params())
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := []byte(tt.wire)
+			msg, err := DecodeMessage(in)
+			if err != nil {
+				t.Fatalf("DecodeMessage error: %v", err)
+			}
+			call := msg.(*Call)
+			before := string(call.Params())
 
-	// Mutate every byte of the input; the decoded params must be unaffected.
-	for i := range in {
-		in[i] = 'Z'
-	}
-	if string(call.Params()) != before {
-		t.Errorf("params aliased input buffer: got %q, want %q", call.Params(), before)
+			rv, ok := scanRequestV2(in)
+			if !ok {
+				t.Fatalf("scanRequestV2 rejected a valid request")
+			}
+			owned := rv.Clone()
+
+			// Mutate every byte of the input. The borrowed views must observe the
+			// mutation (aliasing IS the contract), while the clone must not.
+			for i := range in {
+				in[i] = 'Z'
+			}
+			if string(call.Params()) == before {
+				t.Errorf("decoded params did not alias the input buffer; the borrowed-lifetime contract expects aliasing")
+			}
+			if got := string(owned.Params()); got != before {
+				t.Errorf("Clone().Params() = %q, want owned copy %q after input mutation", got, before)
+			}
+			if owned.Method() != "m" {
+				t.Errorf("Clone().Method() = %q, want %q after input mutation", owned.Method(), "m")
+			}
+		})
 	}
 }
 

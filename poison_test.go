@@ -30,7 +30,7 @@ func TestPoisonRetainedRequestFailsLoudly(t *testing.T) {
 			client.Go(ctx, MethodNotFoundHandler)
 
 			retained := make(chan *RequestV2, 1)
-			server.(*conn).goDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
+			server.GoDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
 				// Illegal retention: the pointer must not outlive the handler.
 				select {
 				case retained <- req:
