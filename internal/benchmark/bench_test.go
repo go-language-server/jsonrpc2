@@ -37,7 +37,7 @@ func nativeAdapters() []adapterFactory {
 // channel.RawJSON, mcp via the ndjson Reader/Writer in adapters.go.
 func commonAdapters() []adapterFactory {
 	return []adapterFactory{
-		{"jsonrpc2/common", func(ctx context.Context) (rpcClient, error) { return newJSONRPC2Adapter(ctx) }},
+		{"jsonrpc2/common", func(ctx context.Context) (rpcClient, error) { return newJSONRPC2CommonAdapter(ctx) }},
 		{"jrpc2/common", func(ctx context.Context) (rpcClient, error) { return newJRPC2CommonAdapter(ctx) }},
 		{"mcp/common", func(ctx context.Context) (rpcClient, error) { return newMCPAdapter(ctx) }},
 	}

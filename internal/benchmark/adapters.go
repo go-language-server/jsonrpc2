@@ -111,6 +111,18 @@ func newJSONRPC2Adapter(ctx context.Context) (*jsonrpc2Adapter, error) {
 	})
 }
 
+// newJSONRPC2CommonAdapter builds a jsonrpc2 client/server pair over the shared
+// common-family transport: a net.Pipe pair with newline-delimited JSON framing,
+// the same family jrpc2 (channel.RawJSON) and mcp (ndjson Reader/Writer) use.
+// It exists so the common rows keep measuring the documented same-transport
+// comparison after the native rows moved to the in-memory channel stream.
+func newJSONRPC2CommonAdapter(ctx context.Context) (*jsonrpc2Adapter, error) {
+	return newJSONRPC2AdapterWithPair(ctx, func() (jsonrpc2.Stream, jsonrpc2.Stream) {
+		ca, cb := net.Pipe()
+		return jsonrpc2.NewNDJSONStream(ca), jsonrpc2.NewNDJSONStream(cb)
+	})
+}
+
 // newJSONRPC2HeaderAdapter builds a jsonrpc2 adapter that uses the LSP header framing
 // on both the main and batch transports.
 func newJSONRPC2HeaderAdapter(ctx context.Context) (*jsonrpc2Adapter, error) {
