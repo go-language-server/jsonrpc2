@@ -78,7 +78,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 
 > **Update — Round 6 Phases 2-4: consolidated direct-return surface, final
 > combined gate (2026-06-12).** Raw artifact:
-> `internal/benchmark/artifacts/20260612T063407Z-r6-phase3-final-gate`
+> `internal/benchmark/artifacts/20260612T072858Z-r6-phase3-final-gate`
 > (root + internal `-benchmem -count=10`, HEAD `6f3bcfc`; two superseded gate
 > datasets retained alongside). Phase 2 shipped the survivors as ONE break,
 > then — per the maintainer's in-flight direction to drop every `V2` name —
@@ -121,6 +121,51 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > (`PipelineClientVoidRoundTrip` -6.7% to -10.0%). (3) The linux/amd64
 > confirmation leg did not run in this session (no CI/remote access);
 > AC-R6-3's second-arch check is deferred to the next amd64 refresh.
+> (4) Wire-behavior delta of the direct-return shape: a call handler that
+> returns the zero values now answers with a SUCCESS response carrying a
+> null result, because the unanswered-call state ("returned without
+> replying" -> InternalError) is unrepresentable when the return values ARE
+> the reply. Spec-valid and judged an improvement by the architecture
+> review, but downstream callers that matched the old InternalError must
+> adjust (robustness_test.go records both sides of the change).
+>
+> **Ralph current-HEAD verification refresh (2026-06-20).** Raw artifact:
+> `internal/benchmark/artifacts/20260620T022736Z-r6-ralph-current-head-verification`
+> (ignored artifact directory, HEAD `425922c`). This refresh records current
+> evidence for the two documentation-only commits that landed after the
+> 2026-06-12 final gate. Local darwin/arm64 reruns on Go `go1.26.4` with
+> `GOEXPERIMENT=runtimefreegc,sizespecializedmalloc,runtimesecret` keep the
+> root `BenchmarkVoidRoundTrip` floor at **0 B/op, 0 allocs/op** (focused
+> count=3 samples: 2.982-2.989 us), channel-native void at **236 B/op,
+> 5 allocs/op**, params-large native at **261 B/op, 6 allocs/op**, and
+> `Notify` at **0 B/op, 0 allocs/op** on both jsonrpc2 families. The linux/amd64
+> leg was refreshed with a temporary bundle clone of the same HEAD on
+> `debian-13-trixie-mnx1` (`go1.26.4 linux/amd64`, Intel Xeon Platinum 8481C):
+> root void remains **0 B/op, 0 allocs/op** (4.114-4.528 us), channel-native
+> void is **238 B/op, 5 allocs/op**, params-large native is **263 B/op,
+> 6 allocs/op**, and `Notify` is **0 B/op, 0 allocs/op** on both jsonrpc2
+> families. Fresh correctness gates also passed in this Ralph run: local
+> `go test -mod=mod ./...`, `go test -mod=mod -race -count=2 .`, poison-build
+> retention test, `go vet ./...`, `git diff --check`, root-module `gopls check`,
+> internal benchmark tests, and linux/amd64 root tests on the temp clone.
+
+> **Next-plan reconciliation (Ralph, 2026-06-20).** Raw artifact:
+> `internal/benchmark/artifacts/20260620T032629Z-next-viable-plan-reconciliation`
+> (ignored artifact directory, HEAD `425922c`). The requested "next viable
+> unexecuted performance plan" set was reconciled against current HEAD in order:
+> `.omc/plans/next-layer-perf-optimization.md`,
+> `.omc/plans/world-fastest-jsonrpc2-rewrite.md`,
+> `.omx/plans/jsonrpc2-netpoll-gnet-server-mode-probe-plan-20260606.md`,
+> `.omc/plans/zero-alloc-v2-perf-round6.md`,
+> `.omc/plans/unlocked-levers-perf-round.md`, and this RESULTS ledger. No
+> additional implementation remains in that candidate set without a new
+> mechanism class: the next-layer allocation/sync/borrow/direct-mode/SIMD
+> levers were shipped, superseded, or killed by Rounds 5-6; the rewrite plan is
+> the architecture now represented by the current code and benchmark harness;
+> and the netpoll/gnet server probe is already implemented as benchmark-only
+> rows with both production candidates rejected for adoption below. This entry
+> exists to prevent future runs from re-opening stale plan files as if they were
+> unexecuted implementation work.
 
 > **Update — Round 6 Phase 0 baseline + common-row harness correction
 > (2026-06-12).** Raw artifact:
