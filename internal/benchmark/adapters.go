@@ -145,16 +145,16 @@ func newJSONRPC2AdapterWithPair(ctx context.Context, pair func() (jsonrpc2.Strea
 	server := jsonrpc2.NewConn(cb)
 
 	client.Go(ctx, jsonrpc2.MethodNotFoundHandler)
-	// The server dispatches through the package's v2 direct-return surface,
-	// which is its production zero-alloc path (the closure-based Go remains
-	// available; the comparative rows measure each library's native shape).
-	server.GoDirect(ctx, func(ctx context.Context, req *jsonrpc2.RequestV2) (any, error) {
+	// The server dispatches through the package's direct-return handler, its
+	// production zero-alloc path (the comparative rows measure each library's
+	// native handler shape).
+	server.Go(ctx, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		return nil, nil
 	})
 
 	bca, bcb := pair()
 	batchServer := jsonrpc2.NewConn(bcb)
-	batchServer.GoDirect(ctx, func(ctx context.Context, req *jsonrpc2.RequestV2) (any, error) {
+	batchServer.Go(ctx, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		return nil, nil
 	})
 

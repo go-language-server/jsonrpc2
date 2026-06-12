@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,8 +22,8 @@ func TestSingleClientModeRoundTrip(t *testing.T) {
 		t.Fatalf("NewSingleClient: %v", err)
 	}
 	server := NewServer(NewNDJSONStream(cb))
-	server.Go(t.Context(), func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, RawMessage(`{"mode":"single"}`), nil)
+	server.Go(t.Context(), func(ctx context.Context, req *Request) (any, error) {
+		return RawMessage(`{"mode":"single"}`), nil
 	})
 	t.Cleanup(func() {
 		_ = client.Close()
@@ -46,8 +47,8 @@ func TestPipelineClientModeBridgeRoundTrip(t *testing.T) {
 	client := NewPipelineClient(NewNDJSONStream(ca))
 	server := NewServer(NewNDJSONStream(cb))
 	client.Go(t.Context(), MethodNotFoundHandler)
-	server.Go(t.Context(), func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, RawMessage(`{"mode":"pipeline"}`), nil)
+	server.Go(t.Context(), func(ctx context.Context, req *Request) (any, error) {
+		return RawMessage(`{"mode":"pipeline"}`), nil
 	})
 	t.Cleanup(func() {
 		_ = client.Close()
@@ -73,8 +74,8 @@ func TestPipelineClientErrorResponse(t *testing.T) {
 	client := NewPipelineClient(NewNDJSONStream(ca))
 	server := NewServer(NewNDJSONStream(cb))
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, nil, ErrMethodNotFound)
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+		return nil, ErrMethodNotFound
 	})
 	t.Cleanup(func() {
 		closeBoth(t, client, server)
@@ -94,9 +95,11 @@ func TestPipelineClientNotify(t *testing.T) {
 	server := NewServer(NewNDJSONStream(cb))
 	gotc := make(chan string, 1)
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-		gotc <- req.Method()
-		return nil
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+		// The request's method string is borrowed; clone it before it escapes
+		// the handler through the channel.
+		gotc <- strings.Clone(req.Method())
+		return nil, nil
 	})
 	t.Cleanup(func() {
 		closeBoth(t, client, server)
@@ -126,10 +129,10 @@ func TestPipelineClientContextCancelStopsWaiting(t *testing.T) {
 	started := make(chan struct{})
 	var releaseOnce sync.Once
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		close(started)
 		<-release
-		return reply(ctx, nil, nil)
+		return nil, nil
 	}))
 	t.Cleanup(func() {
 		releaseOnce.Do(func() { close(release) })
@@ -171,10 +174,10 @@ func TestPipelineClientCloseAbortsInFlightCall(t *testing.T) {
 	started := make(chan struct{})
 	var releaseOnce sync.Once
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		close(started)
 		<-release
-		return reply(ctx, nil, nil)
+		return nil, nil
 	}))
 	t.Cleanup(func() {
 		releaseOnce.Do(func() { close(release) })
@@ -233,18 +236,19 @@ func TestPipelineClientCanceledCallLateResponseDoesNotReachLaterCall(t *testing.
 	slowReplied := make(chan error, 1)
 	var slowReleaseOnce sync.Once
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		switch req.Method() {
 		case "slow":
 			close(slowStarted)
 			<-slowRelease
-			err := reply(ctx, "late", nil)
-			slowReplied <- err
-			return err
+			// The direct shape sends the late response after return; the channel
+			// send keeps the test's ordering observable.
+			slowReplied <- nil
+			return "late", nil
 		case "fast":
-			return reply(ctx, "fast", nil)
+			return "fast", nil
 		default:
-			return reply(ctx, nil, ErrMethodNotFound)
+			return nil, ErrMethodNotFound
 		}
 	}))
 	t.Cleanup(func() {
@@ -307,16 +311,16 @@ func TestPeerAndServerModeBidirectionalCall(t *testing.T) {
 	ca, cb := net.Pipe()
 	peer := NewPeer(NewNDJSONStream(ca))
 	server := NewServer(NewNDJSONStream(cb))
-	peer.Go(t.Context(), func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, RawMessage(`"peer-answer"`), nil)
+	peer.Go(t.Context(), func(ctx context.Context, req *Request) (any, error) {
+		return RawMessage(`"peer-answer"`), nil
 	})
-	server.Go(t.Context(), func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(t.Context(), func(ctx context.Context, req *Request) (any, error) {
 		Async(ctx)
 		var got RawMessage
 		if _, err := server.Call(ctx, "askPeer", nil, &got); err != nil {
-			return reply(ctx, nil, err)
+			return nil, err
 		}
-		return reply(ctx, got, nil)
+		return got, nil
 	})
 	t.Cleanup(func() {
 		_ = peer.Close()

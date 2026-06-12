@@ -411,7 +411,7 @@ func scanErrorObject(span []byte, codeSpan, msgSpan, dataSpan *[]byte) (ok bool)
 // [RawMessage] BORROW data — they are valid only until data is reused or
 // mutated. Inside a connection the borrow is bounded by "until the handler
 // returns"; a caller that needs the request afterward must copy what it
-// retains (see [RequestV2.Clone] for the concrete request shape). Response
+// retains (see [Request.Clone] for the concrete request shape). Response
 // results and error members are still copied into owned allocations.
 //
 // A batch (a value whose first non-whitespace byte is '[') is rejected; use
@@ -504,29 +504,29 @@ func (f *fields) toRequest() (Message, error) {
 	return &Call{id: id, method: method, params: RawMessage(params)}, nil
 }
 
-// scanRequestV2 scans frame as a single JSON-RPC request object directly into
-// a [RequestV2] value, allocating no message box. ok=false routes the frame to
+// scanRequest scans frame as a single JSON-RPC request object directly into
+// a [Request] value, allocating no message box. ok=false routes the frame to
 // the general decode path: responses, batches, and malformed objects all fall
 // through so their error semantics stay identical to [DecodeMessage].
-func scanRequestV2(frame []byte) (rv RequestV2, ok bool) {
+func scanRequest(frame []byte) (rv Request, ok bool) {
 	var f fields
 	end, sok := scanObject(frame, &f)
 	if !sok || skipSpace(frame, end) != len(frame) {
-		return RequestV2{}, false
+		return Request{}, false
 	}
 	if !f.hasMethod || f.hasResult || f.hasError {
-		return RequestV2{}, false
+		return Request{}, false
 	}
-	if f.fillRequestV2(&rv) != nil {
-		return RequestV2{}, false
+	if f.fillRequest(&rv) != nil {
+		return Request{}, false
 	}
 	return rv, true
 }
 
-// fillRequestV2 validates a scanned request object and fills r with borrowed
+// fillRequest validates a scanned request object and fills r with borrowed
 // method and params spans. It mirrors toRequest without the message-box and
 // payload allocations.
-func (f *fields) fillRequestV2(r *RequestV2) error {
+func (f *fields) fillRequest(r *Request) error {
 	if !f.validVersion() {
 		return ErrInvalidRequest
 	}
@@ -542,7 +542,7 @@ func (f *fields) fillRequestV2(r *RequestV2) error {
 	}
 
 	if !f.hasID || isNullLiteral(f.id) {
-		*r = RequestV2{method: method, params: RawMessage(params)}
+		*r = Request{method: method, params: RawMessage(params)}
 		return nil
 	}
 
@@ -550,7 +550,7 @@ func (f *fields) fillRequestV2(r *RequestV2) error {
 	if !idok {
 		return ErrInvalidRequest
 	}
-	*r = RequestV2{id: id, method: method, params: RawMessage(params), isCall: true}
+	*r = Request{id: id, method: method, params: RawMessage(params), isCall: true}
 	return nil
 }
 
@@ -611,7 +611,7 @@ func (f *fields) toResponse() (Message, error) {
 type ParsedMessage struct {
 	// Msg holds the decoded [*Call] or [*Notification] when the message is
 	// well-formed, and is nil when Err is set.
-	Msg Request
+	Msg RequestMessage
 
 	// Err describes why a malformed message could not be decoded, and is nil for
 	// a well-formed message.
@@ -667,7 +667,7 @@ func parseOneRequest(data []byte, batch bool) *ParsedMessage {
 	if err != nil {
 		return &ParsedMessage{Err: ErrInvalidRequest, Batch: batch}
 	}
-	return &ParsedMessage{Msg: msg.(Request), Batch: batch}
+	return &ParsedMessage{Msg: msg.(RequestMessage), Batch: batch}
 }
 
 // scanArrayElements scans a JSON array beginning at data[i] (an opening '[') and

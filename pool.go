@@ -67,21 +67,27 @@ func getIncomingRequest() *incomingRequest {
 }
 
 // putIncomingRequest resets every field of ir (mirroring putWaiter's
-// discipline) and returns it to the pool. Under the jsonrpc2poison build tag
-// the request body is scribbled with loud sentinels instead of zeroed, so a
+// discipline) and returns it to the pool. Once Put returns, ir belongs to the
+// pool and must not be touched.
+func putIncomingRequest(ir *incomingRequest) {
+	resetIncomingRequest(ir)
+	irPool.Put(ir)
+}
+
+// resetIncomingRequest zeroes every field of ir so a recycled request carries
+// no trace of its previous life. Under the jsonrpc2poison build tag the
+// request body is scribbled with loud sentinels instead of zeroed, so a
 // handler that illegally retained the request observes the poison rather than
 // silently reading a recycled request's data.
-func putIncomingRequest(ir *incomingRequest) {
-	ir.req = nil
+func resetIncomingRequest(ir *incomingRequest) {
 	ir.parent = nil
 	ir.realCtx = nil
 	ir.realCancel = nil
-	ir.reqV2 = RequestV2{}
+	ir.request = Request{}
 	ir.rel = releaser{}
 	ir.id = ID{}
 	ir.replied.done.Store(false)
 	ir.isCall = false
 	ir.canceled = false
-	poisonRequest(&ir.reqV2)
-	irPool.Put(ir)
+	poisonRequest(&ir.request)
 }

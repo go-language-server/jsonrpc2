@@ -12,7 +12,7 @@ import (
 )
 
 // TestPoisonRetainedRequestFailsLoudly proves the pooled-request poison mode:
-// a handler that illegally retains *RequestV2 past its return observes the
+// a handler that illegally retains *Request past its return observes the
 // loud poison sentinels once the request has been recycled, instead of
 // silently reading a later request's data.
 func TestPoisonRetainedRequestFailsLoudly(t *testing.T) {
@@ -29,8 +29,8 @@ func TestPoisonRetainedRequestFailsLoudly(t *testing.T) {
 			server := NewConn(NewNDJSONStream(cb))
 			client.Go(ctx, MethodNotFoundHandler)
 
-			retained := make(chan *RequestV2, 1)
-			server.GoDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
+			retained := make(chan *Request, 1)
+			server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 				// Illegal retention: the pointer must not outlive the handler.
 				select {
 				case retained <- req:

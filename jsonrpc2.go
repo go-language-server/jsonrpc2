@@ -17,9 +17,11 @@ type Message interface {
 	jsonrpc2Message()
 }
 
-// Request is the shared interface for messages that ask a peer to invoke a
-// method. The set of implementations is closed to [*Call] and [*Notification].
-type Request interface {
+// RequestMessage is the shared interface for wire messages that ask a peer to
+// invoke a method. The set of implementations is closed to [*Call] and
+// [*Notification]. It is the message-model view used by [ParseRequests] and
+// batch parsing; handlers receive the concrete [Request] instead.
+type RequestMessage interface {
 	Message
 
 	// Method reports the name of the method to invoke.
@@ -29,14 +31,14 @@ type Request interface {
 	// when the request carries no parameters.
 	Params() RawMessage
 
-	// jsonrpc2Request keeps the set of Request implementations closed.
+	// jsonrpc2Request keeps the set of RequestMessage implementations closed.
 	jsonrpc2Request()
 }
 
 // RawMessage is a raw, already-encoded JSON value.
 //
 // It mirrors the semantics of encoding/json's RawMessage: the bytes are stored
-// verbatim on encode and returned verbatim on decode. A RawMessage exposed by a
-// decoded [Message] owns its backing array and never aliases the buffer passed
-// to the decoder.
+// verbatim on encode and returned verbatim on decode. A RawMessage exposed by
+// a decoded request BORROWS the decoder's input (see [DecodeMessage]); other
+// decoded values own their backing arrays.
 type RawMessage []byte

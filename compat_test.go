@@ -46,15 +46,14 @@ type sumResult struct {
 type methodMap map[string]func(ctx context.Context, params jsonrpc2.RawMessage) (any, error)
 
 // handler adapts the method map to a single [jsonrpc2.Handler]. It decodes the
-// raw params with the default codec, invokes the typed handler, and replies with
-// the typed result (or the JSON-RPC error the handler returns).
-func (m methodMap) handler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+// raw params with the default codec, invokes the typed handler, and returns the
+// typed result (or the JSON-RPC error the handler returns) as the response.
+func (m methodMap) handler(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 	fn, ok := m[req.Method()]
 	if !ok {
-		return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+		return nil, jsonrpc2.ErrMethodNotFound
 	}
-	result, err := fn(ctx, req.Params())
-	return reply(ctx, result, err)
+	return fn(ctx, req.Params())
 }
 
 // TestDownstreamCompatShim proves the gopls-style usage compiles and round-trips
@@ -151,19 +150,21 @@ func TestDownstreamNotify(t *testing.T) {
 	// "didChange" notification, giving the test a deterministic, sleep-free
 	// handshake instead of polling shared state.
 	notified := make(chan jsonrpc2.RawMessage, 1)
-	server := jsonrpc2.HandlerServer(func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	server := jsonrpc2.HandlerServer(func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		switch req.Method() {
 		case "didChange":
-			// A notification: reply is a no-op, but record that it arrived.
+			// A notification: there is nothing to return, but record that it
+			// arrived. The params bytes are borrowed and die when the handler
+			// returns, so copy them before handing them to the channel.
 			select {
-			case notified <- req.Params():
+			case notified <- jsonrpc2.RawMessage(string(req.Params())):
 			default:
 			}
-			return reply(ctx, nil, nil)
+			return nil, nil
 		case "ping":
-			return reply(ctx, jsonrpc2.RawMessage(`"pong"`), nil)
+			return jsonrpc2.RawMessage(`"pong"`), nil
 		default:
-			return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+			return jsonrpc2.MethodNotFoundHandler(ctx, req)
 		}
 	})
 
@@ -219,20 +220,19 @@ func TestDownstreamCancel(t *testing.T) {
 
 	gotID := make(chan jsonrpc2.ID, 1)
 	handlerErr := make(chan error, 1)
-	base := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	base := func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		if req.Method() != "longRunning" {
-			return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+			return nil, jsonrpc2.ErrMethodNotFound
 		}
 		// Report the id the connection assigned so the test can cancel it.
-		gotID <- req.(*jsonrpc2.Call).ID()
+		gotID <- req.ID()
 		<-ctx.Done()
 		handlerErr <- ctx.Err()
-		// Reply on a context detached from the (now-canceled) request context so
-		// the cancellation outcome is actually delivered to the caller. Replying
-		// on the canceled ctx would short-circuit the write, leaving the caller to
-		// observe only the connection teardown; a downstream consumer that wants
-		// to report "your request was canceled" detaches like this.
-		return reply(context.WithoutCancel(ctx), nil, ctx.Err())
+		// Return the cancellation as the call's error response: the connection
+		// writes the response from the handler's return values outside the
+		// canceled per-call context, so the outcome is delivered to the caller
+		// without the detached-context reply the closure API needed.
+		return nil, ctx.Err()
 	}
 	h, canceller := jsonrpc2.CancelHandler(jsonrpc2.AsyncHandler(base))
 	server := jsonrpc2.HandlerServer(h)
@@ -272,10 +272,10 @@ func TestDownstreamCancel(t *testing.T) {
 		t.Fatal("handler was not canceled")
 	}
 
-	// The blocked call returns the error response the handler replied with. The
-	// handler replied with ctx.Err(), which crosses the wire as a JSON-RPC error
-	// object, so the client observes a *jsonrpc2.Error carrying the cancellation
-	// message rather than the sentinel context.Canceled itself.
+	// The blocked call returns the error response built from the handler's
+	// return values. The handler returned ctx.Err(), which crosses the wire as a
+	// JSON-RPC error object, so the client observes a *jsonrpc2.Error carrying
+	// the cancellation message rather than the sentinel context.Canceled itself.
 	select {
 	case err := <-callErr:
 		if err == nil {

@@ -92,10 +92,7 @@ var (
 func makeParams(n int) []byte {
 	const prefix = `{"d":"`
 	const suffix = `"}`
-	fill := n - len(prefix) - len(suffix)
-	if fill < 0 {
-		fill = 0
-	}
+	fill := max(n-len(prefix)-len(suffix), 0)
 	b := make([]byte, 0, n)
 	b = append(b, prefix...)
 	for range fill {
@@ -426,7 +423,7 @@ func BenchmarkEncode(b *testing.B) {
 	// jsonrpc2: build a *Call and append-encode it.
 	jsonrpc2Call := jsonrpc2.NewCall(jsonrpc2.NewNumberID(id), method, params)
 
-	// mcp: build a *Request call with the same method/params.
+	// mcp: build a *RequestMessage call with the same method/params.
 	mcpCall, err := mcp.NewCall(mcp.Int64ID(id), method, paramsSmall)
 	if err != nil {
 		b.Fatalf("mcp.NewCall: %v", err)

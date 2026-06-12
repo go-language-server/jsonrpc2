@@ -95,18 +95,18 @@ func run(ctx context.Context, out io.Writer) error {
 	return nil
 }
 
-func symbolHandler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+func symbolHandler(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 	if req.Method() != "workspace/symbol" {
-		return jsonrpc2.MethodNotFoundHandler(ctx, reply, req)
+		return jsonrpc2.MethodNotFoundHandler(ctx, req)
 	}
 
 	var params symbolParams
 	if err := jsonrpc2.DefaultCodec.Unmarshal(req.Params(), &params); err != nil {
-		return reply(ctx, nil, err)
+		return nil, err
 	}
 
-	return reply(ctx, symbolResult{
+	return symbolResult{
 		Name: params.Query,
 		Kind: "interface",
-	}, nil)
+	}, nil
 }

@@ -48,9 +48,9 @@ func TestWithCodec(t *testing.T) {
 	server := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(cb))
 
 	client.Go(ctx, jsonrpc2.MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	server.Go(ctx, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		// Echo the params straight back as the result.
-		return reply(ctx, req.Params(), nil)
+		return jsonrpc2.RawMessage(string(req.Params())), nil
 	})
 	defer func() {
 		_ = client.Close()
@@ -89,8 +89,8 @@ func TestWithCodecNilIgnored(t *testing.T) {
 	client := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(ca), jsonrpc2.WithCodec(nil))
 	server := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(cb))
 	client.Go(ctx, jsonrpc2.MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
-		return reply(ctx, req.Params(), nil)
+	server.Go(ctx, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+		return jsonrpc2.RawMessage(string(req.Params())), nil
 	})
 	defer func() {
 		_ = client.Close()
@@ -117,8 +117,8 @@ func TestNewRawStreamRoundTrip(t *testing.T) {
 	client := jsonrpc2.NewConn(jsonrpc2.NewRawStream(ca))
 	server := jsonrpc2.NewConn(jsonrpc2.NewRawStream(cb))
 	client.Go(ctx, jsonrpc2.MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
-		return reply(ctx, req.Params(), nil)
+	server.Go(ctx, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+		return jsonrpc2.RawMessage(string(req.Params())), nil
 	})
 	defer func() {
 		_ = client.Close()
@@ -149,14 +149,14 @@ func TestRequestContextDeadline(t *testing.T) {
 
 	gotDeadline := make(chan time.Time, 1)
 	client.Go(parent, jsonrpc2.MethodNotFoundHandler)
-	server.Go(parent, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	server.Go(parent, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		dl, ok := ctx.Deadline()
 		if ok {
 			gotDeadline <- dl
 		} else {
 			gotDeadline <- time.Time{}
 		}
-		return reply(ctx, nil, nil)
+		return nil, nil
 	})
 	defer func() {
 		_ = client.Close()

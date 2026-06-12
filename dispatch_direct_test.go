@@ -15,14 +15,14 @@ import (
 
 // newDirectPair builds a connected client/server pair over net.Pipe with
 // NDJSON framing, the server running h in direct-return mode.
-func newDirectPair(t *testing.T, h HandlerV2) (client, server Conn) {
+func newDirectPair(t *testing.T, h Handler) (client, server Conn) {
 	t.Helper()
 	ctx := t.Context()
 	ca, cb := net.Pipe()
 	client = NewConn(NewNDJSONStream(ca))
 	server = NewConn(NewNDJSONStream(cb))
 	client.Go(ctx, MethodNotFoundHandler)
-	server.GoDirect(ctx, h)
+	server.Go(ctx, h)
 	t.Cleanup(func() {
 		_ = client.Close()
 		<-client.Done()
@@ -32,10 +32,10 @@ func newDirectPair(t *testing.T, h HandlerV2) (client, server Conn) {
 	return client, server
 }
 
-// TestGoDirectRoundTrip exercises the direct-return dispatch surface end to
+// TestDirectRoundTrip exercises the direct-return dispatch surface end to
 // end: calls with and without params, the error return becoming a wire error,
 // and notifications reaching the handler.
-func TestGoDirectRoundTrip(t *testing.T) {
+func TestDirectRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -59,7 +59,7 @@ func TestGoDirectRoundTrip(t *testing.T) {
 		},
 	}
 
-	handler := func(ctx context.Context, req *RequestV2) (any, error) {
+	handler := func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() == "fail" {
 			return nil, Errorf(InvalidParams, "rejected")
 		}
@@ -93,9 +93,9 @@ func TestGoDirectRoundTrip(t *testing.T) {
 	}
 }
 
-// TestGoDirectNotification proves notifications reach the direct handler and
+// TestDirectNotification proves notifications reach the direct handler and
 // produce no response.
-func TestGoDirectNotification(t *testing.T) {
+func TestDirectNotification(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -107,7 +107,7 @@ func TestGoDirectNotification(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			seen := make(chan string, 1)
-			client, _ := newDirectPair(t, func(ctx context.Context, req *RequestV2) (any, error) {
+			client, _ := newDirectPair(t, func(ctx context.Context, req *Request) (any, error) {
 				if !req.IsCall() {
 					seen <- req.Method()
 				}
@@ -123,10 +123,10 @@ func TestGoDirectNotification(t *testing.T) {
 	}
 }
 
-// TestGoDirectHandlerPanicAnswersCall proves the direct path's panic fallback:
+// TestDirectHandlerPanicAnswersCall proves the direct path's panic fallback:
 // the caller receives an InternalError response rather than hanging, and the
 // connection then fails (surfacing the panic) per the [Handler] contract.
-func TestGoDirectHandlerPanicAnswersCall(t *testing.T) {
+func TestDirectHandlerPanicAnswersCall(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -137,7 +137,7 @@ func TestGoDirectHandlerPanicAnswersCall(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			client, server := newDirectPair(t, func(ctx context.Context, req *RequestV2) (any, error) {
+			client, server := newDirectPair(t, func(ctx context.Context, req *Request) (any, error) {
 				panic("kaboom")
 			})
 			_, err := client.Call(t.Context(), tt.method, nil, nil)
@@ -156,11 +156,11 @@ func TestGoDirectHandlerPanicAnswersCall(t *testing.T) {
 	}
 }
 
-// TestGoDirectAsyncClonesRequest proves the single-escape-point contract: a
+// TestDirectAsyncClonesRequest proves the single-escape-point contract: a
 // handler that releases itself with [Async] keeps a valid request afterward
 // because the hard release clones the borrowed spans in place, even while the
 // successor reader is already overwriting the transport frame.
-func TestGoDirectAsyncClonesRequest(t *testing.T) {
+func TestDirectAsyncClonesRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -181,7 +181,7 @@ func TestGoDirectAsyncClonesRequest(t *testing.T) {
 			release := make(chan struct{})
 			var once sync.Once
 
-			client, _ := newDirectPair(t, func(ctx context.Context, req *RequestV2) (any, error) {
+			client, _ := newDirectPair(t, func(ctx context.Context, req *Request) (any, error) {
 				if req.Method() == "later" {
 					return nil, nil
 				}
@@ -221,8 +221,8 @@ func TestGoDirectAsyncClonesRequest(t *testing.T) {
 }
 
 // TestPooledRequestFieldReset is the white-box mirror of putWaiter's
-// discipline: every field of a pooled incomingRequest must be zero after put,
-// so a recycled request cannot leak its previous life.
+// discipline: every field of a recycled incomingRequest must be zero after
+// the pool-put reset, so a recycled request cannot leak its previous life.
 func TestPooledRequestFieldReset(t *testing.T) {
 	t.Parallel()
 
@@ -237,23 +237,26 @@ func TestPooledRequestFieldReset(t *testing.T) {
 			ir.id = NewNumberID(7)
 			ir.isCall = true
 			ir.canceled = true
-			ir.reqV2 = RequestV2{id: NewNumberID(7), method: "m", params: RawMessage(`1`), isCall: true}
+			ir.request = Request{id: NewNumberID(7), method: "m", params: RawMessage(`1`), isCall: true}
 			ir.rel = releaser{active: true}
 			ir.replied.done.Store(true)
 
-			putIncomingRequest(ir)
+			// resetIncomingRequest is the same reset the pool put applies; calling
+			// it directly keeps ir out of the global pool, which a concurrently
+			// running test's dispatch could otherwise recycle mid-assertion.
+			resetIncomingRequest(ir)
 
-			if ir.req != nil || ir.parent != nil || ir.realCtx != nil || ir.realCancel != nil {
-				t.Errorf("context fields not reset: req=%v parent=%v realCtx=%v", ir.req, ir.parent, ir.realCtx)
+			if ir.parent != nil || ir.realCtx != nil || ir.realCancel != nil {
+				t.Errorf("context fields not reset: parent=%v parent2=%v realCtx=%v", ir.parent, ir.parent, ir.realCtx)
 			}
 			// Under the poison build the body carries sentinels instead of zeros;
 			// either way it must not carry the previous request's data.
-			if !strings.Contains(ir.reqV2.method, "POISON") {
-				if ir.reqV2.method != "" || ir.reqV2.params != nil || ir.reqV2.isCall || ir.reqV2.id != (ID{}) {
-					t.Errorf("reqV2 not reset: %+v", ir.reqV2)
+			if !strings.Contains(ir.request.method, "POISON") {
+				if ir.request.method != "" || ir.request.params != nil || ir.request.isCall || ir.request.id != (ID{}) {
+					t.Errorf("reqV2 not reset: %+v", ir.request)
 				}
 			}
-			if ir.rel.active || ir.rel.released || ir.rel.handedOff || ir.rel.ch != nil || ir.rel.ir != nil || ir.rel.conn != nil || ir.rel.handler != nil || ir.rel.ctx != nil {
+			if ir.rel.active || ir.rel.released || ir.rel.handedOff || ir.rel.ch != nil || ir.rel.ir != nil || ir.rel.conn != nil || ir.rel.ctx != nil {
 				t.Errorf("releaser not reset: active=%v released=%v handedOff=%v", ir.rel.active, ir.rel.released, ir.rel.handedOff)
 			}
 			if ir.id != (ID{}) || ir.isCall || ir.canceled || ir.replied.done.Load() {
@@ -263,9 +266,9 @@ func TestPooledRequestFieldReset(t *testing.T) {
 	}
 }
 
-// TestGoDirectBatch proves batch frames still work in direct mode through the
+// TestDirectBatch proves batch frames still work in direct mode through the
 // compat adapter: every call member is answered in one response array.
-func TestGoDirectBatch(t *testing.T) {
+func TestDirectBatch(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -283,7 +286,7 @@ func TestGoDirectBatch(t *testing.T) {
 			ctx := t.Context()
 			a, b := NewChannelStreamPair(4)
 			server := NewConn(b)
-			server.GoDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
+			server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 				return req.Method(), nil
 			})
 			t.Cleanup(func() {

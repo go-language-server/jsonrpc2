@@ -9,4 +9,4 @@ package jsonrpc2
 // tag it scribbles loud sentinel values into a pooled request so that illegal
 // retention past handler return is observed as poison instead of silently
 // reading another request's data.
-func poisonRequest(*RequestV2) {}
+func poisonRequest(*Request) {}

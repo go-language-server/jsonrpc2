@@ -41,7 +41,7 @@ const maxConnDirectUnmarshalResult = 64 << 10
 //
 // When the stream does not support raw frames, readNext falls back to the
 // single-message [Stream.Read] and never reports a batch.
-func (c *conn) readNext(ctx context.Context, rv *RequestV2) (req Request, msgs []Request, resp *Response, batch, hasRV bool, err error) {
+func (c *conn) readNext(ctx context.Context, rv *Request) (req RequestMessage, msgs []RequestMessage, resp *Response, batch, hasRV bool, err error) {
 	fs, ok := c.stream.(frameStream)
 	if !ok {
 		var msg Message
@@ -52,7 +52,7 @@ func (c *conn) readNext(ctx context.Context, rv *RequestV2) (req Request, msgs [
 		if r, isResp := msg.(*Response); isResp {
 			return nil, nil, r, false, false, nil
 		}
-		return msg.(Request), nil, nil, false, false, nil
+		return msg.(RequestMessage), nil, nil, false, false, nil
 	}
 
 	frame, _, ferr := fs.ReadFrame(ctx)
@@ -74,12 +74,13 @@ func (c *conn) readNext(ctx context.Context, rv *RequestV2) (req Request, msgs [
 		return nil, reqs, nil, isBatch, false, nil
 	}
 
-	// Direct-return mode scans a single request straight into the caller's
-	// concrete value, skipping the message box. Frames it does not recognize
+	// A single request scans straight into the caller's concrete value,
+	// skipping the message box. Frames the scanner does not recognize
 	// (responses, malformed objects) fall through to the general paths below
-	// so their semantics are unchanged.
-	if c.directHandler != nil {
-		if scanned, sok := scanRequestV2(frame); sok {
+	// so their semantics are unchanged. Client-only connections have no
+	// handler and skip the request scan entirely.
+	if c.handler != nil {
+		if scanned, sok := scanRequest(frame); sok {
 			*rv = scanned
 			return nil, nil, nil, false, true, nil
 		}
@@ -103,34 +104,28 @@ func (c *conn) readNext(ctx context.Context, rv *RequestV2) (req Request, msgs [
 	if r, isResp := msg.(*Response); isResp {
 		return nil, nil, r, false, false, nil
 	}
-	return msg.(Request), nil, nil, false, false, nil
+	return msg.(RequestMessage), nil, nil, false, false, nil
 }
 
-// dispatch handles one frame's worth of requests. A single request is handled
-// inline so the common single-message path carries neither slice nor batch
-// overhead; a batch is handled member by member, collecting the responses for
-// the call members into a single array that is written with one frame, while a
-// batch made up entirely of notifications produces no response per the
-// JSON-RPC 2.0 specification.
+// dispatch handles one frame's worth of boxed requests: the rare
+// single-message fallbacks (a non-frame stream's Read, or the synthetic
+// empty-batch error member) and batch arrays. A batch is handled member by
+// member, collecting the responses for the call members into a single array
+// that is written with one frame, while a batch made up entirely of
+// notifications produces no response per the JSON-RPC 2.0 specification.
 //
 // It reports handedOff=true when an inline single-message handler released the
 // read loop with [Async] and a successor reader has taken over. The batch path
 // keeps its goroutine-per-member dispatch and never hands off the reader, so it
 // always reports false.
-func (c *conn) dispatch(ctx context.Context, handler Handler, req Request, msgs []Request, batch bool) (handedOff bool) {
-	if handler == nil {
-		// Direct-return mode reaches dispatch only for boxed leftovers: batch
-		// members and the synthetic empty-batch error member, both of which
-		// reply through the closure machinery via the adapter built in goDirect.
-		handler = c.compatHandler
-	}
+func (c *conn) dispatch(ctx context.Context, req RequestMessage, msgs []RequestMessage, batch bool) (handedOff bool) {
 	if !batch {
 		if req != nil {
-			return c.handleRequest(ctx, handler, req)
+			return c.handleBoxedRequest(ctx, req)
 		}
 		return false
 	}
-	c.dispatchBatch(ctx, handler, msgs)
+	c.dispatchBatch(ctx, msgs)
 	return false
 }
 
@@ -146,7 +141,7 @@ type batchCollector struct {
 
 // dispatchBatch parses, validates, and handles each member of a batch, then
 // writes the collected responses as a single array frame.
-func (c *conn) dispatchBatch(ctx context.Context, handler Handler, msgs []Request) {
+func (c *conn) dispatchBatch(ctx context.Context, msgs []RequestMessage) {
 	// An empty array, or a non-array element where an object was required, has
 	// already been turned into a single InvalidRequest member by parseBatch, so
 	// msgs is never empty here.
@@ -163,7 +158,7 @@ func (c *conn) dispatchBatch(ctx context.Context, handler Handler, msgs []Reques
 	}
 
 	for _, req := range msgs {
-		c.handleBatchMember(ctx, handler, req, bc)
+		c.handleBatchMember(ctx, req, bc)
 	}
 
 	bc.finish(ctx)
@@ -226,7 +221,7 @@ func (bc *batchCollector) write(ctx context.Context, resps []responseWire) {
 // invalid member; any non-empty array returns isBatch=true. A member that is not
 // a valid request object yields an InvalidRequest member in its place so the
 // valid members are still handled.
-func parseBatch(frame []byte) (reqs []Request, isBatch bool, err error) {
+func parseBatch(frame []byte) (reqs []RequestMessage, isBatch bool, err error) {
 	parsed, perr := ParseRequests(frame)
 	if perr != nil {
 		return nil, false, perr
@@ -234,10 +229,10 @@ func parseBatch(frame []byte) (reqs []Request, isBatch bool, err error) {
 	if len(parsed) == 0 {
 		// An empty batch "[]" is answered with a single error response carrying a
 		// null id, not a one-element array.
-		return []Request{invalidBatchMember(ErrInvalidRequest)}, false, nil
+		return []RequestMessage{invalidBatchMember(ErrInvalidRequest)}, false, nil
 	}
 
-	out := make([]Request, 0, len(parsed))
+	out := make([]RequestMessage, 0, len(parsed))
 	for _, pm := range parsed {
 		if pm.Err != nil {
 			out = append(out, invalidBatchMember(pm.Err))
@@ -251,11 +246,11 @@ func parseBatch(frame []byte) (reqs []Request, isBatch bool, err error) {
 // invalidBatchMember builds a placeholder call that carries no real id and is
 // answered with err. It lets a malformed batch member flow through the normal
 // dispatch path and produce a spec-compliant error response with a null id.
-func invalidBatchMember(err *Error) Request {
+func invalidBatchMember(err *Error) RequestMessage {
 	return &invalidRequest{err: err}
 }
 
-// invalidRequest is a synthetic [Request] standing in for a malformed batch
+// invalidRequest is a synthetic [RequestMessage] standing in for a malformed batch
 // member. It is always answered with a null-id error response and never reaches
 // the user handler.
 type invalidRequest struct {
@@ -272,7 +267,7 @@ func (*invalidRequest) jsonrpc2Request() {}
 
 // respondsInBatch reports whether req contributes a response body to a batch's
 // response array: calls and malformed members do, notifications do not.
-func respondsInBatch(req Request) bool {
+func respondsInBatch(req RequestMessage) bool {
 	switch req.(type) {
 	case *Call, *invalidRequest:
 		return true

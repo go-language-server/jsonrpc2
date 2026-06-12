@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -144,7 +144,7 @@ func TestSocketServerCloseDuringInFlight(t *testing.T) {
 			server := impl.start(t, "tcp")
 			defer closeProbeServer(t, server)
 
-			for i := 0; i < 32; i++ {
+			for i := range 32 {
 				conn := dialProbeServer(t, server)
 				_ = writeProbeRequest(conn, i)
 				_ = conn.Close()
@@ -173,7 +173,7 @@ func TestSocketServerShutdownRejectsNewConnections(t *testing.T) {
 			if err := server.Close(); err != nil && !errors.Is(err, net.ErrClosed) && !isProbeShutdownError(err) {
 				t.Fatalf("close %s: %v", server.Name(), err)
 			}
-			for attempt := 0; attempt < 100; attempt++ {
+			for range 100 {
 				conn, err := net.DialTimeout(addr.Network(), addr.String(), 10*time.Millisecond)
 				if err != nil {
 					return
@@ -211,7 +211,7 @@ func BenchmarkSocketServerBackpressure(b *testing.B) {
 			defer closeProbeServer(b, server)
 			for b.Loop() {
 				slow := dialProbeServer(b, server)
-				for id := 0; id < 32; id++ {
+				for id := range 32 {
 					if err := writeProbeRequest(slow, id); err != nil {
 						b.Fatalf("write slow: %v", err)
 					}
@@ -237,7 +237,7 @@ func BenchmarkSocketServerCloseDuringInFlight(b *testing.B) {
 			server := impl.start(b, "tcp")
 			defer closeProbeServer(b, server)
 			for b.Loop() {
-				for i := 0; i < 32; i++ {
+				for i := range 32 {
 					conn := dialProbeServer(b, server)
 					_ = writeProbeRequest(conn, i)
 					_ = conn.Close()
@@ -282,18 +282,17 @@ func runSocketProbeLatencyBench(b *testing.B, impl socketProbeImpl, network stri
 	var samplesMu sync.Mutex
 	var samples []int64
 	var failures atomic.Int64
-	var totalCalls int64
+	var totalCalls atomic.Int64
 	const maxSamples = 200000
 
 	b.ReportAllocs()
 	b.ReportMetric(float64(conns), "connections/op")
 	for b.Loop() {
-		startID := int(atomic.AddInt64(&totalCalls, int64(conns)))
+		startID := int(totalCalls.Add(int64(conns)))
 		var wg sync.WaitGroup
 		wg.Add(conns)
 		iterSamples := make([]int64, conns)
 		for i := range clients {
-			i := i
 			go func() {
 				defer wg.Done()
 				id := startID + i
@@ -308,10 +307,7 @@ func runSocketProbeLatencyBench(b *testing.B, impl socketProbeImpl, network stri
 		wg.Wait()
 		if len(samples) < maxSamples {
 			samplesMu.Lock()
-			room := maxSamples - len(samples)
-			if room > len(iterSamples) {
-				room = len(iterSamples)
-			}
+			room := min(maxSamples-len(samples), len(iterSamples))
 			for _, d := range iterSamples[:room] {
 				if d > 0 {
 					samples = append(samples, d)
@@ -321,7 +317,7 @@ func runSocketProbeLatencyBench(b *testing.B, impl socketProbeImpl, network stri
 		}
 	}
 
-	calls := atomic.LoadInt64(&totalCalls)
+	calls := totalCalls.Load()
 	if calls > 0 {
 		b.ReportMetric(float64(calls)/float64(b.N), "calls/op")
 		b.ReportMetric(float64(failures.Load())/float64(calls), "failures/call")
@@ -359,7 +355,7 @@ func reportLatencyPercentiles(b *testing.B, samples []int64) {
 		b.ReportMetric(0, "p99-ns")
 		return
 	}
-	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	slices.Sort(samples)
 	percentile := func(p float64) float64 {
 		idx := int(float64(len(samples)-1) * p)
 		return float64(samples[idx])
@@ -429,7 +425,7 @@ func parseJSONIntField(line, field []byte) (int, bool) {
 func dialProbeServer(tb testing.TB, server socketProbeServer) net.Conn {
 	tb.Helper()
 	var last error
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		conn, err := net.DialTimeout(server.Addr().Network(), server.Addr().String(), 2*time.Second)
 		if err == nil {
 			return conn
@@ -526,15 +522,13 @@ func (s *stdNetRawProbeServer) acceptLoop() {
 		s.mu.Lock()
 		s.conn[conn] = struct{}{}
 		s.mu.Unlock()
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
+		s.wg.Go(func() {
 			s.serveConn(conn)
 			s.mu.Lock()
 			delete(s.conn, conn)
 			s.mu.Unlock()
 			_ = conn.Close()
-		}()
+		})
 	}
 }
 
@@ -573,15 +567,13 @@ func (s *stdNetRawProbeServer) acceptProdLoop() {
 		s.mu.Lock()
 		s.conn[conn] = struct{}{}
 		s.mu.Unlock()
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
+		s.wg.Go(func() {
 			jconn := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(conn))
-			jconn.Go(context.Background(), func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+			jconn.Go(context.Background(), func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 				if req.Method() != "void" {
-					return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+					return nil, jsonrpc2.ErrMethodNotFound
 				}
-				return reply(ctx, nil, nil)
+				return nil, nil
 			})
 			<-jconn.Done()
 			_ = jconn.Close()
@@ -589,7 +581,7 @@ func (s *stdNetRawProbeServer) acceptProdLoop() {
 			delete(s.conn, conn)
 			s.mu.Unlock()
 			_ = conn.Close()
-		}()
+		})
 	}
 }
 

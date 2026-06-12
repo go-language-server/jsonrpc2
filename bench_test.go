@@ -71,7 +71,7 @@ func BenchmarkVoidRoundTrip(b *testing.B) {
 	client := NewConn(NewNDJSONStream(ca))
 	server := NewConn(NewNDJSONStream(cb))
 	client.Go(ctx, MethodNotFoundHandler)
-	server.GoDirect(ctx, func(ctx context.Context, req *RequestV2) (any, error) {
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		return nil, nil
 	})
 	defer func() {
@@ -347,8 +347,8 @@ func BenchmarkSyncClientVoidRoundTrip(b *testing.B) {
 		b.Fatalf("NewSyncClient: %v", err)
 	}
 	server := NewConn(NewNDJSONStream(cb))
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, nil, nil)
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+		return nil, nil
 	})
 	defer func() {
 		_ = client.Close()
@@ -394,8 +394,8 @@ func benchmarkPipelinedVoidRoundTrip(b *testing.B, inflight int, newClient func(
 	client := newClient(NewNDJSONStream(ca))
 	server := NewServer(NewNDJSONStream(cb))
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, nil, nil)
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+		return nil, nil
 	})
 	defer func() {
 		_ = client.Close()

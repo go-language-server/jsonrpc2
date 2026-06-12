@@ -39,8 +39,8 @@ func newJSONRPC2SyncAdapter(ctx context.Context) (*jsonrpc2SyncAdapter, error) {
 		return nil, fmt.Errorf("jsonrpc2 sync adapter: %w", err)
 	}
 	server := jsonrpc2.NewConn(jsonrpc2.NewNDJSONStream(cb))
-	server.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
-		return reply(ctx, nil, nil)
+	server.Go(ctx, func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+		return nil, nil
 	})
 
 	a := &jsonrpc2SyncAdapter{client: client, server: server}

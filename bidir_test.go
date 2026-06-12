@@ -41,29 +41,29 @@ func TestBidirectionalServerInitiatedCall(t *testing.T) {
 	// A serves "answer" with a known value: this is the server-initiated call B
 	// makes back into the connection while serving "ask".
 	a := NewConn(ea.stream)
-	a.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+	a.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() == "answer" {
-			return reply(ctx, raw(`"forty-two"`), nil)
+			return raw(`"forty-two"`), nil
 		}
-		return MethodNotFoundHandler(ctx, reply, req)
+		return MethodNotFoundHandler(ctx, req)
 	})
 
 	// B serves "ask" by releasing the read loop with Async, calling back to A's
 	// "answer", and replying with a value derived from A's result. The handler
 	// closure observes b only after Go starts the read loop.
 	b := NewConn(eb.stream)
-	b.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+	b.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() != "ask" {
-			return MethodNotFoundHandler(ctx, reply, req)
+			return MethodNotFoundHandler(ctx, req)
 		}
 		// Release the read loop so the response to the callback below can be read;
 		// without this the reentrant call deadlocks.
 		Async(ctx)
 		var inner RawMessage
 		if _, err := b.Call(ctx, "answer", nil, &inner); err != nil {
-			return reply(ctx, nil, err)
+			return nil, err
 		}
-		return reply(ctx, raw(`{"relayed":`+string(inner)+`}`), nil)
+		return raw(`{"relayed":` + string(inner) + `}`), nil
 	})
 	defer closeBoth(t, a, b)
 
@@ -107,24 +107,24 @@ func TestServerInitiatedNotificationFromHandlerWithoutAsync(t *testing.T) {
 	// one) so A's handler never blocks on the send.
 	observed := make(chan string, 1)
 	a := NewConn(ea.stream)
-	a.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+	a.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() == "event" {
 			observed <- string(orNull(req.Params()))
-			return reply(ctx, nil, nil) // no-op for a notification
+			return nil, nil // a notification has no response.
 		}
-		return MethodNotFoundHandler(ctx, reply, req)
+		return MethodNotFoundHandler(ctx, req)
 	})
 
 	// B serves "ask" by notifying A back (no Async needed) and then replying.
 	b := NewConn(eb.stream)
-	b.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+	b.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() != "ask" {
-			return MethodNotFoundHandler(ctx, reply, req)
+			return MethodNotFoundHandler(ctx, req)
 		}
 		if err := b.Notify(ctx, "event", raw(`{"n":1}`)); err != nil {
-			return reply(ctx, nil, err)
+			return nil, err
 		}
-		return reply(ctx, raw(`"ok"`), nil)
+		return raw(`"ok"`), nil
 	})
 	defer closeBoth(t, a, b)
 
@@ -174,24 +174,24 @@ func TestGoroutineLeakBidirectional(t *testing.T) {
 		ea, eb := memTransport(NewNDJSONStream)(t)
 
 		a := NewConn(ea.stream)
-		a.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+		a.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 			if req.Method() == "answer" {
-				return reply(ctx, raw(`"v"`), nil)
+				return raw(`"v"`), nil
 			}
-			return MethodNotFoundHandler(ctx, reply, req)
+			return MethodNotFoundHandler(ctx, req)
 		})
 
 		b := NewConn(eb.stream)
-		b.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+		b.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 			if req.Method() != "ask" {
-				return MethodNotFoundHandler(ctx, reply, req)
+				return MethodNotFoundHandler(ctx, req)
 			}
 			Async(ctx)
 			var inner RawMessage
 			if _, err := b.Call(ctx, "answer", nil, &inner); err != nil {
-				return reply(ctx, nil, err)
+				return nil, err
 			}
-			return reply(ctx, raw(string(inner)), nil)
+			return raw(string(inner)), nil
 		})
 
 		for range 3 {

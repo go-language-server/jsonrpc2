@@ -12,15 +12,16 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 )
 
-// The tests in this file pin the Wave-3 non-blocking robustness contracts:
+// The tests in this file pin the non-blocking robustness contracts:
 //
 //   - a handler panic cannot leak the in-flight counter / incomingByID entry and
 //     deadlock a later Close, and the panicking call receives an internal-error
 //     response rather than hanging the caller;
-//   - a handler that returns for a call without replying yields a deterministic
-//     internal-error response;
-//   - the same guarantee holds for a batch member, so a missing reply cannot hang
-//     the array flush;
+//   - a handler that returns the zero values for a call yields a deterministic
+//     null-result success response (the direct-return API has no "returned
+//     without replying" state);
+//   - the same guarantee holds for a batch member, so a zero-value return cannot
+//     hang the array flush;
 //   - canceling the context passed to Go is treated as a clean shutdown by Err.
 
 // pipeConns builds a connected client/server Conn pair over an in-memory
@@ -39,7 +40,7 @@ func TestHandlerPanicDoesNotLeak(t *testing.T) {
 	client, server := pipeConns(t)
 
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(context.Context, Replier, Request) error {
+	server.Go(ctx, func(context.Context, *Request) (any, error) {
 		panic("boom")
 	})
 
@@ -67,16 +68,19 @@ func TestHandlerPanicDoesNotLeak(t *testing.T) {
 }
 
 // TestHandlerReturnsWithoutReply verifies the deterministic outcome when a
-// handler returns for a call without ever calling reply: the caller receives an
-// internal error rather than blocking forever.
+// handler returns the zero values for a call: the return values are the
+// response, so (nil, nil) answers the call with a null result and the caller
+// never blocks. (The closure-reply API answered a handler that returned
+// without calling reply with an internal error; that unanswered state cannot
+// be expressed in the direct-return shape.)
 func TestHandlerReturnsWithoutReply(t *testing.T) {
 	ctx := t.Context()
 	client, server := pipeConns(t)
 
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(context.Context, Replier, Request) error {
-		// Intentionally never reply.
-		return nil
+	server.Go(ctx, func(context.Context, *Request) (any, error) {
+		// The zero return values are the reply: a null-result success.
+		return nil, nil
 	})
 	defer func() {
 		_ = server.Close()
@@ -93,30 +97,31 @@ func TestHandlerReturnsWithoutReply(t *testing.T) {
 
 	select {
 	case err := <-done:
-		var we *Error
-		if !errors.As(err, &we) || we.Code != InternalError {
-			t.Fatalf("Call error = %v, want an *Error with InternalError code", err)
+		if err != nil {
+			t.Fatalf("Call error = %v, want nil (a zero-value return answers the call with a null result)", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Call hung: a handler that returned without replying never produced a response")
+		t.Fatal("Call hung: a handler that returned zero values never produced a response")
 	}
 }
 
 // TestBatchMemberWithoutReplyDoesNotHang verifies that a batch call member whose
-// handler returns without replying still contributes a deterministic error
-// member to the response array, so the array flush is not blocked.
+// handler returns the zero values still contributes a deterministic null-result
+// success member to the response array, so the array flush is not blocked. (The
+// closure-reply API turned a member's missing reply into an internal-error
+// member; the direct-return shape answers it with a null result instead.)
 func TestBatchMemberWithoutReplyDoesNotHang(t *testing.T) {
 	t.Parallel()
 
-	handler := func(ctx context.Context, reply Replier, req Request) error {
+	handler := func(ctx context.Context, req *Request) (any, error) {
 		switch req.Method() {
 		case "ok":
-			return reply(ctx, raw(string(orNull(req.Params()))), nil)
+			return raw(string(orNull(req.Params()))), nil
 		case "silent":
-			// Return without replying.
-			return nil
+			// The zero return values answer the call with a null result.
+			return nil, nil
 		default:
-			return MethodNotFoundHandler(ctx, reply, req)
+			return MethodNotFoundHandler(ctx, req)
 		}
 	}
 	peer, server := newBatchServer(t, NewNDJSONStream, handler)
@@ -133,7 +138,7 @@ func TestBatchMemberWithoutReplyDoesNotHang(t *testing.T) {
 
 	resp, ok := peer.readFrame(t, 2*time.Second)
 	if !ok {
-		t.Fatal("batch with a non-replying member never flushed its response array")
+		t.Fatal("batch with a zero-value-returning member never flushed its response array")
 	}
 
 	members := splitArray(t, resp)
@@ -156,10 +161,10 @@ func TestBatchMemberWithoutReplyDoesNotHang(t *testing.T) {
 		results[id] = string(r.Result())
 	}
 
-	if diff := gocmp.Diff(map[int64]string{1: "7"}, results); diff != "" {
+	if diff := gocmp.Diff(map[int64]string{1: "7", 2: "null"}, results); diff != "" {
 		t.Errorf("batch success members mismatch (-want +got):\n%s", diff)
 	}
-	if diff := gocmp.Diff(map[int64]Code{2: InternalError}, codes); diff != "" {
+	if diff := gocmp.Diff(map[int64]Code{}, codes); diff != "" {
 		t.Errorf("batch error members mismatch (-want +got):\n%s", diff)
 	}
 }

@@ -95,9 +95,9 @@ func unixListener(b *testing.B) net.Listener {
 	return ln
 }
 
-// voidServerHandler replies to every request with a nil result.
-func voidServerHandler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
-	return reply(ctx, nil, nil)
+// voidServerHandler answers every request with a nil result.
+func voidServerHandler(ctx context.Context, req *jsonrpc2.Request) (any, error) {
+	return nil, nil
 }
 
 // benchVoidConcurrent drives `inflight` concurrent void Calls per b.Loop

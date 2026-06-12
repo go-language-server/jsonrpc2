@@ -103,33 +103,33 @@ func run(ctx context.Context, out io.Writer) error {
 }
 
 func batchHandler(logged chan<- string) jsonrpc2.Handler {
-	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	return func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		switch req.Method() {
 		case "math/sum":
 			var params sumParams
 			if err := jsonrpc2.DefaultCodec.Unmarshal(req.Params(), &params); err != nil {
-				return reply(ctx, nil, err)
+				return nil, err
 			}
 			sum := 0
 			for _, value := range params.Values {
 				sum += value
 			}
-			return reply(ctx, sumResult{Sum: sum}, nil)
+			return sumResult{Sum: sum}, nil
 
 		case "telemetry/log":
 			var params logParams
 			if err := jsonrpc2.DefaultCodec.Unmarshal(req.Params(), &params); err != nil {
-				return err
+				return nil, err
 			}
 			select {
 			case logged <- params.Message:
 			case <-ctx.Done():
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
-			return reply(ctx, nil, nil)
+			return nil, nil
 
 		default:
-			return jsonrpc2.MethodNotFoundHandler(ctx, reply, req)
+			return jsonrpc2.MethodNotFoundHandler(ctx, req)
 		}
 	}
 }

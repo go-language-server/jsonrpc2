@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -17,13 +18,18 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-// echoHandler replies to "echo" calls with their params and drops everything
-// else with a method-not-found error.
-func echoHandler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+// echoHandler answers "echo" calls with a copy of their borrowed params,
+// rejects other calls with a method-not-found error, and drops notifications.
+func echoHandler(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 	if req.Method() == "echo" {
-		return reply(ctx, req.Params(), nil)
+		// The params bytes are only valid until the handler returns; clone them
+		// since the returned result is marshaled afterward.
+		return slices.Clone(req.Params()), nil
 	}
-	return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+	if !req.IsCall() {
+		return nil, nil
+	}
+	return nil, jsonrpc2.ErrMethodNotFound
 }
 
 // dialConn dials addr on network and returns a client [jsonrpc2.Conn] over the

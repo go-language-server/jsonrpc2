@@ -16,7 +16,7 @@ var requestPoisonParams = RawMessage(`"jsonrpc2: POISONED: request retained afte
 // poisonRequest scribbles loud sentinels into a pooled request body. A handler
 // that illegally retained the request past its return observes these values,
 // turning a silent read of recycled data into a loud, attributable failure.
-func poisonRequest(r *RequestV2) {
+func poisonRequest(r *Request) {
 	r.method = requestPoisonMethod
 	r.params = requestPoisonParams
 }

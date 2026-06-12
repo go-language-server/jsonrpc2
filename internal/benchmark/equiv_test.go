@@ -55,7 +55,7 @@ func TestDecodeEquivalence(t *testing.T) {
 			if err != nil {
 				t.Fatalf("jsonrpc2.DecodeMessage: %v", err)
 			}
-			jsonrpc2Req, ok := jsonrpc2Msg.(jsonrpc2.Request)
+			jsonrpc2Req, ok := jsonrpc2Msg.(jsonrpc2.RequestMessage)
 			if !ok {
 				t.Fatalf("jsonrpc2.DecodeMessage: not a request: %T", jsonrpc2Msg)
 			}

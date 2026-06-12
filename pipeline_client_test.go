@@ -332,16 +332,15 @@ func TestPipelineClientConcurrentCalls(t *testing.T) {
 		})
 	}
 	seen := make(chan int64, n)
-	server.Go(t.Context(), AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
-		call := req.(*Call)
-		id, ok := call.ID().Number()
+	server.Go(t.Context(), AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
+		id, ok := req.ID().Number()
 		if !ok {
-			t.Errorf("request id = %v, want numeric", call.ID())
+			t.Errorf("request id = %v, want numeric", req.ID())
 		} else {
 			seen <- id
 		}
 		<-release
-		return reply(ctx, nil, nil)
+		return nil, nil
 	}))
 	t.Cleanup(func() {
 		closeRelease()

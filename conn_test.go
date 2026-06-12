@@ -97,21 +97,21 @@ type echoHandler struct {
 	recorded []string
 }
 
-func (h *echoHandler) handle(ctx context.Context, reply Replier, req Request) error {
+func (h *echoHandler) handle(ctx context.Context, req *Request) (any, error) {
 	switch req.Method() {
 	case "echo":
-		return reply(ctx, raw(`{"got":`+string(orNull(req.Params()))+`}`), nil)
+		return raw(`{"got":` + string(orNull(req.Params())) + `}`), nil
 	case "fail":
-		return reply(ctx, nil, NewError(InvalidParams, "bad params"))
+		return nil, NewError(InvalidParams, "bad params")
 	case "marshal-fail":
-		return reply(ctx, make(chan int), nil)
+		return make(chan int), nil
 	case "note":
 		h.mu.Lock()
 		h.recorded = append(h.recorded, string(orNull(req.Params())))
 		h.mu.Unlock()
-		return reply(ctx, nil, nil)
+		return nil, nil
 	default:
-		return MethodNotFoundHandler(ctx, reply, req)
+		return MethodNotFoundHandler(ctx, req)
 	}
 }
 
@@ -230,14 +230,14 @@ func TestCancelPropagatesToHandler(t *testing.T) {
 	handlerErr := make(chan error, 1)
 	// CancelHandler exposes a canceller keyed by id; AsyncHandler frees the read
 	// loop so the cancel notification can be observed while the call is blocked.
-	base := func(ctx context.Context, reply Replier, req Request) error {
+	base := func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() == "block" {
 			close(started)
 			<-ctx.Done()
 			handlerErr <- ctx.Err()
-			return reply(ctx, nil, ctx.Err())
+			return nil, ctx.Err()
 		}
-		return reply(ctx, nil, nil)
+		return nil, nil
 	}
 	h, canceller := CancelHandler(AsyncHandler(base))
 	server := NewConn(eb.stream)
@@ -273,9 +273,9 @@ func TestClientContextCancelStopsWaiting(t *testing.T) {
 	release := make(chan struct{})
 	server := NewConn(eb.stream)
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		<-release
-		return reply(ctx, nil, nil)
+		return nil, nil
 	}))
 	defer closeBoth(t, client, server)
 	defer close(release)
@@ -309,18 +309,19 @@ func TestCanceledCallLateResponseDoesNotReachLaterCall(t *testing.T) {
 	slowReplied := make(chan error, 1)
 	server := NewConn(eb.stream)
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		switch req.Method() {
 		case "slow":
 			close(slowStarted)
 			<-slowRelease
-			err := reply(ctx, "late", nil)
-			slowReplied <- err
-			return err
+			// The direct shape sends the late response after return; the channel
+			// send keeps the test's ordering observable.
+			slowReplied <- nil
+			return "late", nil
 		case "fast":
-			return reply(ctx, "fast", nil)
+			return "fast", nil
 		default:
-			return reply(ctx, nil, ErrMethodNotFound)
+			return nil, ErrMethodNotFound
 		}
 	}))
 	defer closeBoth(t, client, server)
@@ -380,8 +381,8 @@ func TestGracefulClose(t *testing.T) {
 			client := NewConn(ea.stream)
 			server := NewConn(eb.stream)
 			client.Go(ctx, MethodNotFoundHandler)
-			server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-				return reply(ctx, "ok", nil)
+			server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+				return "ok", nil
 			})
 
 			var s string
@@ -423,8 +424,8 @@ func TestGracefulClose(t *testing.T) {
 func TestSyncAsyncParity(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	base := func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, raw(`{"n":`+string(orNull(req.Params()))+`}`), nil)
+	base := func(ctx context.Context, req *Request) (any, error) {
+		return raw(`{"n":` + string(orNull(req.Params())) + `}`), nil
 	}
 
 	modes := map[string]Handler{
@@ -468,7 +469,7 @@ func TestAsyncRunsConcurrently(t *testing.T) {
 
 	server := NewConn(eb.stream)
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		cur := inFlight.Add(1)
 		for {
 			old := maxConcurrent.Load()
@@ -478,7 +479,7 @@ func TestAsyncRunsConcurrently(t *testing.T) {
 		}
 		<-gate // hold until all are in flight
 		inFlight.Add(-1)
-		return reply(ctx, nil, nil)
+		return nil, nil
 	}))
 	defer closeBoth(t, client, server)
 
@@ -511,8 +512,8 @@ func TestConcurrencyStress(t *testing.T) {
 	client.Go(ctx, MethodNotFoundHandler)
 	// The server echoes the numeric params back as the result so each response
 	// can be verified against the request that produced it.
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, raw(string(orNull(req.Params()))), nil)
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
+		return raw(string(orNull(req.Params()))), nil
 	}))
 	defer closeBoth(t, client, server)
 
@@ -555,8 +556,8 @@ func TestGoroutineLeak(t *testing.T) {
 		client := NewConn(ea.stream)
 		server := NewConn(eb.stream)
 		client.Go(ctx, MethodNotFoundHandler)
-		server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
-			return reply(ctx, "ok", nil)
+		server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
+			return "ok", nil
 		}))
 		for range 5 {
 			var s string
@@ -599,10 +600,10 @@ func TestCloseDrainsInFlight(t *testing.T) {
 	// The handler is released for concurrent handling so the read loop is free,
 	// then it parks until the test releases it: the request is genuinely in flight
 	// while Close is called.
-	server.Go(ctx, AsyncHandler(func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, AsyncHandler(func(ctx context.Context, req *Request) (any, error) {
 		close(started)
 		<-release
-		return reply(ctx, "done", nil)
+		return "done", nil
 	}))
 
 	// The parked call's response is not guaranteed to flush once the server starts
@@ -658,9 +659,9 @@ type recordingPreempter struct {
 	seen []string
 }
 
-func (p *recordingPreempter) Preempt(ctx context.Context, req Request) (any, error) {
+func (p *recordingPreempter) Preempt(ctx context.Context, req *Request) (any, error) {
 	p.mu.Lock()
-	p.seen = append(p.seen, req.Method())
+	p.seen = append(p.seen, strings.Clone(req.Method()))
 	p.mu.Unlock()
 	if req.Method() == "preempt" {
 		return raw(`"preempted"`), nil
@@ -684,11 +685,11 @@ func TestPreempter(t *testing.T) {
 	var handlerSawPreempt atomic.Bool
 	server := NewConn(eb.stream, WithPreempter(pre))
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() == "preempt" {
 			handlerSawPreempt.Store(true)
 		}
-		return reply(ctx, raw(`"handled"`), nil)
+		return raw(`"handled"`), nil
 	})
 	defer closeBoth(t, client, server)
 
@@ -763,8 +764,8 @@ func TestCloseRacesConcurrentWrites(t *testing.T) {
 		server := NewConn(eb.stream)
 		ctx, cancel := context.WithCancel(t.Context())
 		client.Go(ctx, MethodNotFoundHandler)
-		server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-			return reply(ctx, nil, nil)
+		server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+			return nil, nil
 		})
 
 		// Drive a burst of concurrent writers; some will race the Close.
@@ -813,7 +814,7 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(7), w)
 
-	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(RequestV2))
+	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(Request))
 	_ = hasRV
 	if err != nil {
 		t.Fatalf("readNext error: %v", err)
@@ -866,7 +867,7 @@ func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(9), w)
 
-	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(RequestV2))
+	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(Request))
 	_ = hasRV
 	if err != nil {
 		t.Fatalf("readNext error: %v", err)

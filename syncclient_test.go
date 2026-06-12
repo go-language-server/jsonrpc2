@@ -26,14 +26,14 @@ func syncClientServer(t *testing.T, framer Framer) (*SyncClient, func()) {
 	}
 	server := NewConn(framer(cb))
 	ctx := t.Context()
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
 		switch req.Method() {
 		case "echo":
-			return reply(ctx, raw(`{"got":`+string(orNull(req.Params()))+`}`), nil)
+			return raw(`{"got":` + string(orNull(req.Params())) + `}`), nil
 		case "fail":
-			return reply(ctx, nil, NewError(InvalidParams, "bad params"))
+			return nil, NewError(InvalidParams, "bad params")
 		default:
-			return reply(ctx, nil, nil)
+			return nil, nil
 		}
 	})
 	cleanup := func() {
@@ -117,15 +117,14 @@ func TestSyncClientNotifyThenCall(t *testing.T) {
 	var seen string
 	var seenMu sync.Mutex
 	serverCtx := t.Context()
-	server.Go(serverCtx, func(ctx context.Context, reply Replier, req Request) error {
+	server.Go(serverCtx, func(ctx context.Context, req *Request) (any, error) {
 		if req.Method() == "note" {
 			seenMu.Lock()
 			seen = string(orNull(req.Params()))
 			seenMu.Unlock()
 			notes.Done()
-			return reply(ctx, nil, nil)
 		}
-		return reply(ctx, nil, nil)
+		return nil, nil
 	})
 	defer func() {
 		_ = client.Close()
@@ -176,8 +175,8 @@ func TestSyncClientEquivalentToConn(t *testing.T) {
 	server := NewConn(NewNDJSONStream(cb))
 	connCtx := t.Context()
 	cc.Go(connCtx, MethodNotFoundHandler)
-	server.Go(connCtx, func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, raw(`{"got":`+string(orNull(req.Params()))+`}`), nil)
+	server.Go(connCtx, func(ctx context.Context, req *Request) (any, error) {
+		return raw(`{"got":` + string(orNull(req.Params())) + `}`), nil
 	})
 	defer func() {
 		_ = cc.Close()

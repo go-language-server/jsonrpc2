@@ -5,12 +5,12 @@ package jsonrpc2
 
 import "strings"
 
-// RequestV2 is the concrete request shape used by direct-return dispatch. It
+// Request is the concrete request shape used by direct-return dispatch. It
 // is a value, not an interface: the scanner fills it in place and dispatch
 // embeds it in the per-request bookkeeping, so a request needs no message box.
 // Method and params spans are borrowed from the transport frame and are valid
 // until the handler returns.
-type RequestV2 struct {
+type Request struct {
 	id     ID
 	method string
 	params RawMessage
@@ -18,26 +18,26 @@ type RequestV2 struct {
 }
 
 // ID returns the request id. It is the zero ID for a notification.
-func (r *RequestV2) ID() ID { return r.id }
+func (r *Request) ID() ID { return r.id }
 
 // Method returns the request method.
-func (r *RequestV2) Method() string { return r.method }
+func (r *Request) Method() string { return r.method }
 
 // Params returns the request parameters, nil when absent or null.
-func (r *RequestV2) Params() RawMessage { return r.params }
+func (r *Request) Params() RawMessage { return r.params }
 
 // IsCall reports whether the request expects a response.
-func (r *RequestV2) IsCall() bool { return r.isCall }
+func (r *Request) IsCall() bool { return r.isCall }
 
 // Clone returns a copy of the request whose method and params own their
 // bytes, safe to retain after the handler returns. It is the escape hatch for
 // the borrowed-lifetime contract: the original request's spans alias the
 // transport frame and die with the handler, and the original struct itself is
 // recycled, so any retention must go through Clone.
-func (r *RequestV2) Clone() *RequestV2 {
+func (r *Request) Clone() *Request {
 	// The id already owns its bytes (decodeID copies string ids), so a plain
 	// copy suffices; only the method and params spans borrow from the frame.
-	return &RequestV2{
+	return &Request{
 		id:     r.id,
 		method: strings.Clone(r.method),
 		params: RawMessage(cloneBytes(r.params)),
@@ -55,8 +55,8 @@ type Call struct {
 
 // compile-time checks that *Call satisfies the request interfaces.
 var (
-	_ Message = (*Call)(nil)
-	_ Request = (*Call)(nil)
+	_ Message        = (*Call)(nil)
+	_ RequestMessage = (*Call)(nil)
 )
 
 // NewCall constructs a [*Call] for the supplied id, method, and pre-encoded
@@ -73,10 +73,10 @@ func NewCall(id ID, method string, params RawMessage) *Call {
 // ID reports the identifier of the call.
 func (c *Call) ID() ID { return c.id }
 
-// Method implements [Request].
+// Method implements [RequestMessage].
 func (c *Call) Method() string { return c.method }
 
-// Params implements [Request].
+// Params implements [RequestMessage].
 func (c *Call) Params() RawMessage { return c.params }
 
 func (*Call) jsonrpc2Message() {}
@@ -92,8 +92,8 @@ type Notification struct {
 
 // compile-time checks that *Notification satisfies the request interfaces.
 var (
-	_ Message = (*Notification)(nil)
-	_ Request = (*Notification)(nil)
+	_ Message        = (*Notification)(nil)
+	_ RequestMessage = (*Notification)(nil)
 )
 
 // NewNotification constructs a [*Notification] for the supplied method and
@@ -106,10 +106,10 @@ func NewNotification(method string, params RawMessage) *Notification {
 	}
 }
 
-// Method implements [Request].
+// Method implements [RequestMessage].
 func (n *Notification) Method() string { return n.method }
 
-// Params implements [Request].
+// Params implements [RequestMessage].
 func (n *Notification) Params() RawMessage { return n.params }
 
 func (*Notification) jsonrpc2Message() {}

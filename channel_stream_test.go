@@ -17,8 +17,8 @@ func TestChannelStreamPairRoundTrip(t *testing.T) {
 	client := NewConn(clientStream)
 	server := NewConn(serverStream)
 	client.Go(ctx, MethodNotFoundHandler)
-	server.Go(ctx, func(ctx context.Context, reply Replier, req Request) error {
-		return reply(ctx, RawMessage(`{"ok":true}`), nil)
+	server.Go(ctx, func(ctx context.Context, req *Request) (any, error) {
+		return RawMessage(`{"ok":true}`), nil
 	})
 	defer func() {
 		_ = client.Close()

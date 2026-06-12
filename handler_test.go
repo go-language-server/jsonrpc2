@@ -11,62 +11,32 @@ import (
 
 func TestMethodNotFoundHandler(t *testing.T) {
 	t.Parallel()
-	var gotErr error
-	reply := func(ctx context.Context, result any, err error) error {
-		gotErr = err
-		return nil
-	}
-	req := NewCall(NewNumberID(1), "missing", nil)
-	if err := MethodNotFoundHandler(t.Context(), reply, req); err != nil {
-		t.Fatalf("handler returned %v", err)
-	}
-	if !errors.Is(gotErr, ErrMethodNotFound) {
-		t.Fatalf("reply error: got %v want ErrMethodNotFound", gotErr)
-	}
-}
-
-func TestReplyHandler(t *testing.T) {
-	t.Parallel()
-	noopReply := func(ctx context.Context, result any, err error) error { return nil }
-	req := NewCall(NewNumberID(1), "m", nil)
 
 	tests := map[string]struct {
-		inner     Handler
-		wantPanic bool
+		req     Request
+		wantErr bool
 	}{
-		"success: replies exactly once": {
-			inner: func(ctx context.Context, reply Replier, req Request) error {
-				return reply(ctx, nil, nil)
-			},
-			wantPanic: false,
+		"error: call is answered with ErrMethodNotFound": {
+			req:     Request{id: NewNumberID(1), method: "missing", isCall: true},
+			wantErr: true,
 		},
-		"error: never replies": {
-			inner: func(ctx context.Context, reply Replier, req Request) error {
-				return nil
-			},
-			wantPanic: true,
-		},
-		"error: replies twice": {
-			inner: func(ctx context.Context, reply Replier, req Request) error {
-				_ = reply(ctx, nil, nil)
-				return reply(ctx, nil, nil)
-			},
-			wantPanic: true,
+		"success: notification is dropped without failing the connection": {
+			req: Request{method: "missing"},
 		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			h := ReplyHandler(tt.inner)
-			defer func() {
-				r := recover()
-				if tt.wantPanic && r == nil {
-					t.Fatal("expected a panic, got none")
-				}
-				if !tt.wantPanic && r != nil {
-					t.Fatalf("unexpected panic: %v", r)
-				}
-			}()
-			_ = h(t.Context(), noopReply, req)
+			t.Parallel()
+			result, err := MethodNotFoundHandler(t.Context(), &tt.req)
+			if result != nil {
+				t.Fatalf("result = %v, want nil", result)
+			}
+			if tt.wantErr && !errors.Is(err, ErrMethodNotFound) {
+				t.Fatalf("err = %v, want ErrMethodNotFound", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("err = %v, want nil for a notification", err)
+			}
 		})
 	}
 }

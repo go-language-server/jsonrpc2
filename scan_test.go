@@ -308,7 +308,7 @@ func TestDecodeMessage_OpaqueContainerInterior(t *testing.T) {
 // TestDecodeMessage_BorrowedLifetime pins the v2 decode contract: a decoded
 // request's method and params BORROW the input buffer (they are valid only as
 // long as the input is unchanged), and the escape hatch for retention is
-// [RequestV2.Clone], which must own its bytes.
+// [Request.Clone], which must own its bytes.
 func TestDecodeMessage_BorrowedLifetime(t *testing.T) {
 	t.Parallel()
 
@@ -329,9 +329,9 @@ func TestDecodeMessage_BorrowedLifetime(t *testing.T) {
 			call := msg.(*Call)
 			before := string(call.Params())
 
-			rv, ok := scanRequestV2(in)
+			rv, ok := scanRequest(in)
 			if !ok {
-				t.Fatalf("scanRequestV2 rejected a valid request")
+				t.Fatalf("scanRequest rejected a valid request")
 			}
 			owned := rv.Clone()
 
@@ -863,7 +863,7 @@ func compactJSON(b []byte) ([]byte, error) {
 //   - batch.go invalidRequest.Method/Params: a synthetic placeholder for a
 //     malformed batch member that is always answered with a null-id error before
 //     the user handler runs, so these accessors are never invoked on the dispatch
-//     path; they exist only to satisfy the [Request] interface.
+//     path; they exist only to satisfy the [RequestMessage] interface.
 //   - conn.go / dispatch.go write-error and shutdown-race arms: the branches that
 //     fire when the writer breaks mid-response or the connection is torn down
 //     between checks. These are timing-dependent and are exercised by the race

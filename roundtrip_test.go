@@ -34,7 +34,7 @@ func FuzzRoundTrip(f *testing.F) {
 	f.Add([]byte(`{"jsonrpc":"2.0","result":42,"id":1}`))
 	f.Add([]byte(`{"jsonrpc":"2.0","error":{"code":-32000,"message":"boom","data":{"k":1}},"id":1}`))
 	f.Add([]byte(`{"jsonrpc":"2.0","error":{"code":-32601,"message":"x"},"id":null}`))
-	// Request shapes: notification, string id, escaped method, no params.
+	// RequestMessage shapes: notification, string id, escaped method, no params.
 	f.Add([]byte(`{"jsonrpc":"2.0","method":"a/b","params":{"x":1},"id":"req-1"}`))
 	f.Add([]byte(`{"jsonrpc":"2.0","method":"note"}`))
 	f.Add([]byte(`{"jsonrpc":"2.0","method":"esc\n\"name","id":-42}`))

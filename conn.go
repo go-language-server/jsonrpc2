@@ -44,20 +44,28 @@ type Conn interface {
 	// parameters.
 	Notify(ctx context.Context, method string, params any) error
 
-	// Go starts the connection's read goroutine, dispatching incoming requests to
-	// handler. It must be called exactly once per Conn and returns immediately;
-	// block on [Conn.Done] to wait for the connection to terminate.
+	// Go starts the connection's read goroutine, dispatching incoming requests
+	// to handler. It must be called exactly once per Conn and returns
+	// immediately; block on [Conn.Done] to wait for the connection to
+	// terminate.
 	//
-	// By default a request handler runs inline on the read goroutine, so handlers
-	// observe requests in wire order and the next message is not read until the
-	// current handler replies. A handler that wants to overlap later requests
-	// (for example a long-running call, or a server that issues calls back to the
-	// peer) must release itself with [Async] or be wrapped with [AsyncHandler];
-	// otherwise a handler that issues a server-initiated [Conn.Call] back into
-	// this same connection deadlocks the read goroutine, because the response to
-	// that call cannot be read while the read goroutine is blocked running the
-	// handler. A server-initiated [Conn.Notify] needs no release, since it never
-	// waits for a response. See [Handler] for the full reentrancy contract.
+	// Dispatch is direct-return: handler's return values become the response,
+	// no per-request reply machinery is allocated, and the request is a pooled
+	// concrete value whose method and params are borrowed from the transport
+	// frame, valid until the handler returns (see [Handler] for the lifetime
+	// contract and [Request.Clone] for retention).
+	//
+	// By default a request handler runs inline on the read goroutine, so
+	// handlers observe requests in wire order and the next message is not read
+	// until the current handler returns. A handler that wants to overlap later
+	// requests (for example a long-running call, or a server that issues calls
+	// back to the peer) must release itself with [Async] or be wrapped with
+	// [AsyncHandler]; otherwise a handler that issues a server-initiated
+	// [Conn.Call] back into this same connection deadlocks the read goroutine,
+	// because the response to that call cannot be read while the read goroutine
+	// is blocked running the handler. A server-initiated [Conn.Notify] needs no
+	// release, since it never waits for a response. See [Handler] for the full
+	// reentrancy contract.
 	//
 	// [Conn.Close] is the authoritative teardown. Canceling ctx is observed only
 	// between frames: the read loop checks ctx before it starts the next frame, so
@@ -69,16 +77,6 @@ type Conn interface {
 	// canceling ctx is treated as a clean shutdown and is not reported by
 	// [Conn.Err].
 	Go(ctx context.Context, handler Handler)
-
-	// GoDirect starts the connection's read goroutine in direct-return
-	// dispatch mode: handler's return values become the response, no reply
-	// closure is allocated, and the request is a pooled concrete value whose
-	// method and params are borrowed from the transport frame. The borrow is
-	// valid until the handler returns; a handler that retains the request or
-	// releases itself with [Async] must take [RequestV2.Clone] first (Async
-	// clones automatically). Like [Conn.Go], it must be called exactly once
-	// per Conn, and the reentrancy and teardown contracts are identical.
-	GoDirect(ctx context.Context, handler HandlerV2)
 
 	// Close stops accepting new work, waits for in-flight calls and handlers to
 	// drain, closes the underlying stream, and blocks until the connection has
@@ -148,13 +146,10 @@ type conn struct {
 	codec     Codec
 	preempter Preempter // optional, consulted before the handler
 
-	// directHandler, when set, dispatches requests through the direct-return
-	// path: the handler's return values become the response, so no per-request
-	// reply closure is allocated. compatHandler adapts it to the closure-based
-	// [Handler] shape for the batch member path, which still funnels replies
-	// through the batch collector.
-	directHandler HandlerV2
-	compatHandler Handler
+	// handler dispatches every incoming request. It is set once in Go, before
+	// the read goroutine starts, and is nil only on client-only connections
+	// that never receive requests.
+	handler Handler
 
 	done chan struct{} // closed when the connection is fully terminated
 	seq  atomic.Int64  // last allocated outgoing call id
@@ -261,16 +256,14 @@ func putWaiter(w *waiter) {
 // common void path) pays nothing. Deadline and Value delegate to the parent
 // without locking so they stay allocation-free.
 type incomingRequest struct {
-	req        Request
 	parent     context.Context
 	realCtx    context.Context    // lazily created on first Done
 	realCancel context.CancelFunc // cancels realCtx; nil until realCtx is created
 
-	// reqV2 is the concrete request used by direct-return dispatch. It is a
-	// value field so the request body shares this struct's single allocation;
-	// the handler receives &ir.reqV2 (an interior pointer, no extra alloc).
-	// The v1 interface path leaves it zero and uses req instead.
-	reqV2 RequestV2
+	// request is the concrete request being dispatched. It is a value field so
+	// the request body shares this struct's single allocation; the handler
+	// receives &ir.request (an interior pointer, no extra alloc).
+	request Request
 
 	// rel and replied are value fields, not separate heap objects: folding them
 	// into incomingRequest means one dispatch-path allocation (this struct) backs
@@ -351,18 +344,8 @@ func (ir *incomingRequest) Err() error {
 // point, on the releasing goroutine, strictly before the read loop can read
 // the next frame.
 func (ir *incomingRequest) cloneRequestOwned() {
-	switch m := ir.req.(type) {
-	case *Call:
-		m.method = strings.Clone(m.method)
-		m.params = cloneBytes(m.params)
-	case *Notification:
-		m.method = strings.Clone(m.method)
-		m.params = cloneBytes(m.params)
-	case nil:
-		// Direct-return mode: the concrete request is embedded in ir.
-		ir.reqV2.method = strings.Clone(ir.reqV2.method)
-		ir.reqV2.params = cloneBytes(ir.reqV2.params)
-	}
+	ir.request.method = strings.Clone(ir.request.method)
+	ir.request.params = cloneBytes(ir.request.params)
 }
 
 // cancel cancels the request context. If the cancellation channel has not yet
@@ -624,31 +607,11 @@ func (c *conn) afterWrite(ctx context.Context, err error) {
 
 // Go implements [Conn].
 func (c *conn) Go(ctx context.Context, handler Handler) {
+	c.handler = handler
 	c.updateInFlight(func(s *inFlightState) {
 		s.reading = true
 	})
-	go c.readIncoming(ctx, handler)
-}
-
-// GoDirect implements [Conn]. The read loop runs with a nil [Handler];
-// dispatch routes single requests through the direct path and adapts batch
-// members through compatHandler.
-func (c *conn) GoDirect(ctx context.Context, h2 HandlerV2) {
-	c.directHandler = h2
-	c.compatHandler = func(ctx context.Context, reply Replier, req Request) error {
-		// Batch members and fallback paths still carry the boxed v1 request;
-		// adapt it to the concrete shape so one handler serves both.
-		rv := RequestV2{method: req.Method(), params: req.Params()}
-		if id, isCall := callID(req); isCall {
-			rv.id, rv.isCall = id, true
-		}
-		result, err := h2(ctx, &rv)
-		return reply(ctx, result, err)
-	}
-	c.updateInFlight(func(s *inFlightState) {
-		s.reading = true
-	})
-	go c.readIncoming(ctx, nil)
+	go c.readIncoming(ctx)
 }
 
 // readIncoming is the read goroutine. It reads frames from the stream,
@@ -663,15 +626,15 @@ func (c *conn) GoDirect(ctx context.Context, h2 HandlerV2) {
 // reader to own loop termination. The reader role is therefore held by exactly
 // one goroutine at a time, and the terminal cleanup below runs exactly once: on
 // the goroutine that breaks the loop on a read error, never on a handed-off one.
-func (c *conn) readIncoming(ctx context.Context, handler Handler) {
+func (c *conn) readIncoming(ctx context.Context) {
 	var err error
 	for {
 		var (
-			req   Request
-			msgs  []Request
+			req   RequestMessage
+			msgs  []RequestMessage
 			resp  *Response
 			batch bool
-			rv    RequestV2
+			rv    Request
 			hasRV bool
 		)
 		req, msgs, resp, batch, hasRV, err = c.readNext(ctx, &rv)
@@ -683,16 +646,16 @@ func (c *conn) readIncoming(ctx context.Context, handler Handler) {
 			continue
 		}
 		if hasRV {
-			if c.handleRequestDirect(ctx, rv) {
-				// The direct handler released itself with Async; a successor reader
-				// owns loop termination from here.
+			if c.handleRequest(ctx, rv) {
+				// The handler released itself with Async; a successor reader owns
+				// loop termination from here.
 				return
 			}
 			continue
 		}
-		if c.dispatch(ctx, handler, req, msgs, batch) {
-			// An inline handler released itself with Async; a successor reader has
-			// taken over and owns loop termination. Do not run the terminal cleanup.
+		if c.dispatch(ctx, req, msgs, batch) {
+			// A handler released itself with Async; a successor reader has taken
+			// over and owns loop termination. Do not run the terminal cleanup.
 			return
 		}
 	}

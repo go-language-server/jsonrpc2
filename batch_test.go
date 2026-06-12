@@ -65,14 +65,14 @@ func (p *batchPeer) readFrame(t *testing.T, timeout time.Duration) (string, bool
 	}
 }
 
-func batchHandler(ctx context.Context, reply Replier, req Request) error {
+func batchHandler(ctx context.Context, req *Request) (any, error) {
 	switch req.Method() {
 	case "sum":
-		return reply(ctx, raw(string(orNull(req.Params()))), nil)
+		return raw(string(orNull(req.Params()))), nil
 	case "note":
-		return reply(ctx, nil, nil)
+		return nil, nil
 	default:
-		return MethodNotFoundHandler(ctx, reply, req)
+		return MethodNotFoundHandler(ctx, req)
 	}
 }
 

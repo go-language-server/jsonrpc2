@@ -212,13 +212,8 @@ func (c *PipelineClient) writeQueuedCallFrames(ctx context.Context, calls []pipe
 	return nil
 }
 
-// GoDirect implements [Conn]. PipelineClient is client-only, so like [Go] the
-// handler is ignored and the read loop only correlates responses.
-func (c *PipelineClient) GoDirect(ctx context.Context, _ HandlerV2) {
-	c.Go(ctx, nil)
-}
-
-// Go implements [Conn].
+// Go implements [Conn]. PipelineClient is client-only, so the handler is
+// ignored and the read loop only correlates responses.
 func (c *PipelineClient) Go(ctx context.Context, _ Handler) {
 	c.mu.Lock()
 	switch {

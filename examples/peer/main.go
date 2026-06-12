@@ -80,31 +80,31 @@ func run(ctx context.Context, out io.Writer) error {
 }
 
 func peerHandler(saved chan<- string) jsonrpc2.Handler {
-	return func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	return func(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 		switch req.Method() {
 		case "textDocument/hover":
 			var params hoverParams
 			if err := jsonrpc2.DefaultCodec.Unmarshal(req.Params(), &params); err != nil {
-				return reply(ctx, nil, err)
+				return nil, err
 			}
-			return reply(ctx, hoverResult{
+			return hoverResult{
 				Contents: fmt.Sprintf("hover for %s:%d", params.URI, params.Line),
-			}, nil)
+			}, nil
 
 		case "textDocument/didSave":
 			var params saveParams
 			if err := jsonrpc2.DefaultCodec.Unmarshal(req.Params(), &params); err != nil {
-				return err
+				return nil, err
 			}
 			select {
 			case saved <- params.URI:
 			case <-ctx.Done():
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
-			return reply(ctx, nil, nil)
+			return nil, nil
 
 		default:
-			return jsonrpc2.MethodNotFoundHandler(ctx, reply, req)
+			return jsonrpc2.MethodNotFoundHandler(ctx, req)
 		}
 	}
 }
