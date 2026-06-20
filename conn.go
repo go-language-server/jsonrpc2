@@ -630,30 +630,26 @@ func (c *conn) readIncoming(ctx context.Context) {
 	var err error
 	for {
 		var (
-			req   RequestMessage
-			msgs  []RequestMessage
-			resp  *Response
-			batch bool
-			rv    Request
-			hasRV bool
+			next nextRead
+			rv   Request
 		)
-		req, msgs, resp, batch, hasRV, err = c.readNext(ctx, &rv)
+		next, err = c.readNext(ctx, &rv)
 		if err != nil {
 			break
 		}
-		if resp != nil {
-			c.deliverResponse(resp)
+		if next.resp != nil {
+			c.deliverResponse(next.resp)
 			continue
 		}
-		if hasRV {
-			if c.handleRequest(ctx, rv) {
+		if next.hasRV {
+			if c.handleRequest(ctx, &rv) {
 				// The handler released itself with Async; a successor reader owns
 				// loop termination from here.
 				return
 			}
 			continue
 		}
-		if c.dispatch(ctx, req, msgs, batch) {
+		if c.dispatch(ctx, next.req, next.msgs, next.batch) {
 			// A handler released itself with Async; a successor reader has taken
 			// over and owns loop termination. Do not run the terminal cleanup.
 			return

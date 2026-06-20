@@ -814,13 +814,12 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(7), w)
 
-	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(Request))
-	_ = hasRV
+	next, err := c.readNext(ctx, new(Request))
 	if err != nil {
 		t.Fatalf("readNext error: %v", err)
 	}
-	if req != nil || msgs != nil || resp != nil || batch {
-		t.Fatalf("readNext = req %T, msgs %d, resp %T, batch %v; want delivered response", req, len(msgs), resp, batch)
+	if next.req != nil || next.msgs != nil || next.resp != nil || next.batch || next.hasRV {
+		t.Fatalf("readNext = req %T, msgs %d, resp %T, batch %v, hasRV %v; want delivered response", next.req, len(next.msgs), next.resp, next.batch, next.hasRV)
 	}
 
 	select {
@@ -867,16 +866,15 @@ func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
 	w := getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(9), w)
 
-	req, msgs, resp, batch, hasRV, err := c.readNext(ctx, new(Request))
-	_ = hasRV
+	next, err := c.readNext(ctx, new(Request))
 	if err != nil {
 		t.Fatalf("readNext error: %v", err)
 	}
-	if req != nil || msgs != nil || resp == nil || batch {
-		t.Fatalf("readNext = req %T, msgs %d, resp %T, batch %v; want owned response fallback", req, len(msgs), resp, batch)
+	if next.req != nil || next.msgs != nil || next.resp == nil || next.batch || next.hasRV {
+		t.Fatalf("readNext = req %T, msgs %d, resp %T, batch %v, hasRV %v; want owned response fallback", next.req, len(next.msgs), next.resp, next.batch, next.hasRV)
 	}
-	if len(resp.result) <= maxConnDirectUnmarshalResult {
-		t.Fatalf("response result len = %d, want > %d", len(resp.result), maxConnDirectUnmarshalResult)
+	if len(next.resp.result) <= maxConnDirectUnmarshalResult {
+		t.Fatalf("response result len = %d, want > %d", len(next.resp.result), maxConnDirectUnmarshalResult)
 	}
 	select {
 	case <-w.ready:

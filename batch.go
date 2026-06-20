@@ -31,6 +31,14 @@ type frameStream interface {
 // goroutine and cannot head-of-line block unrelated incoming frames.
 const maxConnDirectUnmarshalResult = 64 << 10
 
+type nextRead struct {
+	req   RequestMessage
+	msgs  []RequestMessage
+	resp  *Response
+	batch bool
+	hasRV bool
+}
+
 // readNext reads the next frame and classifies it. On success exactly one of
 // req, msgs, resp, or hasRV is set: resp for a single response, req for a
 // single request on the v1 interface path, hasRV (filling *rv) for a single
@@ -41,39 +49,60 @@ const maxConnDirectUnmarshalResult = 64 << 10
 //
 // When the stream does not support raw frames, readNext falls back to the
 // single-message [Stream.Read] and never reports a batch.
-func (c *conn) readNext(ctx context.Context, rv *Request) (req RequestMessage, msgs []RequestMessage, resp *Response, batch, hasRV bool, err error) {
+func (c *conn) readNext(ctx context.Context, rv *Request) (nextRead, error) {
 	fs, ok := c.stream.(frameStream)
 	if !ok {
-		var msg Message
-		msg, _, err = c.stream.Read(ctx)
-		if err != nil {
-			return nil, nil, nil, false, false, err
-		}
-		if r, isResp := msg.(*Response); isResp {
-			return nil, nil, r, false, false, nil
-		}
-		return msg.(RequestMessage), nil, nil, false, false, nil
+		return c.readNextMessage(ctx)
 	}
 
 	frame, _, ferr := fs.ReadFrame(ctx)
 	if ferr != nil {
-		return nil, nil, nil, false, false, ferr
+		return nextRead{}, ferr
 	}
+	return c.classifyFrame(frame, rv)
+}
 
+func (c *conn) readNextMessage(ctx context.Context) (nextRead, error) {
+	msg, _, err := c.stream.Read(ctx)
+	if err != nil {
+		return nextRead{}, err
+	}
+	if r, isResp := msg.(*Response); isResp {
+		return nextRead{resp: r}, nil
+	}
+	return nextRead{req: msg.(RequestMessage)}, nil
+}
+
+func (c *conn) classifyFrame(frame []byte, rv *Request) (nextRead, error) {
 	i := skipSpace(frame, 0)
 	if i < len(frame) && frame[i] == '[' {
-		reqs, isBatch, perr := parseBatch(frame)
-		if perr != nil {
-			return nil, nil, nil, true, false, perr
-		}
-		// An empty array is answered with a single (unbracketed) error response, so
-		// it is routed through the non-batch path with a single synthetic member.
-		if !isBatch && len(reqs) == 1 {
-			return reqs[0], nil, nil, false, false, nil
-		}
-		return nil, reqs, nil, isBatch, false, nil
+		return c.classifyBatchFrame(frame)
 	}
 
+	hasScannedRequest, deliveredResponse := c.classifyScannedFrame(frame, rv)
+	if hasScannedRequest {
+		return nextRead{hasRV: true}, nil
+	}
+	if deliveredResponse {
+		return nextRead{}, nil
+	}
+	return decodeFrameMessage(frame)
+}
+
+func (c *conn) classifyBatchFrame(frame []byte) (nextRead, error) {
+	reqs, isBatch, err := parseBatch(frame)
+	if err != nil {
+		return nextRead{batch: true}, err
+	}
+	// An empty array is answered with a single (unbracketed) error response, so
+	// it is routed through the non-batch path with a single synthetic member.
+	if !isBatch && len(reqs) == 1 {
+		return nextRead{req: reqs[0]}, nil
+	}
+	return nextRead{msgs: reqs, batch: isBatch}, nil
+}
+
+func (c *conn) classifyScannedFrame(frame []byte, rv *Request) (hasRequest, deliveredResponse bool) {
 	// A single classification scan records the frame's top-level member spans
 	// once. Requests fill the caller's concrete value directly (no message
 	// box); numeric-id success responses deliver their borrowed result inline,
@@ -83,30 +112,43 @@ func (c *conn) readNext(ctx context.Context, rv *Request) (req RequestMessage, m
 	// those semantics are unchanged. This is an optimization gate, not the
 	// correctness boundary.
 	var f fields
-	if end, ok := scanObject(frame, &f); ok && skipSpace(frame, end) == len(frame) && f.validVersion() {
-		switch {
-		case f.hasMethod && !f.hasResult && !f.hasError:
-			// Client-only connections have no handler; their peers do not send
-			// requests, and a stray one takes the boxed fallback.
-			if c.handler != nil && f.fillRequest(rv) == nil {
-				return nil, nil, nil, false, true, nil
-			}
-		case !f.hasMethod && f.hasResult && !f.hasError && f.hasID && !isNullLiteral(f.id):
-			if id, idok := decodeID(f.id); idok && id.IsNumber() && len(f.result) <= maxConnDirectUnmarshalResult {
-				c.deliverNumberResponse(id.num, f.result, nil)
-				return nil, nil, nil, false, false, nil
-			}
-		}
+	if !scanValidObject(frame, &f) {
+		return false, false
 	}
+	// Client-only connections have no handler; their peers do not send
+	// requests, and a stray one takes the boxed fallback.
+	if c.handler != nil && f.hasMethod && !f.hasResult && !f.hasError {
+		return f.fillRequest(rv) == nil, false
+	}
+	return false, c.deliverScannedNumberFields(&f)
+}
 
-	msg, derr := DecodeMessage(frame)
-	if derr != nil {
-		return nil, nil, nil, false, false, derr
+func (c *conn) deliverScannedNumberFields(f *fields) bool {
+	if f.hasMethod || !f.hasResult || f.hasError || !f.hasID || isNullLiteral(f.id) {
+		return false
+	}
+	id, ok := decodeID(f.id)
+	if !ok || !id.IsNumber() || len(f.result) > maxConnDirectUnmarshalResult {
+		return false
+	}
+	c.deliverNumberResponse(id.num, f.result, nil)
+	return true
+}
+
+func decodeFrameMessage(frame []byte) (nextRead, error) {
+	msg, err := DecodeMessage(frame)
+	if err != nil {
+		return nextRead{}, err
 	}
 	if r, isResp := msg.(*Response); isResp {
-		return nil, nil, r, false, false, nil
+		return nextRead{resp: r}, nil
 	}
-	return msg.(RequestMessage), nil, nil, false, false, nil
+	return nextRead{req: msg.(RequestMessage)}, nil
+}
+
+func scanValidObject(frame []byte, f *fields) bool {
+	end, ok := scanObject(frame, f)
+	return ok && skipSpace(frame, end) == len(frame) && f.validVersion()
 }
 
 // dispatch handles one frame's worth of boxed requests: the rare

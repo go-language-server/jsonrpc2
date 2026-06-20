@@ -32,12 +32,12 @@ func requestValue(req RequestMessage) Request {
 // done=true when the request has already been fully answered (preempted, or a
 // call rejected because the connection is shutting down), in which case the
 // caller must not invoke the handler.
-func (c *conn) setupRequest(ctx context.Context, rv Request, bc *batchCollector) (ir *incomingRequest, done bool) {
+func (c *conn) setupRequest(ctx context.Context, rv *Request, bc *batchCollector) (ir *incomingRequest, done bool) {
 	ir = getIncomingRequest()
 	ir.parent = ctx
 	ir.id = rv.id
 	ir.isCall = rv.isCall
-	ir.request = rv
+	ir.request = *rv
 
 	// A Preempter, if configured, runs inline on the read goroutine before the
 	// request is dispatched. ErrNotHandled or a nil handled value defers to the
@@ -139,7 +139,7 @@ func (c *conn) runHandler(ir *incomingRequest, bc *batchCollector) {
 // handleRequest then reports it so the current read loop returns while this
 // goroutine finishes the handler concurrently. The successor reader owns loop
 // termination, so the reader role is always held by exactly one goroutine.
-func (c *conn) handleRequest(ctx context.Context, rv Request) (handedOff bool) {
+func (c *conn) handleRequest(ctx context.Context, rv *Request) (handedOff bool) {
 	ir, done := c.setupRequest(ctx, rv, nil)
 	if done {
 		return false
@@ -173,7 +173,8 @@ func (c *conn) handleBoxedRequest(ctx context.Context, req RequestMessage) (hand
 		c.writeInvalid(ctx, nil, inv.err)
 		return false
 	}
-	return c.handleRequest(ctx, requestValue(req))
+	rv := requestValue(req)
+	return c.handleRequest(ctx, &rv)
 }
 
 // handleBatchMember dispatches one batch member. Unlike the inline
@@ -189,7 +190,8 @@ func (c *conn) handleBatchMember(ctx context.Context, req RequestMessage, bc *ba
 		return
 	}
 
-	ir, done := c.setupRequest(ctx, requestValue(req), bc)
+	rv := requestValue(req)
+	ir, done := c.setupRequest(ctx, &rv, bc)
 	if done {
 		return
 	}
