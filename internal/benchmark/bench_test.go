@@ -16,7 +16,7 @@ import (
 
 // adapterFactory builds a fresh rpcClient for one benchmark sub-run. Each factory
 // is labeled by library and transport family so the bench name records which is
-// which (per §6 the transport must be visible in the bench name).
+// which (the transport must be visible in the bench name).
 type adapterFactory struct {
 	name string
 	make func(ctx context.Context) (rpcClient, error)
@@ -102,9 +102,9 @@ func makeParams(n int) []byte {
 	return b
 }
 
-// BenchmarkRoundTripVoid is the AC-P1 headline: a sequential void round-trip
-// with nil params over each library and transport. It reports ns/op, B/op, and
-// allocs/op.
+// BenchmarkRoundTripVoid is the headline measurement: a sequential void
+// round-trip with nil params over each library and transport. It reports
+// ns/op, B/op, and allocs/op.
 func BenchmarkRoundTripVoid(b *testing.B) {
 	for _, f := range allAdapters() {
 		b.Run(f.name, func(b *testing.B) {
@@ -263,7 +263,7 @@ func BenchmarkRoundTripVoidDirect(b *testing.B) {
 	})
 }
 
-// BenchmarkRoundTripVoidSync measures the A1c synchronous-client mode: jsonrpc2
+// BenchmarkRoundTripVoidSync measures the synchronous-client mode: jsonrpc2
 // SyncClient (no client-side background reader; the caller owns the read loop)
 // against an ordinary jsonrpc2 Conn server over net.Pipe with NDJSON framing.
 //
@@ -308,7 +308,7 @@ func BenchmarkBatchDirect(b *testing.B) {
 }
 
 // decodeInputs mirror the jrpc2 BenchmarkParseRequests inputs so the pure-decode
-// comparison (AC-P2 anchor) runs on identical bytes.
+// comparison runs on identical bytes.
 var decodeInputs = []struct {
 	name  string
 	input string

@@ -11,8 +11,9 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-// jsonrpc2SyncAdapter drives the jsonrpc2 SyncClient — the A1c synchronous-client mode —
-// against an ordinary jsonrpc2 Conn server over a net.Pipe with NDJSON framing.
+// jsonrpc2SyncAdapter drives the jsonrpc2 SyncClient — the synchronous-client
+// mode — against an ordinary jsonrpc2 Conn server over a net.Pipe with NDJSON
+// framing.
 //
 // MODE DISCLOSURE (do not quote the number without this qualifier): the
 // SyncClient removes the CLIENT's background read goroutine; the calling

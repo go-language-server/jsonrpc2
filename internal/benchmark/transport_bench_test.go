@@ -17,18 +17,18 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-// This file is the committed re-profiling apparatus for the syscall-batching
-// performance layer (.omc/plans/syscall-batching-perf-layer.md). It measures the
-// void round trip over real transports (Unix socket, TCP loopback) in addition
-// to the in-memory net.Pipe baseline, and counts the client-side Read/Write
-// syscalls per call across a concurrency sweep.
+// This file is the committed re-profiling apparatus for evaluating whether a
+// syscall-batching transport layer is worthwhile. It measures the void round
+// trip over real transports (Unix socket, TCP loopback) in addition to the
+// in-memory net.Pipe baseline, and counts the client-side Read/Write syscalls
+// per call across a concurrency sweep.
 //
 // The load-bearing finding it reproduces: on a real socket, writes/call stays
 // pinned at 1.000 at every concurrency level (each Call issues its own write),
 // while reads/call falls toward ~0.088 at 64 in-flight (the bufio reader plus
 // netpoller already coalesce response reads for free). The single batchable
 // syscall is therefore the outbound write — the only target for a vectored
-// (writev) framer — and read batching has no target. See the plan's section 0.
+// (writev) framer — and read batching has no target.
 
 // syscallCountConn wraps a net.Conn and counts Read/Write calls, a proxy for the
 // read/write syscalls the runtime issues per frame. The bufio reader inside the
@@ -105,8 +105,8 @@ func voidServerHandler(ctx context.Context, req *jsonrpc2.Request) (any, error) 
 // connection in a syscallCountConn so it can report reads/call and writes/call.
 // At inflight=1 it degenerates to the sequential round trip; higher values
 // exercise the existing Conn's concurrent in-flight path (background reader plus
-// id-keyed pending map), which is the correct matched-inflight baseline for the
-// plan's two tracks.
+// id-keyed pending map), which is the correct matched-inflight baseline for
+// both the write-batching and read-batching tracks under evaluation.
 //
 // Each iteration fans out `inflight` calls and waits for all to return — a
 // burst-and-drain, not a sustained steady-state, workload. That under-states the
@@ -161,8 +161,8 @@ func benchVoidConcurrent(b *testing.B, ca, cb net.Conn, inflight int) {
 	}
 }
 
-// transportInflight is the concurrency sweep the plan's acceptance criteria are
-// measured at: C in {1, 8, 64, 256}.
+// transportInflight is the concurrency sweep the syscall asymmetry is measured
+// at: C in {1, 8, 64, 256}.
 var transportInflight = []int{1, 8, 64, 256}
 
 // BenchmarkTransportNetPipe is the in-memory baseline (no syscalls; the counters

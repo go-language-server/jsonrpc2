@@ -12,8 +12,8 @@
 //   - mcp:        the vendored mcpref package (the Go MCP SDK's jsonrpc2), a
 //     gopls-derived implementation kept under mcpref/.
 //
-// Per the Phase 6 §6 integrity protocol the harness exposes two transport
-// families:
+// To keep the comparison honest the harness exposes two transport families,
+// and every benchmark name records which family it ran under:
 //
 //   - "native": the fastest in-memory transport each library natively offers.
 //     jsonrpc2 runs over its bounded in-memory channel stream, mcp runs over an
