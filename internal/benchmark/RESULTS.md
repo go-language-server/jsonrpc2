@@ -9,14 +9,14 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > root `BenchmarkVoidRoundTrip`). A subsequent best-effort optimization pass cut
 > the void round-trip to **10 allocs/op** on the root bench (≈ **12 allocs/op**
 > through this harness, which additionally decodes the response into a
-> `RawMessage`) and ≈ **3000 ns/op** (from ≈ 4850 ns/op), preserving the §3.3
+> `RawMessage`) and ≈ **3000 ns/op** (from ≈ 4850 ns/op), preserving the
 > single-copy single-owner ownership invariant and keeping `go test -race
 > -count=2 .` green. The four kept optimizations are documented in the
 > [Optimization log](#optimization-log-hot-path-allocations) below, and every
 > table in this file now reflects the **AFTER** numbers. The `Decode` /
 > `ParseRequests` numbers are unchanged because those standalone entry points
 > were intentionally left at their documented allocation floors (see the
-> [decode floor note](#decode-allocation-floor-ac-p2--ac-p4-status)).
+> [decode floor note](#decode-allocation-floor)).
 
 > **Update — next-layer optimization pass (this pass).** A further pass cut the
 > root `BenchmarkVoidRoundTrip` from **10 → 6 allocs/op** and **572 → 408 B/op**
@@ -40,17 +40,17 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 >   explicitly **not** done: it would buy only one more alloc, is the sole
 >   use-after-free source, and `-race` cannot detect a `sync.Pool` use-after-
 >   recycle because `Pool.Get`/`Put` synchronize internally.) **−2 allocs/op.**
-> - **New — `SyncClient` (A1c caller-pumps-the-reader).** A distinct synchronous-
+> - **New — `SyncClient` (caller-pumps-the-reader).** A distinct synchronous-
 >   client mode that owns its read loop instead of running a background reader, so
 >   a `Call` collapses the third goroutine hop. **~2030 ns/op vs the `Conn` round
 >   trip's ~2900 ns** on the same `net.Pipe`+NDJSON transport. Reported as a
 >   separate `jsonrpc2/sync` row with mode disclosure (see
->   [Synchronous-client mode](#synchronous-client-mode-a1c)); it is **not** a
+>   [Synchronous-client mode](#synchronous-client-mode)); it is **not** a
 >   head-to-head claim against `channel.Direct` and **not** a speedup of the
 >   bidirectional `Conn`.
-> - **Rejected on measurement — atomic shutdown fast path (A2).** An atomic
+> - **Rejected on measurement — atomic shutdown fast path.** An atomic
 >   "shutting down" latch was implemented to skip the `stateMu` acquisition on the
->   read-only `shuttingDown` check in the write path. A clean A2-off vs A2-on
+>   read-only `shuttingDown` check in the write path. A clean off-vs-on
 >   isolation (same code state, `-count=8`) was **statistically indistinguishable**
 >   (~3679–3786 vs ~3656–3899 ns at P4/P12). The parallel path is scheduling-bound
 >   (the CPU profile is 56% `pthread_cond_wait` + 26% `cond_signal`); the `stateMu`
@@ -76,12 +76,12 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 >   by an interface change to `Replier` that damages every handler call site for
 >   no ns gain.
 
-> **Update — Round 6 Phases 2-4: consolidated direct-return surface, final
+> **Update — consolidated direct-return surface, final
 > combined gate (2026-06-12).** Raw artifact:
 > `internal/benchmark/artifacts/20260612T072858Z-r6-phase3-final-gate`
 > (root + internal `-benchmem -count=10`, HEAD `6f3bcfc`; two superseded gate
-> datasets retained alongside). Phase 2 shipped the survivors as ONE break,
-> then — per the maintainer's in-flight direction to drop every `V2` name —
+> datasets retained alongside). This round shipped the survivors as ONE break,
+> then — per the maintainer's in-flight direction to drop every second-generation API name —
 > the direct-return shape became THE API: the concrete struct is `Request`
 > (the wire-model interface is `RequestMessage`), `Handler` is
 > `func(ctx, *Request) (any, error)`, `Conn.Go` dispatches direct-return on
@@ -94,7 +94,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > during the consolidation, all caught by `-race`: the batch gate channel is
 > captured before the member goroutine starts; the pool reset is factored out
 > of the put so tests never read a pooled struct; frame length reads precede
-> channel handoff. **Final claim rows (arm64, count=10 means, vs Phase 0):**
+> channel handoff. **Final claim rows (arm64, count=10 means, vs the baseline):**
 > root `BenchmarkVoidRoundTrip` **2.480 us +/-5% (-14.88%), 0 B/op, 0
 > allocs/op**; channel-native void `1.831 us` (-7.17%), 236 B, **11 -> 5
 > allocs**; common void `2.835 us`, 28 B, 6 -> 2 allocs; `Notify` **0 B / 0
@@ -112,15 +112,15 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > 97.4 KiB -> 17.6 KiB; the profile is 97.4% scheduling with `lock2` 31.8% +
 > `Mutex.lockSlow` 18.5% under `guardedWrite` — a 256-writer write-mutex
 > convoy that GC pauses no longer break up after the allocation wins. The
-> only fix class (write coalescing) is permanently banned by the Round-5
-> carry-forward ledger, so the row ships as a transparent cost note; every
+> only fix class (write coalescing) is permanently banned by the carry-forward
+> ledger from the earlier optimization round, so the row ships as a transparent cost note; every
 > shallower depth improves. (2) Parser micro guard rows
 > (`DecodeEnvelope/Response` +6.18%, `/ErrorResponse` +4.93%, DecodeView
-> rows <= +3.7%) drift by code layout; no Round-6 lever touches those paths
+> rows <= +3.7%) drift by code layout; no lever in this optimization round touches those paths
 > and the full-RPC response path improved everywhere
 > (`PipelineClientVoidRoundTrip` -6.7% to -10.0%). (3) The linux/amd64
 > confirmation leg did not run in this session (no CI/remote access);
-> AC-R6-3's second-arch check is deferred to the next amd64 refresh.
+> the second-architecture (linux/amd64) confirmation is deferred to the next amd64 refresh.
 > (4) Wire-behavior delta of the direct-return shape: a call handler that
 > returns the zero values now answers with a SUCCESS response carrying a
 > null result, because the unanswered-call state ("returned without
@@ -152,57 +152,55 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > **Next-plan reconciliation (Ralph, 2026-06-20).** Raw artifact:
 > `internal/benchmark/artifacts/20260620T032629Z-next-viable-plan-reconciliation`
 > (ignored artifact directory, HEAD `425922c`). The requested "next viable
-> unexecuted performance plan" set was reconciled against current HEAD in order:
-> `.omc/plans/next-layer-perf-optimization.md`,
-> `.omc/plans/world-fastest-jsonrpc2-rewrite.md`,
-> `.omx/plans/jsonrpc2-netpoll-gnet-server-mode-probe-plan-20260606.md`,
-> `.omc/plans/zero-alloc-v2-perf-round6.md`,
-> `.omc/plans/unlocked-levers-perf-round.md`, and this RESULTS ledger. No
+> unexecuted performance plan" set — the next-layer allocation/sync/borrow
+> optimization work, the world-fastest rewrite, the netpoll/gnet socket-server
+> mode probe, the zero-alloc direct-return surface, and the unlocked-levers
+> round — was reconciled against current HEAD alongside this RESULTS ledger. No
 > additional implementation remains in that candidate set without a new
 > mechanism class: the next-layer allocation/sync/borrow/direct-mode/SIMD
-> levers were shipped, superseded, or killed by Rounds 5-6; the rewrite plan is
+> levers were shipped, superseded, or killed by the earlier optimization rounds; the rewrite plan is
 > the architecture now represented by the current code and benchmark harness;
 > and the netpoll/gnet server probe is already implemented as benchmark-only
 > rows with both production candidates rejected for adoption below. This entry
 > exists to prevent future runs from re-opening stale plan files as if they were
 > unexecuted implementation work.
 
-> **Update — Round 6 Phase 0 baseline + common-row harness correction
+> **Update — baseline + common-row harness correction
 > (2026-06-12).** Raw artifact:
 > `internal/benchmark/artifacts/20260612T031259Z-r6-baseline` (root + full
 > internal suite `-benchmem -count=10`, Go `go1.26.4 darwin/arm64`, Apple M3
 > Max, HEAD `7147e05`,
 > `GOEXPERIMENT=runtimefreegc,sizespecializedmalloc,runtimesecret`).
-> **Harness integrity correction:** Round 5's `a28452c` switched the shared
+> **Harness integrity correction:** An earlier optimization round's `a28452c` switched the shared
 > `newJSONRPC2Adapter` to `NewChannelStreamPair`, so every `jsonrpc2/common`
 > row silently measured the channel transport while jrpc2/mcp common rows
 > stayed on net.Pipe — the documented same-transport contract did not hold.
 > Fixed in `5a0a824` (`newJSONRPC2CommonAdapter`, net.Pipe + NDJSON); the
 > corrected common baseline is
 > `internal-benchmark-common-corrected.txt` (void `2.910 us`/336 B/6 allocs,
-> notify `1.034 us`/3 allocs, params large `9.514 us`/9 allocs). Round 5's
+> notify `1.034 us`/3 allocs, params large `9.514 us`/9 allocs). The earlier optimization round's
 > recorded common-row deltas (e.g. "common void -41.58%") were channel-backed
 > and are superseded. **A second harness hazard recorded for the protocol:**
 > the nested benchmark module vendors `go.lsp.dev/jsonrpc2`, so plain
 > `go test` builds run `-mod=vendor` against the vendored snapshot, not the
-> working tree; every Round 6 spike run uses `GOWORK=off GOFLAGS=-mod=mod`
-> (the same mode `bench-artifacts.sh` forces). Phase-0 numbers are valid
-> because vendor == HEAD at capture. **Phase-0 anchors (arm64):** root
+> working tree; every spike run in this optimization round uses `GOWORK=off GOFLAGS=-mod=mod`
+> (the same mode `bench-artifacts.sh` forces). Baseline numbers are valid
+> because vendor == HEAD at capture. **Baseline anchors (arm64):** root
 > `BenchmarkVoidRoundTrip` `2.914 us +/-1%`/308 B/4 allocs; channel-native
 > void `1.972 us`/640 B/11 allocs; notify native `681 ns`/4 allocs; params
 > large native `7.255 us`/9.36 KiB/13 allocs. Alloc census matches the
-> Round-6 plan exactly (replier closure 31.5%, `&Call{}` box 30.2%,
+> planned census for this optimization round exactly (replier closure 31.5%, `&Call{}` box 30.2%,
 > `incomingRequest` 28.2%, method string 9.8% of root-void objects).
-> **R6-C adjudication:** params-large CPU is ~87.6% scheduling, GC tax ~6-8%
+> **Copy-bound large-row adjudication:** params-large CPU is ~87.6% scheduling, GC tax ~6-8%
 > (clone garbage: `cloneBytes` = 93.7% of alloc_space), codec < 2%, memmove
-> < 0.5% — the params-codec lever (R6-E) stays closed and no new asm is
+> < 0.5% — the params-codec lever stays closed and no new asm is
 > justified (no compute-bound component >= 5% on any claim row).
 
-> **Update — Round 6 R6-B channel ownership-handoff kill-test: KEEP
+> **Update — channel ownership-handoff kill-test: KEEP
 > (2026-06-12).** Raw artifact:
 > `internal/benchmark/artifacts/20260612T041514Z-r6-b-ownership-kill-test`
 > (`GOWORK=off GOFLAGS=-mod=mod go test -run '^$' -bench
-> '<channel-native rows>' -benchmem -count=10`, vs the Phase-0 anchors above).
+> '<channel-native rows>' -benchmem -count=10`, vs the baseline anchors above).
 > The kept form replaces clone-on-queue with pooled-frame ownership transfer:
 > frames are `sync.Pool`-recycled `*frameBuf` boxes composed by the sender,
 > handed through the data channel, and recycled by the receiver at its next
@@ -221,34 +219,34 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > is why the breakwater mutex stays. One `-race` finding during the spike:
 > the frame's length must be read before the channel send, because ownership
 > transfers at the send and a fast receiver can recycle the box before the
-> sender returns. Large-row note: B alone already clears the R6-C >= 10%
+> sender returns. Large-row note: B alone already clears the >= 10%
 > large-row gate on the channel family, confirming the copy-bound thesis via
-> the GC-pressure mechanism the Phase-0 profile predicted.
+> the GC-pressure mechanism the baseline profile predicted.
 
-> **Update — Round 6 v2 component kill-tests A1/A2/A3/A4 + combined C gate:
+> **Update — second-generation direct-return component kill-tests + combined gate:
 > ALL KEEP (2026-06-12).** Raw artifacts:
 > `internal/benchmark/artifacts/20260612T*-r6-a1-direct-return-kill-test`,
 > `...-r6-a2-c-combined-kill-test`, `...-r6-a3-scan-into-value-kill-test`,
-> `...-r6-a4-pooled-ir-kill-test` (all `-benchmem -count=10` vs the Round-6
-> Phase-0 baseline; internal rows under `GOWORK=off GOFLAGS=-mod=mod`).
-> Staged on top of the kept R6-B tree, the four v2 components each passed
+> `...-r6-a4-pooled-ir-kill-test` (all `-benchmem -count=10` vs the
+> baseline; internal rows under `GOWORK=off GOFLAGS=-mod=mod`).
+> Staged on top of the kept channel-ownership-handoff tree, the four second-generation components each passed
 > their pre-registered gate on root `BenchmarkVoidRoundTrip`:
-> **A1 direct-return** (`HandlerV2`, no reply closure) 4 -> 3 allocs/op,
-> 308 -> 244 B/op, ns neutral (p=0.796) — the Round-5 L3b B/op regression
-> does not recur; **A2 borrowed method/params** (`unsafe.String` span borrow
+> **Direct-return** (`HandlerV2`, no reply closure) 4 -> 3 allocs/op,
+> 308 -> 244 B/op, ns neutral (p=0.796) — the replier/typed-Replier API change's B/op regression from the earlier optimization round
+> does not recur; **Borrowed method/params** (`unsafe.String` span borrow
 > + params alias) 3 -> 2 allocs/op, and on the internal families params rows
 > dropped two further allocs each (native 13 -> 9 with B, common 8 -> 6) with
-> native notify 4 -> 2; **A3 scan-into-value** (concrete `RequestV2` embedded
+> native notify 4 -> 2; **Scan-into-value** (concrete `RequestV2` embedded
 > in the per-request struct, no `&Call{}` box) 2 -> 1 alloc/op, 256 B/op,
-> ns **-8.74%** (p=0.000); **A4 pooled request** (`irPool`, full field reset,
+> ns **-8.74%** (p=0.000); **Pooled request** (`irPool`, full field reset,
 > Async-detached requests never pooled) — **0 allocs/op, 0 B/op, ns -14.45%**
-> (`2.914 us +/-1%` -> `2.493 us +/-12%`, p=0.000). The **C combined gate**
-> (A2+B) passed on BOTH transport families: `RoundTripParams/large` native
+> (`2.914 us +/-1%` -> `2.493 us +/-12%`, p=0.000). The **combined gate**
+> (the borrowed method/params change plus the channel ownership-handoff change) passed on BOTH transport families: `RoundTripParams/large` native
 > **-29.41%** (`7.044 us` -> `4.972 us`), common **-10.91%** (`9.455 us` ->
 > `8.423 us`), small/medium rows -4.60% to -17.02%, no valid small-row
 > regression — the large-row copy-bound thesis is confirmed through the
-> GC-pressure mechanism the Phase-0 profile predicted (cloneBytes was 93.7%
-> of alloc_space; codec < 2%, so the conditional R6-E codec lever is closed).
+> GC-pressure mechanism the baseline profile predicted (cloneBytes was 93.7%
+> of alloc_space; codec < 2%, so the conditional codec lever is closed).
 > Safety findings recorded with the artifacts: (1) `-race` caught the
 > Async-retention hazard exactly as pre-mortem'd — an `AsyncHandler` reading
 > borrowed params while the successor reader refilled the buffer — fixed by
@@ -257,13 +255,13 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > `jsonrpc2poison` build scribbles pooled requests and its retention test
 > passes loudly (retention also trips `-race`, which is the intended
 > defense-in-depth); (3) `TestDecodeMessage_OwnsBuffer` fails by design while
-> the borrowed-span contract replaces owns-bytes — the v2 surface work
+> the borrowed-span contract replaces owns-bytes — the second-generation surface work
 > rewrites that contract and test. net.Pipe rows showed late-in-batch
 > anomalies (+66%/+68%) that vanish in isolation reruns (~neutral/-6%);
-> isolation runs are the binding measurements, consistent with Round 5's
+> isolation runs are the binding measurements, consistent with the earlier optimization round's
 > recorded load/order sensitivity.
 
-> **Update — Round 5 Phase 4 final docs and linux/amd64 refresh (2026-06-10).**
+> **Update — final docs and linux/amd64 refresh (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T113339Z-g011-linux-amd64-final`.
 > The final linux/amd64 run used an isolated remote temp workspace containing
@@ -287,7 +285,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > review returned code-reviewer **APPROVE** and architect **CLEAR** after fixing
 > the earlier Conn scanner-fallback and channel-stream post-close blockers.
 
-> **Update — Round 5 Phase 3 combined regression gate (2026-06-10).**
+> **Update — combined regression gate (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T111717Z-combined-regression-gate`.
 > Verdict: **PASS; no survivor was reverted.** Root affected rows pass the
@@ -295,44 +293,44 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > `2.885 us +/-1%` (-2.45%) with `408 -> 324 B/op` and `6 -> 4
 > allocs/op`; `ConnPipelinedVoidRoundTrip/Inflight1` improved -4.15%;
 > Inflight8/64/256 were statistically neutral by benchstat. Internal affected
-> jsonrpc2 rows all improved by wall-clock vs Phase 0: native void
+> jsonrpc2 rows all improved by wall-clock vs the baseline: native void
 > `3.047 us +/-1%` -> `1.763 us +/-1%` (-42.13%), common void -41.58%,
 > params rows -30.69% to -62.57%, and notify rows -38.46% to -63.48%.
-> AC-P3 passes: `internal-affected-fastest-check.txt` shows jsonrpc2 fastest
+> The never-slower-than-rivals criterion passes: `internal-affected-fastest-check.txt` shows jsonrpc2 fastest
 > by sec/op mean on every final affected apples-to-apples row/family
 > (native/common void, P4/P12, params small/medium/large, and notify).
-> Disclosure for G011 docs: `NewChannelStreamPair` preserves queued-frame
+> Disclosure for the claim-table-refresh docs: `NewChannelStreamPair` preserves queued-frame
 > ownership by copying, so small/void/notify internal rows allocate more than
 > the old net.Pipe native rows (`RoundTripVoid` `436 -> 656 B/op`,
 > `8 -> 11 allocs/op`; `Notify` `228 -> 276 B/op`, `3 -> 4 allocs/op`).
 > The registered plan gates wall-clock only; allocation increases here are a
-> claim-table disclosure, not a G010 revert trigger. Verification passed
+> claim-table disclosure, not a combined-regression-gate revert trigger. Verification passed
 > `go test -race -count=2 .`, `go test ./...`, nested benchmark compile, and
 > `git diff --check`.
 
-> **Update — Round 5 Phase 2 survivor implementation (2026-06-10).**
+> **Update — survivor implementation (2026-06-10).**
 > Raw artifact:
-> `internal/benchmark/artifacts/20260610T111230Z-phase2-survivors`. Phase 2 implemented only graduated survivors. **L4** remains the
-> G006 direct-unmarshal path and now has a `64 KiB` result-size fallback so large
+> `internal/benchmark/artifacts/20260610T111230Z-phase2-survivors`. This round implemented only graduated survivors. **Direct-unmarshal** remains the
+> direct-unmarshal path and now has a `64 KiB` result-size fallback so large
 > responses use the owned `DecodeMessage` path instead of unmarshaling on the
-> read goroutine. **L1** graduated as `NewChannelStreamPair(capacity)`, a
+> read goroutine. **The channel transport** graduated as `NewChannelStreamPair(capacity)`, a
 > bounded in-memory encoded-frame stream pair with explicit `WriteFrame` copy
 > ownership and concrete `frameWriter` helpers for `Conn`. The internal native
 > benchmark adapter now uses `NewChannelStreamPair(1)` for `jsonrpc2/native`.
 > Native-row latency evidence is mixed under local load: the first re-anchor run
-> improved the Phase 0 net.Pipe native artifact (`3.047 us +/-1%` -> `1.783 us
+> improved the baseline net.Pipe native artifact (`3.047 us +/-1%` -> `1.783 us
 > +/-4%`, -41.47%), while the final exact-row smoke averaged **3008.6 ns/op**
-> versus the Phase 0 **3044.6 ns/op** mean. Memory cost increases in both runs
+> versus the baseline **3044.6 ns/op** mean. Memory cost increases in both runs
 > (`436 -> 656 B/op`, `8 -> 11 allocs/op`) because the bounded channel transport
-> copies queued frames to preserve ownership. Treat G010 as the binding combined
+> copies queued frames to preserve ownership. Treat the binding combined
 > regression gate before refreshing claim tables. **Not shipped:** killed
-> L2/L5/L6/L7, killed L3 borrowed decode, and the L3
-> replier-removal candidate (kept only as API-design evidence). Added tests cover
+> spin-before-park, the scanString IndexByte change, inline-batch, and
+> full-semantics direct-mode, killed borrowed decode, and the
+> replier/typed-Replier API change candidate (kept only as API-design evidence). Added tests cover
 > channel round trip, queued-frame ownership, close-unblocks-write, direct
-> unmarshal, and oversized-result fallback. Full claim table refresh remains in
-> G011.
+> unmarshal, and oversized-result fallback. Full claim table refresh remains for the final-docs step.
 
-> **Update — Round 5 L6 inline-batch kill-test (2026-06-10).**
+> **Update — inline-batch kill-test (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T110547Z-l6-inline-batch-kill-test`
 > (`cd internal/benchmark && go test -run '^$' -bench
@@ -347,33 +345,33 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > and n16 moved only `35.91 us +/-1%` -> `35.21 us +/-1%` (-1.96%), both
 > below the >=8% keep gate. B/op and allocs/op were unchanged on n1/n4/n16.
 > Existing synchronous batch tests passed under the spike, then the spike was
-> removed. Verdict: **KILL L6**; do not spend Phase 2 complexity on the
+> removed. Verdict: **KILL inline-batch**; do not spend follow-on complexity on the
 > successor-dispatch Async-spill design in this plan.
 
-> **Update — Round 5 L3 v2 API component kill-tests (2026-06-10).**
+> **Update — borrowed-decode and replier-API component kill-tests (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T110026Z-l3-component-kill-tests`
 > (`go test -run '^$' -bench ... -benchmem -count=10`, Go `go1.26.4`
 > `darwin/arm64`, Apple M3 Max, HEAD
 > `d97bdc76c86bf5bf91db07aa9e3368b027508a47`,
 > `GOEXPERIMENT=runtimefreegc,sizespecializedmalloc,runtimesecret`). Two
-> disposable component spikes were run on top of the L4-kept tree and then
-> removed. **L3a borrowed decode: KILL.** The unsafe `toRequest` alias probe
+> disposable component spikes were run on top of the direct-unmarshal-kept tree and then
+> removed. **Borrowed decode: KILL.** The unsafe `toRequest` alias probe
 > intentionally broke `DecodeMessage`'s owned-buffer contract, dropped root
 > `BenchmarkVoidRoundTrip` only **4 -> 3 allocs/op** (-1, not the required -2),
 > and left the large row's B/op and allocs unchanged (`12.46 KiB`, `11
 > allocs/op`) despite a noisy `RoundTripParams/large/jsonrpc2/native` ns/op
-> improvement (`16.07 us +/-12%` -> `13.64 us +/-37%`). **L3b replier
-> removal: KEEP as a candidate signal only.** A noncapturing typed-state replier
+> improvement (`16.07 us +/-12%` -> `13.64 us +/-37%`). **The replier/typed-Replier API change:
+> KEEP as a candidate signal only.** A noncapturing typed-state replier
 > proxy proved the captured reply closure is a one-allocation lever: root void
 > round trip moved **4 -> 3 allocs/op** with statistically neutral ns/op
 > (`4.742 us +/-10%` -> `4.503 us +/-6%`), but B/op regressed **324 -> 340**
 > because reply state moved into `incomingRequest`, and the large row stayed at
 > `11 allocs/op`. The proxy changes reply context semantics, so it was removed;
-> Phase 2 must use this evidence to choose direct-return vs a real typed
-> `Replier` API before shipping any L3 API break.
+> this round must use this evidence to choose direct-return vs a real typed
+> `Replier` API before shipping any borrowed-decode API break.
 
-> **Update — Round 5 L4 direct-unmarshal kill-test (2026-06-10).**
+> **Update — direct-unmarshal kill-test (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T105401Z-l4-direct-unmarshal-kill-test`
 > (`go test -run '^$' -bench ... -benchmem -count=10`, Go `go1.26.4`
@@ -385,7 +383,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > numeric result responses are scanned from the borrowed frame, and the read
 > goroutine unmarshals the result before the next frame can invalidate it.
 > Noncanonical responses, error responses, non-frame streams, and batches keep
-> the existing `DecodeMessage` fallback. Gate result: **KEEP L4**. Root
+> the existing `DecodeMessage` fallback. Gate result: **KEEP direct-unmarshal**. Root
 > `BenchmarkVoidRoundTrip` dropped **6 -> 4 allocs/op** and **408 -> 324 B/op**;
 > `benchstat` reports `2.977 us +/-2%` -> `2.934 us +/-4%` (**-1.46%**,
 > `p=0.035`), with mean **2960.3 -> 2907.1 ns/op** (-1.80%). Guard rows
@@ -397,7 +395,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > the targeted concurrency/leak/close tests, nested benchmark compile, and
 > `git diff --check`.
 
-> **Update — Round 5 L7 full-semantics direct-mode kill-test (2026-06-10).**
+> **Update — full-semantics direct-mode kill-test (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T104901Z-l7-direct-mode-kill-test`
 > (`go test -run '^$' -bench ... -benchmem -count=10`, Go `go1.26.4
@@ -413,10 +411,10 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > `BenchmarkNDJSONStreamRoundTrip` stream-only floor was roughly **256.6 ns/op
 > mean** but is not full RPC semantics. Reentrancy/deadlock observation: the
 > direct row preserves the normal `Conn` Async/reentrancy contract because only
-> the byte transport is replaced. Verdict: **KILL L7**; no production or
+> the byte transport is replaced. Verdict: **KILL full-semantics direct-mode**; no production or
 > disposable source file was needed.
 
-> **Update — Round 5 L5 scanString IndexByte kill-test (2026-06-10).**
+> **Update — scanString IndexByte kill-test (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T103650Z-l5-scanstring-kill-test`
 > (`go test -run '^$' -bench ... -benchmem -count=10`, Go `go1.26.4
@@ -433,12 +431,12 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > jsonrpc2/native` was statistically neutral/regressive (`8.449 us ±1%` ->
 > `8.462 us ±2%`, summary mean +1.44%, not the required >=5% win). Small
 > parser guards also regressed (`DecodeEnvelope/Call` +3.12%, `StringID`
-> +2.13%). Verdict: **KILL L5 for this plan**; do not ship the IndexByte
+> +2.13%). Verdict: **KILL the scanString IndexByte change for this plan**; do not ship the IndexByte
 > scanner unless a future workload targets parser-only large-frame decoding
 > with an explicit small-row/code-layout mitigation. The temporary code was
 > removed after artifact capture.
 
-> **Update — Round 5 L2 spin-before-park kill-test (2026-06-10).**
+> **Update — spin-before-park kill-test (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T103048Z-l2-spin-kill-test`
 > (`go test -run '^$' -bench ... -benchmem -count=10`, Go `go1.26.4
@@ -452,11 +450,11 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > (`2.918 us ±2%` baseline vs `2.915 us ±3%` spike; summary mean +0.45%,
 > not the required >=8% win). The high-inflight guard failed badly:
 > `BenchmarkConnPipelinedVoidRoundTrip/Inflight64` regressed **+38.24%**
-> (`323.1 us ±9%` -> `446.7 us ±34%`). Verdict: **KILL L2** and do not
+> (`323.1 us ±9%` -> `446.7 us ±34%`). Verdict: **KILL spin-before-park** and do not
 > implement spin-before-park in production; the temporary code was removed after
 > artifact capture.
 
-> **Update — Round 5 L1 channel-transport kill-test (2026-06-10).**
+> **Update — channel-transport kill-test (2026-06-10).**
 > Raw artifact:
 > `internal/benchmark/artifacts/20260610T102705Z-l1-channel-kill-test`
 > (`cd internal/benchmark && go test -run '^$' -bench
@@ -468,12 +466,12 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > (`benchstat`: `441.3n ±1%`, `0 B/op`, `0 allocs/op`), below the
 > pre-registered ~800 ns gate; the clone fallback row was **498.6 ns/op mean**
 > (`96 B/op`, `2 allocs/op`). The `net.Pipe` no-JSON control measured
-> **1208.9 ns/op mean**. Verdict: **KEEP L1 as a survivor candidate**, but only
+> **1208.9 ns/op mean**. Verdict: **KEEP the channel transport as a survivor candidate**, but only
 > with an explicit frame-ownership or copy boundary; the disposable probe file
 > was removed after artifact capture, so production code is unchanged at this
 > stage.
 
-> **Update — stdio-shaped transport probe (2026-06-06).** The Phase 5 transport
+> **Update — stdio-shaped transport probe (2026-06-06).** The transport
 > corpus now includes a full-duplex `os.Pipe` pair, so LSP/MCP-style stdio
 > workloads are measured separately from `net.Pipe`, Unix sockets, and TCP. Raw
 > artifact:
@@ -488,7 +486,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > `2 allocs/op`, so it is not a stdio default candidate without stronger
 > evidence.
 
-> **Update — envelope selector dependency bakeoff (2026-06-06).** Phase 6 now
+> **Update — envelope selector dependency bakeoff (2026-06-06).** The harness now
 > has a benchmark-only selector probe for `fastjson`, `jsonparser`, and `gjson`
 > against this package's borrowed `ScanMessageView` path. Raw artifact:
 > `internal/benchmark/artifacts/20260606T003400Z-envelope-selector-probe`
@@ -498,7 +496,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > classification/extraction only, excludes batch arrays, and keeps the new
 > dependencies inside the nested benchmark module.
 
-> **Update — pipelined-client fast-path probe (2026-06-06).** Phase 3 now has
+> **Update — pipelined-client fast-path probe (2026-06-06).** The harness now has
 > an apples-to-apples root benchmark for generic `Conn` versus the client-only
 > `PipelineClient` over the same `net.Pipe` + NDJSON harness and inflight
 > `{1,8,64,256}`. Raw artifact:
@@ -584,7 +582,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 > -10.68%, `LargeParams1MiB` -8.61%). `AppendRequestViews` posts a small
 > geomean ns/op win (-1.77%) and zero allocations, but still loses `Call`,
 > `StringID`, `Notification`, `NestedMethodInParams`, duplicate-field, and
-> invalid rows. Therefore AC-P3's fallback applies: borrowed views remain
+> invalid rows. Therefore the never-slower-than-rivals criterion's fallback applies: borrowed views remain
 > experimental, parser-only surfaces and are **not** promoted as the default
 > replacement for `DecodeMessage` or `ParseRequests`. Correctness is covered by
 > `TestScanMessageView_DifferentialCorpus`, which compares the borrowed scanner
@@ -599,7 +597,7 @@ JSON-RPC 2.0 implementations, captured with the harness in this module
 | `jrpc2` | `github.com/creachadair/jrpc2` v1.3.5 | Mature, widely used; the reference for `BenchmarkRoundTrip` / `BenchmarkParseRequests`. |
 | `mcp`   | vendored `mcpref/` (Go MCP SDK's jsonrpc2, gopls-derived) | Vendored at `internal/benchmark/mcpref`. |
 
-## Synchronous-client mode (A1c)
+## Synchronous-client mode
 
 `SyncClient` owns its read loop (no client-side background reader); each `Call`
 writes the request and reads its own response on the caller's goroutine,
@@ -718,7 +716,7 @@ the artifact as load/order-sensitivity evidence.
   net.Pipe-native baseline because `NewChannelStreamPair` copies queued frames
   to preserve ownership. This is intentionally reported, not hidden.
 
-## Transport families (Phase 6 §6 integrity protocol)
+## Transport families (integrity protocol)
 
 Two transport families are measured so the comparison cannot be gamed by giving
 one implementation a hidden shortcut:
@@ -754,7 +752,7 @@ buffer contract while removing `net.Pipe` rendezvous latency.
 - **`jsonrpc2` calibration.** The root repository's own
   `BenchmarkVoidRoundTrip` remains the ordinary bidirectional `Conn` benchmark
   over stream transports. It is the allocation-floor calibration for production
-  `Conn`: Round 5 reaches **4 allocs/op** and lower B/op on both darwin/arm64 and
+  `Conn`: the earlier optimization round reaches **4 allocs/op** and lower B/op on both darwin/arm64 and
   linux/amd64. The comparative harness's `jsonrpc2/native` adapter is now
   deliberately different: it uses `NewChannelStreamPair(1)` so native in-memory
   transport claims compare each library's fastest in-memory option. This is not
@@ -799,12 +797,12 @@ the combined gate while B/op and allocs/op fell.
 ## Round-trip with params, parallel, notify, and batch
 
 The current affected params/parallel/notify tables are covered above for both
-linux/amd64 and darwin/arm64. Batch rows were not a Round 5 survivor and remain
+linux/amd64 and darwin/arm64. Batch rows were not a survivor of the earlier optimization round and remain
 excluded from strict apples-to-apples claims because each library exposes a
 different batch API/transport shape. Historical batch evidence remains useful for
-workload sizing, but it is not part of the final Round 5 claim table.
+workload sizing, but it is not part of the final claim table from the earlier optimization round.
 
-## AC-P2 anchor: pure DECODE on identical bytes (NO transport)
+## Pure DECODE on identical bytes (NO transport)
 
 Inputs mirror `jrpc2` `BenchmarkParseRequests` (`Minimal`, `Medium`, `Batch`).
 `jsonrpc2` uses `DecodeMessage` for single messages and `ParseRequests` for the
@@ -826,27 +824,27 @@ absent by design).
 | Medium  | 257.4 / 232 / 5 | 2986 / 1824 / 36 | jsonrpc2 |
 | Batch   | 1117 / 1032 / 25 | 9575 / 7256 / 144 | jsonrpc2 |
 
-### Decode allocation floor (AC-P2 / AC-P4 status)
+### Decode allocation floor
 
 These standalone-decode numbers are **unchanged** by the optimization pass: the
 `DecodeMessage` / `ParseRequests` paths were deliberately not contorted to chase
 ≤ 1 alloc/op, because their callers own the returned message **indefinitely**, so
-the §3.3 ownership invariant (a public `RawMessage` must never alias a pooled
+the single-copy single-owner ownership invariant (a public `RawMessage` must never alias a pooled
 buffer) forces at least one right-sized copy. The honest, achievable floors are:
 
 - **`DecodeMessage` Minimal = 2 allocs** = the message struct (`*Call`) + the
   copied `method` string. Medium = 3 (adds the params copy). These cannot drop to
   ≤ 1 without either aliasing the caller's buffer (breaks ownership +
-  `TestDecodeMessage_OwnsBuffer`) or changing the public return type. **AC-P4's
+  `TestDecodeMessage_OwnsBuffer`) or changing the public return type. **The encode/decode ≤1 alloc/op criterion's
   decode ≤ 1 alloc/op target is therefore not met for the standalone API and is
   documented as infeasible without public-API damage**, per the global rule to
   state infeasibility rather than game it. (The *connection's* decode path is a
   different story — the round-trip wins decisively, see the headline.)
 - **`ParseRequests` Minimal = 4 allocs** = the message struct + method copy + the
   returned `[]*ParsedMessage` slice + the `*ParsedMessage` element. The slice and
-  element are mandated by the public return shape. **AC-P2's ≤ 1 alloc/op target
+  element are mandated by the public return shape. **The ParseRequests / pure-decode criterion's ≤ 1 alloc/op target
   is therefore not met and is documented as infeasible** without breaking the
-  `ParseRequests` signature. AC-P2's *speed* target (≥ 40% lower ns/op vs jrpc2)
+  `ParseRequests` signature. The ParseRequests / pure-decode criterion's *speed* target (≥ 40% lower ns/op vs jrpc2)
   is met by a wide margin (≈ 15x on Minimal: 118 ns vs 1751 ns).
 
 No optimization was applied here precisely because the only way to hit the alloc
@@ -876,7 +874,7 @@ tracks the cumulative effect:
 \* #2's headline win is the ~33% ns/op drop from removing the goroutine handoff
 latency; the allocs/op held at 14 because the goroutine stack and the channel are
 not both counted as heap `allocs/op` until #2b folds the releaser. The optimizations
-are listed in the order applied. PRESERVED throughout: the §3.3 single-copy
+are listed in the order applied. PRESERVED throughout: the single-copy
 single-owner ownership invariant; `Async`/`AsyncHandler` opt-in semantics
 (sync handlers observe wire order, async carry no mutual ordering once released);
 the double-`Async` panic; handler-panic isolation; graceful drain on `Close`.
@@ -886,23 +884,23 @@ no skipped work the rivals perform; every change is a general algorithmic
 improvement that applies to all messages (e.g. Notify also fell 12 → 5 allocs/op
 from the same inline-dispatch and write-buffer changes).
 
-### AC status (truthful)
+### Acceptance-criteria status (truthful)
 
-- **AC-P1 (headline void round-trip): MET, decisively.** jsonrpc2 is ≥ 20% lower
+- **Headline void round-trip: MET, decisively.** jsonrpc2 is ≥ 20% lower
   ns/op and ≤ the lower rival allocs/op vs *both* rivals — on linux/amd64 the
   final native void row is ~3.37 us / 11 harness allocs vs jrpc2's ~13.10 us /
   100 allocs and mcp's ~34.08 us / 46 allocs. The root `Conn` calibration is
   4 allocs/op.
-- **AC-P2 (ParseRequests): speed MET (~15x faster than jrpc2); ≤ 1 alloc/op NOT
+- **ParseRequests: speed MET (~15x faster than jrpc2); ≤ 1 alloc/op NOT
   MET (at 4)** — documented as infeasible without public-API damage (see the
   decode-floor note above).
-- **AC-P3 (never slower than either rival on any benchmarked workload): MET** on
+- **Never slower than either rival on any benchmarked workload: MET** on
   every measured apples-to-apples workload (void RT, params S/M/L, notify, decode,
   encode); jsonrpc2 is the lowest on each.
-- **AC-P4 (encode ≤ 1 alloc/op MET at 1; decode ≤ 1 alloc/op NOT MET at 2)** —
+- **Encode ≤ 1 alloc/op MET at 1; decode ≤ 1 alloc/op NOT MET at 2** —
   encode meets the target; standalone decode's floor is 2 (struct + method copy)
   under the ownership invariant and is documented as infeasible without API damage.
-- **AC-C3 (differential scanner fuzz): differential pass MET; 60s sustained soak
+- **Differential scanner fuzz: differential pass MET; 60s sustained soak
   NOT VERIFIED.** `FuzzScan` runs ~283k differential execs against an independent
   `encoding/json` oracle (`map[string]RawMessage`) and finds **no crasher and no
   divergence** in method/params/id/result classification or span extraction.
@@ -934,7 +932,7 @@ from the same inline-dispatch and write-buffer changes).
   in the Go fuzzing engine's minimization handoff, not the library; root cause
   indicated but unconfirmed).**
   Scanner robustness is independently established and does **not** rest on the
-  soak: conformance vectors (AC-C1), the 283k differential execs that did run,
+  soak: conformance vectors (the conformance-vector criterion), the 283k differential execs that did run,
   `TestDecodeMessage_OwnsBuffer` (mutates every input byte, asserts params
   unchanged), the explicit pathological-depth/size tests, and `go test -race
   -count=2 .` all pass.
@@ -971,7 +969,7 @@ the client/server — so the encode comparison is `jsonrpc2` vs `mcp` only.
 
 ## Summary
 
-Round 5 final evidence now has two layers:
+The final evidence now has two layers:
 
 1. **Root `Conn` hot path:** direct-unmarshal response delivery reduces ordinary
    root `Conn` round trips to **4 allocs/op** and lower B/op across inflight
