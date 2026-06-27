@@ -56,6 +56,26 @@ func (m methodMap) handler(ctx context.Context, req *jsonrpc2.Request) (any, err
 	return fn(ctx, req.Params())
 }
 
+func serveCompat(t *testing.T, ctx context.Context, ln net.Listener, server jsonrpc2.StreamServer) {
+	t.Helper()
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- jsonrpc2.Serve(ctx, ln, server, 0)
+	}()
+
+	t.Cleanup(func() {
+		select {
+		case err := <-serveErr:
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+				t.Errorf("Serve returned %v, want context cancellation", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Serve did not exit after test context cancellation")
+		}
+	})
+}
+
 // TestDownstreamCompatShim proves the gopls-style usage compiles and round-trips
 // typed params/results through the default codec over a real network listener.
 func TestDownstreamCompatShim(t *testing.T) {
@@ -92,7 +112,7 @@ func TestDownstreamCompatShim(t *testing.T) {
 	}
 
 	server := jsonrpc2.HandlerServer(mm.handler)
-	go func() { _ = jsonrpc2.Serve(ctx, ln, server, 0) }()
+	serveCompat(t, ctx, ln, server)
 
 	client, nc := dialConn(t, "tcp", ln.Addr().String())
 	defer nc.Close()
@@ -172,7 +192,7 @@ func TestDownstreamNotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	go func() { _ = jsonrpc2.Serve(ctx, ln, server, 0) }()
+	serveCompat(t, ctx, ln, server)
 
 	client, nc := dialConn(t, "tcp", ln.Addr().String())
 	defer nc.Close()
@@ -241,7 +261,7 @@ func TestDownstreamCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	go func() { _ = jsonrpc2.Serve(ctx, ln, server, 0) }()
+	serveCompat(t, ctx, ln, server)
 
 	client, nc := dialConn(t, "tcp", ln.Addr().String())
 	defer nc.Close()

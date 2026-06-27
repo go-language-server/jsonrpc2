@@ -302,7 +302,7 @@ func TestPooledRequestFieldReset(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			ir := getIncomingRequest()
-			ir.parent = context.Background()
+			ir.parent = t.Context()
 			ir.id = NewNumberID(7)
 			ir.isCall = true
 			ir.canceled = true
