@@ -5,6 +5,7 @@ package sonic
 
 import (
 	stdjson "encoding/json"
+	"slices"
 
 	"go.lsp.dev/jsonrpc2"
 )
@@ -38,22 +39,12 @@ func rawMarshal(raw []byte) []byte {
 func rawUnmarshal(data []byte, v any) (handled bool) {
 	switch p := v.(type) {
 	case *jsonrpc2.RawMessage:
-		*p = cloneBytes(data)
+		*p = slices.Clone(data)
 		return true
 	case *stdjson.RawMessage:
-		*p = cloneBytes(data)
+		*p = slices.Clone(data)
 		return true
 	default:
 		return false
 	}
-}
-
-// cloneBytes returns a right-sized copy of src, preserving nilness.
-func cloneBytes(src []byte) []byte {
-	if src == nil {
-		return nil
-	}
-	dst := make([]byte, len(src))
-	copy(dst, src)
-	return dst
 }

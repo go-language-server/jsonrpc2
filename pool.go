@@ -3,7 +3,10 @@
 
 package jsonrpc2
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // encodeBufInitCap is the initial capacity of a pooled encode buffer. It is
 // sized to hold a typical small envelope without a reallocation.
@@ -43,12 +46,7 @@ func putEncodeBuf(bp *[]byte) {
 // nil src yields a nil result so that "absent" stays distinguishable from
 // "present but empty".
 func cloneBytes(src []byte) []byte {
-	if src == nil {
-		return nil
-	}
-	dst := make([]byte, len(src))
-	copy(dst, src)
-	return dst
+	return slices.Clone(src)
 }
 
 // irPool recycles incomingRequest structs across the direct-return dispatch
