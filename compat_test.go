@@ -65,6 +65,7 @@ func serveCompat(t *testing.T, ctx context.Context, ln net.Listener, server json
 	}()
 
 	t.Cleanup(func() {
+		_ = ln.Close()
 		select {
 		case err := <-serveErr:
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
