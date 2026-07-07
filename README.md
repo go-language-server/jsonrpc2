@@ -123,9 +123,9 @@ func main() {
 
 ### Server: HandlerServer + Serve
 
-A `Handler` answers each incoming request by calling `reply` exactly once for a
-call. `HandlerServer` adapts a `Handler` into a `StreamServer`, and `Serve`
-accepts connections from a `net.Listener`, driving each on its own goroutine.
+A `Handler` answers each incoming request by returning a response.
+`HandlerServer` adapts a `Handler` into a `StreamServer`, and `Serve` accepts
+connections from a `net.Listener`, driving each on its own goroutine.
 
 ```go
 package main
@@ -138,14 +138,14 @@ import (
 	"go.lsp.dev/jsonrpc2"
 )
 
-func handler(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+func handler(ctx context.Context, req *jsonrpc2.Request) (any, error) {
 	switch req.Method() {
 	case "textDocument/hover":
 		// Decode params, do work, reply with a typed result.
-		return reply(ctx, map[string]string{"contents": "hello"}, nil)
+		return map[string]string{"contents": "hello"}, nil
 	default:
 		// Answer unknown calls with the standard error.
-		return reply(ctx, nil, jsonrpc2.ErrMethodNotFound)
+		return nil, jsonrpc2.ErrMethodNotFound
 	}
 }
 
