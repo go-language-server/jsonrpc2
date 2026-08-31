@@ -123,7 +123,8 @@ func main() {
 
 ### Server: HandlerServer + Serve
 
-A `Handler` answers each incoming request by returning a response.
+A `Handler` answers each incoming call by returning a result (or error).
+Notification results are ignored; returning a non-nil error for a notification fails the connection.
 `HandlerServer` adapts a `Handler` into a `StreamServer`, and `Serve` accepts
 connections from a `net.Listener`, driving each on its own goroutine.
 
