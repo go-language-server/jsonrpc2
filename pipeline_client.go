@@ -713,8 +713,8 @@ func (w *pipelineWaiter) deliver(err error) {
 }
 
 func (c *PipelineClient) getPipelineWaiter(result any) *pipelineWaiter {
-	w, _ := c.waiters.Get().(*pipelineWaiter)
-	if w == nil {
+	w, ok := c.waiters.Get().(*pipelineWaiter)
+	if !ok {
 		w = &pipelineWaiter{ready: make(chan struct{}, 1)}
 	}
 	w.result = result

@@ -227,8 +227,8 @@ type waiter struct {
 }
 
 func (c *conn) getWaiter(result any) *waiter {
-	w, _ := c.waiters.Get().(*waiter)
-	if w == nil {
+	w, ok := c.waiters.Get().(*waiter)
+	if !ok {
 		w = &waiter{ready: make(chan struct{}, 1)}
 	}
 	w.result = result
