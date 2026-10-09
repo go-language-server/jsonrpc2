@@ -154,6 +154,15 @@ type conn struct {
 	done chan struct{} // closed when the connection is fully terminated
 	seq  atomic.Int64  // last allocated outgoing call id
 
+	// waiters recycles call waiters to cut a per-call allocation. It belongs to
+	// the connection rather than the package because each waiter owns a
+	// channel, and a channel created in a testing/synctest bubble must not
+	// reach code outside that bubble. A connection made in a bubble cannot
+	// outlive it, so neither can its waiters.
+	//
+	// It has no New func, so a zero-value conn works without NewConn.
+	waiters sync.Pool
+
 	stateMu sync.Mutex
 }
 
@@ -217,20 +226,16 @@ type waiter struct {
 	resultReady bool
 }
 
-// waiterPool recycles waiters to cut a per-call allocation.
-var waiterPool = sync.Pool{
-	New: func() any {
-		return &waiter{ready: make(chan struct{}, 1)}
-	},
-}
-
-func getWaiter(result any) *waiter {
-	w := waiterPool.Get().(*waiter)
+func (c *conn) getWaiter(result any) *waiter {
+	w, _ := c.waiters.Get().(*waiter)
+	if w == nil {
+		w = &waiter{ready: make(chan struct{}, 1)}
+	}
 	w.result = result
 	return w
 }
 
-func putWaiter(w *waiter) {
+func (c *conn) putWaiter(w *waiter) {
 	// Drain a delivered-but-unread response so the channel is empty for reuse.
 	select {
 	case <-w.ready:
@@ -240,7 +245,7 @@ func putWaiter(w *waiter) {
 	w.result = nil
 	w.resultReady = false
 	w.err = nil
-	waiterPool.Put(w)
+	c.waiters.Put(w)
 }
 
 // incomingRequest tracks an incoming request while it is handled. It is itself
@@ -409,7 +414,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 
 	id := NewNumberID(c.seq.Add(1))
 
-	w := getWaiter(result)
+	w := c.getWaiter(result)
 
 	var shutErr error
 	c.updateInFlight(func(s *inFlightState) {
@@ -419,7 +424,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 		s.outgoingCalls.Add(id, w)
 	})
 	if shutErr != nil {
-		putWaiter(w)
+		c.putWaiter(w)
 		return id, shutErr
 	}
 
@@ -451,7 +456,7 @@ func (c *conn) Call(ctx context.Context, method string, params, result any) (ID,
 // finishCallWaiter returns the delivered call outcome and returns w to the pool.
 func (c *conn) finishCallWaiter(w *waiter, result any) error {
 	resp, waitErr, resultReady := w.response, w.err, w.resultReady
-	putWaiter(w)
+	c.putWaiter(w)
 	if waitErr != nil {
 		return waitErr
 	}
@@ -473,11 +478,11 @@ func (c *conn) finishCallWaiter(w *waiter, result any) error {
 // retireCallWaiter retires id from outgoing calls before returning w to the pool.
 func (c *conn) retireCallWaiter(id ID, w *waiter) {
 	if c.retireCall(id) {
-		putWaiter(w)
+		c.putWaiter(w)
 		return
 	}
 	<-w.ready
-	putWaiter(w)
+	c.putWaiter(w)
 }
 
 // retireCall removes the outgoing call id from the numeric slots if it is still

@@ -811,7 +811,7 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	var got struct {
 		Val string `json:"val"`
 	}
-	w := getWaiter(&got)
+	w := c.getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(7), w)
 
 	next, err := c.readNext(ctx, new(Request))
@@ -852,7 +852,7 @@ func TestConnReadNextDirectUnmarshalResult(t *testing.T) {
 	if c.state.outgoingCalls.Len() != 0 {
 		t.Fatalf("outgoing calls len = %d, want 0", c.state.outgoingCalls.Len())
 	}
-	putWaiter(w)
+	c.putWaiter(w)
 }
 
 func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
@@ -863,7 +863,7 @@ func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
 	c := &conn{stream: stream, codec: DefaultCodec, done: make(chan struct{})}
 
 	var got RawMessage
-	w := getWaiter(&got)
+	w := c.getWaiter(&got)
 	c.state.outgoingCalls.Add(NewNumberID(9), w)
 
 	next, err := c.readNext(ctx, new(Request))
@@ -887,7 +887,7 @@ func TestConnReadNextDirectUnmarshalSkipsLargeResult(t *testing.T) {
 	if taken, ok := c.state.outgoingCalls.Take(NewNumberID(9)); !ok || taken != w {
 		t.Fatalf("outgoing call was not left pending for deliverResponse")
 	}
-	putWaiter(w)
+	c.putWaiter(w)
 }
 
 func TestConnCallFallbackAcceptsExtraResponseFields(t *testing.T) {
