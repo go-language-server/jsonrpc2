@@ -38,6 +38,11 @@ type PipelineClient struct {
 
 	seq atomic.Int64 // last allocated outgoing call id
 
+	// waiters recycles call waiters. Like conn.waiters, it belongs to the
+	// client so that a waiter's channel never leaves the testing/synctest
+	// bubble it was created in.
+	waiters sync.Pool
+
 	mu sync.Mutex
 
 	writeQueueMu sync.Mutex
@@ -75,13 +80,13 @@ func (c *PipelineClient) Call(ctx context.Context, method string, params, result
 
 	idNum := c.seq.Add(1)
 	id := NewNumberID(idNum)
-	w := getPipelineWaiter(result)
+	w := c.getPipelineWaiter(result)
 
 	c.mu.Lock()
 	queueWrite := false
 	if shutErr := c.shuttingDownLocked(); shutErr != nil {
 		c.mu.Unlock()
-		putPipelineWaiter(w)
+		c.putPipelineWaiter(w)
 		return id, shutErr
 	}
 	c.calls.Add(id, w)
@@ -93,29 +98,29 @@ func (c *PipelineClient) Call(ctx context.Context, method string, params, result
 	} else if err := c.writeCall(ctx, id, method, raw); err != nil {
 		c.afterWrite(ctx, err)
 		if c.retireCall(id) {
-			putPipelineWaiter(w)
+			c.putPipelineWaiter(w)
 			return id, err
 		}
 		<-w.ready
-		putPipelineWaiter(w)
+		c.putPipelineWaiter(w)
 		return id, err
 	}
 
 	select {
 	case <-w.ready:
 		err := w.err
-		putPipelineWaiter(w)
+		c.putPipelineWaiter(w)
 		if err != nil {
 			return id, err
 		}
 		return id, nil
 	case <-ctx.Done():
 		if c.retireCall(id) {
-			putPipelineWaiter(w)
+			c.putPipelineWaiter(w)
 			return id, ctx.Err()
 		}
 		<-w.ready
-		putPipelineWaiter(w)
+		c.putPipelineWaiter(w)
 		return id, ctx.Err()
 	}
 }
@@ -707,26 +712,23 @@ func (w *pipelineWaiter) deliver(err error) {
 	w.ready <- struct{}{}
 }
 
-var pipelineWaiterPool = sync.Pool{
-	New: func() any {
-		return &pipelineWaiter{ready: make(chan struct{}, 1)}
-	},
-}
-
-func getPipelineWaiter(result any) *pipelineWaiter {
-	w := pipelineWaiterPool.Get().(*pipelineWaiter)
+func (c *PipelineClient) getPipelineWaiter(result any) *pipelineWaiter {
+	w, ok := c.waiters.Get().(*pipelineWaiter)
+	if !ok {
+		w = &pipelineWaiter{ready: make(chan struct{}, 1)}
+	}
 	w.result = result
 	return w
 }
 
-func putPipelineWaiter(w *pipelineWaiter) {
+func (c *PipelineClient) putPipelineWaiter(w *pipelineWaiter) {
 	select {
 	case <-w.ready:
 	default:
 	}
 	w.result = nil
 	w.err = nil
-	pipelineWaiterPool.Put(w)
+	c.waiters.Put(w)
 }
 
 type densePipelineCallSlots struct {

@@ -121,15 +121,15 @@ func TestPipelineClientDeliverBatchResponse(t *testing.T) {
 
 	client := NewPipelineClient(NewNDJSONStream(noopReadWriteCloser{}))
 	waiters := []*pipelineWaiter{
-		getPipelineWaiter(nil),
-		getPipelineWaiter(nil),
+		client.getPipelineWaiter(nil),
+		client.getPipelineWaiter(nil),
 	}
 	for i, w := range waiters {
 		client.calls.Add(NewNumberID(int64(i+1)), w)
 	}
 	t.Cleanup(func() {
 		for _, w := range waiters {
-			putPipelineWaiter(w)
+			client.putPipelineWaiter(w)
 		}
 	})
 
@@ -175,9 +175,9 @@ func TestPipelineClientReadResponseFallbackAcceptsExtraFields(t *testing.T) {
 			var got struct {
 				OK bool `json:"ok"`
 			}
-			w := getPipelineWaiter(&got)
+			w := client.getPipelineWaiter(&got)
 			client.calls.Add(NewNumberID(1), w)
-			t.Cleanup(func() { putPipelineWaiter(w) })
+			t.Cleanup(func() { client.putPipelineWaiter(w) })
 
 			if err := client.readResponse(t.Context()); err != nil {
 				t.Fatalf("readResponse: %v", err)
@@ -202,15 +202,15 @@ func TestPipelineClientDeliverBatchResponseFallbackAcceptsExtraFields(t *testing
 
 	client := NewPipelineClient(NewNDJSONStream(noopReadWriteCloser{}))
 	waiters := []*pipelineWaiter{
-		getPipelineWaiter(nil),
-		getPipelineWaiter(nil),
+		client.getPipelineWaiter(nil),
+		client.getPipelineWaiter(nil),
 	}
 	for i, w := range waiters {
 		client.calls.Add(NewNumberID(int64(i+1)), w)
 	}
 	t.Cleanup(func() {
 		for _, w := range waiters {
-			putPipelineWaiter(w)
+			client.putPipelineWaiter(w)
 		}
 	})
 
@@ -237,9 +237,9 @@ func TestPipelineClientDeliverBatchErrorResponse(t *testing.T) {
 	t.Parallel()
 
 	client := NewPipelineClient(NewNDJSONStream(noopReadWriteCloser{}))
-	w := getPipelineWaiter(nil)
+	w := client.getPipelineWaiter(nil)
 	client.calls.Add(NewNumberID(1), w)
-	t.Cleanup(func() { putPipelineWaiter(w) })
+	t.Cleanup(func() { client.putPipelineWaiter(w) })
 
 	err := client.deliverBatchResponse([]byte(`[
 		{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"missing"}}
@@ -261,7 +261,7 @@ func TestPipelineClientDeliverEmptyBatchResponseInvalid(t *testing.T) {
 	t.Parallel()
 
 	client := NewPipelineClient(NewNDJSONStream(noopReadWriteCloser{}))
-	w := getPipelineWaiter(nil)
+	w := client.getPipelineWaiter(nil)
 	client.calls.Add(NewNumberID(1), w)
 
 	err := client.deliverBatchResponse([]byte(`[]`))
@@ -276,14 +276,14 @@ func TestPipelineClientDeliverEmptyBatchResponseInvalid(t *testing.T) {
 	if got := client.retireNumberCall(1); got != w {
 		t.Fatalf("retireNumberCall returned %p, want %p", got, w)
 	}
-	putPipelineWaiter(w)
+	client.putPipelineWaiter(w)
 }
 
 func TestPipelineClientQueuedCanceledCallDelivers(t *testing.T) {
 	t.Parallel()
 
 	client := NewPipelineClient(NewNDJSONStream(noopReadWriteCloser{}))
-	w := getPipelineWaiter(nil)
+	w := client.getPipelineWaiter(nil)
 	client.calls.Add(NewNumberID(1), w)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -307,7 +307,7 @@ func TestPipelineClientQueuedCanceledCallDelivers(t *testing.T) {
 	if client.calls.Len() != 0 {
 		t.Fatalf("pending calls = %d, want 0", client.calls.Len())
 	}
-	putPipelineWaiter(w)
+	client.putPipelineWaiter(w)
 }
 
 func TestPipelineClientQueuedCanceledCallNotWritten(t *testing.T) {
@@ -316,12 +316,9 @@ func TestPipelineClientQueuedCanceledCallNotWritten(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var cc countingConn
 		client := NewPipelineClient(NewNDJSONStream(&cc))
-		// Keep one earlier call pending and enqueue a second canceled call,
-		// mirroring the queued path without involving the global waiter pool:
-		// pooled waiter channels may have been created outside this synctest
-		// bubble and cannot be selected on from inside it.
-		pending := &pipelineWaiter{ready: make(chan struct{}, 1)}
-		canceled := &pipelineWaiter{ready: make(chan struct{}, 1)}
+		// Keep one earlier call pending and enqueue a second canceled call.
+		pending := client.getPipelineWaiter(nil)
+		canceled := client.getPipelineWaiter(nil)
 		client.calls.Add(NewNumberID(1), pending)
 		client.calls.Add(NewNumberID(2), canceled)
 
